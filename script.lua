@@ -14,41 +14,50 @@ _G.Cfg = {
     AimbotEnabled = false,
     AimbotMaxDistance = 1000,
     AimbotSmoothness = 1,
+    AimbotEnabledBind = "None",
     
     TargetHudEnabled = false,
+    TargetHudEnabledBind = "None",
     
     KillAuraEnabled = false,
     KillAuraRange = 25,
     KillAuraJump = true,
     KillAuraStrafe = true,
+    KillAuraEnabledBind = "None",
     
     TargetESPSquareEnabled = false,
     TargetESPSquareSize = 80,
     TargetESPBorderThickness = 2,
     TargetESPSquareColor = Color3.new(1, 1, 1),
     TargetESPRotationSpeed = 2,
+    TargetESPSquareEnabledBind = "None",
     
     TargetStrafeOrbitEnabled = false,
     TargetStrafeOrbitRadius = 10,
     TargetStrafeOrbitSpeed = 5,
+    TargetStrafeOrbitEnabledBind = "None",
     
     ChinaHatAccessoryEnabled = false,
     ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0),
     ChinaHatHeightOffset = 0.8,
     ChinaHatWidthScale = 3,
+    ChinaHatAccessoryEnabledBind = "None",
     
     JumpVisualCirclesEnabled = false,
     JumpCircleMaximumSize = 12,
     JumpCircleEffectColor = Color3.fromRGB(0, 255, 255),
+    JumpVisualCirclesEnabledBind = "None",
     
     RadarArrowsEnabled = false,
     RadarArrowsRadius = 150,
     RadarArrowsSize = 20,
     RadarArrowsColor = Color3.new(1, 1, 1),
+    RadarArrowsEnabledBind = "None",
     
     DamageParticlesEnabled = true,
     ParticleColor = Color3.fromRGB(255, 255, 255),
     ParticleSize = 4,
+    DamageParticlesEnabledBind = "None",
     
     AspectRatioValue = 70
 }
@@ -153,16 +162,34 @@ UIList.HorizontalAlignment = "Center"
 
 -- // COLOR PICKER
 local CPFrame = Instance.new("Frame", GeminiGui)
-CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); CPFrame.Visible = false; CPFrame.Active = true; CPFrame.Draggable = true; CPFrame.ZIndex = 20
+CPFrame.Size = UDim2.new(0, 220, 0, 240)
+CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120)
+CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+CPFrame.Visible = false
+CPFrame.Active = true
+CPFrame.Draggable = true
+CPFrame.ZIndex = 20
 Instance.new("UIStroke", CPFrame).Color = Color3.fromRGB(50, 50, 50)
 
-local SatValBox = Instance.new("Frame", CPFrame); SatValBox.Size = UDim2.new(0, 200, 0, 150); SatValBox.Position = UDim2.new(0, 10, 0, 10); SatValBox.ZIndex = 21
+local SatValBox = Instance.new("Frame", CPFrame)
+SatValBox.Size = UDim2.new(0, 200, 0, 150)
+SatValBox.Position = UDim2.new(0, 10, 0, 10)
+SatValBox.ZIndex = 21
+
 local SVGradientH = Instance.new("UIGradient", SatValBox)
-local SatValOverlay = Instance.new("Frame", SatValBox); SatValOverlay.Size = UDim2.new(1,0,1,0); SatValOverlay.ZIndex = 22; SatValOverlay.BackgroundTransparency = 0
-local SVGradientV = Instance.new("UIGradient", SatValOverlay); SVGradientV.Rotation = 90; SVGradientV.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,1)})
+local SatValOverlay = Instance.new("Frame", SatValBox)
+SatValOverlay.Size = UDim2.new(1,0,1,0)
+SatValOverlay.ZIndex = 22
+SatValOverlay.BackgroundTransparency = 0
+local SVGradientV = Instance.new("UIGradient", SatValOverlay)
+SVGradientV.Rotation = 90
+SVGradientV.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,1)})
 SatValOverlay.BackgroundColor3 = Color3.new(0,0,0)
 
-local HueBox = Instance.new("Frame", CPFrame); HueBox.Size = UDim2.new(0, 200, 0, 15); HueBox.Position = UDim2.new(0, 10, 0, 170); HueBox.ZIndex = 21
+local HueBox = Instance.new("Frame", CPFrame)
+HueBox.Size = UDim2.new(0, 200, 0, 15)
+HueBox.Position = UDim2.new(0, 10, 0, 170)
+HueBox.ZIndex = 21
 local HueGradient = Instance.new("UIGradient", HueBox)
 HueGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.new(1,0,0)), ColorSequenceKeypoint.new(0.16, Color3.new(1,1,0)),
@@ -171,9 +198,23 @@ HueGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.new(1,0,0))
 })
 
-local SVIndicator = Instance.new("Frame", SatValBox); SVIndicator.Size = UDim2.new(0, 4, 0, 4); SVIndicator.BackgroundColor3 = Color3.new(1,1,1); SVIndicator.ZIndex = 25; SVIndicator.BorderSizePixel = 1
-local SVTrigger = Instance.new("TextButton", SatValBox); SVTrigger.Size = UDim2.new(1, 0, 1, 0); SVTrigger.BackgroundTransparency = 1; SVTrigger.Text = ""; SVTrigger.ZIndex = 26
-local HueTrigger = Instance.new("TextButton", HueBox); HueTrigger.Size = UDim2.new(1, 0, 1, 0); HueTrigger.BackgroundTransparency = 1; HueTrigger.Text = ""; HueTrigger.ZIndex = 26
+local SVIndicator = Instance.new("Frame", SatValBox)
+SVIndicator.Size = UDim2.new(0, 4, 0, 4)
+SVIndicator.BackgroundColor3 = Color3.new(1,1,1)
+SVIndicator.ZIndex = 25
+SVIndicator.BorderSizePixel = 1
+
+local SVTrigger = Instance.new("TextButton", SatValBox)
+SVTrigger.Size = UDim2.new(1, 0, 1, 0)
+SVTrigger.BackgroundTransparency = 1
+SVTrigger.Text = ""
+SVTrigger.ZIndex = 26
+
+local HueTrigger = Instance.new("TextButton", HueBox)
+HueTrigger.Size = UDim2.new(1, 0, 1, 0)
+HueTrigger.BackgroundTransparency = 1
+HueTrigger.Text = ""
+HueTrigger.ZIndex = 26
 
 local curKey, h, s, v = "", 0, 1, 1
 local function UpdateRGB()
@@ -204,32 +245,137 @@ SVTrigger.MouseButton1Down:Connect(function()
     UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
 end)
 
-local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25
+local ApplyBtn = Instance.new("TextButton", CPFrame)
+ApplyBtn.Size = UDim2.new(0, 200, 0, 30)
+ApplyBtn.Position = UDim2.new(0, 10, 0, 200)
+ApplyBtn.Text = "APPLY"
+ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+ApplyBtn.TextColor3 = Color3.new(1,1,1)
+ApplyBtn.ZIndex = 25
 ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false end)
 
 -- // UI BUILDERS
 local function CreateModule(name, key)
-    local Mod = Instance.new("Frame", Content); Mod.Size = UDim2.new(0, 230, 0, 35); Mod.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Mod.AutomaticSize = "Y"
-    local Btn = Instance.new("TextButton", Mod); Btn.Size = UDim2.new(1, 0, 0, 35); Btn.Text = "  " .. name; Btn.TextXAlignment = "Left"; Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35); Btn.TextColor3 = Color3.new(1,1,1)
-    local Ind = Instance.new("Frame", Btn); Ind.Size = UDim2.new(0, 4, 1, 0); Ind.Position = UDim2.new(1, -4, 0, 0); Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0)
-    local Arr = Instance.new("TextButton", Btn); Arr.Size = UDim2.new(0, 25, 1, 0); Arr.Position = UDim2.new(1, -35, 0, 0); Arr.Text = ">"; Arr.BackgroundColor3 = Color3.fromRGB(45,45,45); Arr.TextColor3 = Color3.new(1,1,1)
-    local Inner = Instance.new("Frame", Mod); Inner.Size = UDim2.new(1, 0, 0, 0); Inner.Position = UDim2.new(0, 0, 0, 35); Inner.Visible = false; Inner.AutomaticSize = "Y"; Inner.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    local Mod = Instance.new("Frame", Content)
+    Mod.Size = UDim2.new(0, 230, 0, 35)
+    Mod.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Mod.AutomaticSize = "Y"
+    
+    local Btn = Instance.new("TextButton", Mod)
+    Btn.Size = UDim2.new(1, 0, 0, 35)
+    Btn.Text = "  " .. name
+    Btn.TextXAlignment = "Left"
+    Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Btn.TextColor3 = Color3.new(1,1,1)
+    
+    local Ind = Instance.new("Frame", Btn)
+    Ind.Size = UDim2.new(0, 4, 1, 0)
+    Ind.Position = UDim2.new(1, -4, 0, 0)
+    Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0)
+    
+    local Arr = Instance.new("TextButton", Btn)
+    Arr.Size = UDim2.new(0, 25, 1, 0)
+    Arr.Position = UDim2.new(1, -35, 0, 0)
+    Arr.Text = ">"
+    Arr.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    Arr.TextColor3 = Color3.new(1,1,1)
+    
+    local Inner = Instance.new("Frame", Mod)
+    Inner.Size = UDim2.new(1, 0, 0, 0)
+    Inner.Position = UDim2.new(0, 0, 0, 35)
+    Inner.Visible = false
+    Inner.AutomaticSize = "Y"
+    Inner.BackgroundColor3 = Color3.fromRGB(20,20,20)
     Instance.new("UIListLayout", Inner)
-    Btn.MouseButton1Click:Connect(function() _G.Cfg[key] = not _G.Cfg[key]; Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0) end)
-    Arr.MouseButton1Click:Connect(function() Inner.Visible = not Inner.Visible; Arr.Text = Inner.Visible and "v" or ">" end)
+    
+    local function Toggle()
+        _G.Cfg[key] = not _G.Cfg[key]
+        Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0)
+    end
+    
+    Btn.MouseButton1Click:Connect(Toggle)
+    Arr.MouseButton1Click:Connect(function()
+        Inner.Visible = not Inner.Visible
+        Arr.Text = Inner.Visible and "v" or ">"
+    end)
+
+    -- Bind UI (FIXED LOGIC)
+    local bindKey = key .. "Bind"
+    local bF = Instance.new("Frame", Inner)
+    bF.Size = UDim2.new(1, 0, 0, 25)
+    bF.BackgroundTransparency = 1
+    
+    local bL = Instance.new("TextLabel", bF)
+    bL.Size = UDim2.new(0.6, 0, 1, 0)
+    bL.Text = "  Bind"
+    bL.TextColor3 = Color3.new(0.7,0.7,0.7)
+    bL.BackgroundTransparency = 1
+    bL.TextXAlignment = "Left"
+    
+    local bI = Instance.new("TextBox", bF)
+    bI.Size = UDim2.new(0, 60, 0.8, 0)
+    bI.Position = UDim2.new(1, -65, 0.1, 0)
+    bI.Text = tostring(_G.Cfg[bindKey])
+    bI.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    bI.TextColor3 = Color3.new(1,1,1)
+    
+    bI.FocusLost:Connect(function()
+        local inputStr = bI.Text:gsub("%s+", "") -- Удаляем пробелы
+        if inputStr == "" then
+            _G.Cfg[bindKey] = "None"
+        else
+            _G.Cfg[bindKey] = inputStr
+        end
+        bI.Text = _G.Cfg[bindKey]
+    end)
+    
+    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local currentBind = _G.Cfg[bindKey]
+        if currentBind ~= "None" then
+            -- Сверяем название клавиши или саму клавишу
+            if input.KeyCode.Name:lower() == currentBind:lower() then
+                Toggle()
+            end
+        end
+    end))
+
     return Inner
 end
 
 local function AddSlider(parent, text, key)
-    local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 25); f.BackgroundTransparency = 1
-    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.7,0.7,0.7); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"
-    local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.8, 0); i.Position = UDim2.new(1, -50, 0.1, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(45,45,45); i.TextColor3 = Color3.new(1,1,1)
-    i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v end end)
+    local f = Instance.new("Frame", parent)
+    f.Size = UDim2.new(1, 0, 0, 25)
+    f.BackgroundTransparency = 1
+    local l = Instance.new("TextLabel", f)
+    l.Size = UDim2.new(0.6, 0, 1, 0)
+    l.Text = "  " .. text
+    l.TextColor3 = Color3.new(0.7,0.7,0.7)
+    l.BackgroundTransparency = 1
+    l.TextXAlignment = "Left"
+    local i = Instance.new("TextBox", f)
+    i.Size = UDim2.new(0, 45, 0.8, 0)
+    i.Position = UDim2.new(1, -50, 0.1, 0)
+    i.Text = tostring(_G.Cfg[key])
+    i.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    i.TextColor3 = Color3.new(1,1,1)
+    i.FocusLost:Connect(function()
+        local v = tonumber(i.Text)
+        if v then _G.Cfg[key] = v end
+    end)
 end
 
 local function AddColorBtn(parent, text, key)
-    local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 25); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"
-    b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(1, 0, 0, 25)
+    b.Text = "  [COLOR] " .. text
+    b.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    b.TextColor3 = Color3.new(1,1,1)
+    b.TextXAlignment = "Left"
+    b.MouseButton1Click:Connect(function()
+        curKey = key
+        CPFrame.Visible = true
+    end)
 end
 
 -- // CORE FUNCTIONS
@@ -245,16 +391,26 @@ local function GetTarget()
 end
 
 local function CreateStar(position)
-    local bgui = Instance.new("BillboardGui", GeminiGui); bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0); bgui.AlwaysOnTop = true
-    local p = Instance.new("Part", workspace); p.Size = Vector3.new(0.1,0.1,0.1); p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Position = position; bgui.Adornee = p
-    local f = Instance.new("Frame", bgui); f.Size = UDim2.new(1,0,1,0); f.BackgroundColor3 = _G.Cfg.ParticleColor; Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
+    local bgui = Instance.new("BillboardGui", GeminiGui)
+    bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0)
+    bgui.AlwaysOnTop = true
+    local p = Instance.new("Part", workspace)
+    p.Size = Vector3.new(0.1,0.1,0.1)
+    p.Transparency = 1
+    p.CanCollide = false
+    p.Anchored = true
+    p.Position = position
+    bgui.Adornee = p
+    local f = Instance.new("Frame", bgui)
+    f.Size = UDim2.new(1,0,1,0)
+    f.BackgroundColor3 = _G.Cfg.ParticleColor
+    Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
     local tI = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     TweenService:Create(p, tI, {Position = p.Position + Vector3.new(math.random(-5,5), math.random(4,8), math.random(-5,5))}):Play()
     TweenService:Create(f, tI, {BackgroundTransparency = 1, Size = UDim2.new(0,0,0,0)}):Play()
     task.delay(0.6, function() p:Destroy(); bgui:Destroy() end)
 end
 
--- // JUMP CIRCLE EFFECT
 local function CreateJumpCircle(pos)
     if not _G.Cfg.JumpVisualCirclesEnabled then return end
     local p = Instance.new("Part", workspace)
@@ -266,12 +422,8 @@ local function CreateJumpCircle(pos)
     p.CanCollide = false
     p.Material = Enum.Material.Neon
     p.Color = _G.Cfg.JumpCircleEffectColor
-    
     local tI = TweenInfo.new(0.8, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    TweenService:Create(p, tI, {
-        Size = Vector3.new(0.1, _G.Cfg.JumpCircleMaximumSize, _G.Cfg.JumpCircleMaximumSize),
-        Transparency = 1
-    }):Play()
+    TweenService:Create(p, tI, {Size = Vector3.new(0.1, _G.Cfg.JumpCircleMaximumSize, _G.Cfg.JumpCircleMaximumSize), Transparency = 1}):Play()
     task.delay(0.8, function() p:Destroy() end)
 end
 
@@ -287,15 +439,19 @@ HatMesh.MeshType = "FileMesh"
 HatMesh.MeshId = "rbxassetid://1033714"
 
 -- // MAIN LOOPS
-local ESPMain = Instance.new("Frame", GeminiGui); ESPMain.Size = UDim2.new(0, 80, 0, 80); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
-local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
+local ESPMain = Instance.new("Frame", GeminiGui)
+ESPMain.Size = UDim2.new(0, 80, 0, 80)
+ESPMain.BackgroundTransparency = 1
+ESPMain.AnchorPoint = Vector2.new(0.5, 0.5)
+ESPMain.Visible = false
+local ESPStroke = Instance.new("UIStroke", ESPMain)
+ESPStroke.ApplyStrokeMode = "Border"
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
     
-    -- // CHINA HAT LOGIC
     if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
         HatPart.Transparency = 0
         HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
@@ -305,13 +461,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HatPart.Transparency = 1
     end
 
-    -- Target HUD Logic
     if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
         local hum = target.Character.Humanoid
         TargetName.Text = target.DisplayName
         TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"
-        
         local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
         TweenService:Create(HealthBar, TweenInfo.new(0.2), {Size = UDim2.new(hpPercent, 0, 1, 0)}):Play()
         HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
@@ -319,7 +473,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         TargetHUD.Visible = false
     end
 
-    -- // KILL AURA (COMBINED AIMBOT + TRIGGERBOT)
     if _G.Cfg.KillAuraEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
         local dist = (char.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
         if dist <= _G.Cfg.KillAuraRange then
@@ -332,7 +485,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
     
-    -- Orbit Logic
     if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
         local root = char.HumanoidRootPart
         local targetRoot = target.Character.HumanoidRootPart
@@ -341,7 +493,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         root.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
     end
 
-    -- ESP Square
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
@@ -352,11 +503,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
-    -- Arrows (Fixed Direction Logic)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local arrow = ArrowPool[player] or (function()
-                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "^"; a.Font = "SourceSansBold"; a.AnchorPoint = Vector2.new(0.5, 0.5); ArrowPool[player] = a; return a
+                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "▲"; a.Font = "SourceSansBold"; a.AnchorPoint = Vector2.new(0.5, 0.5); ArrowPool[player] = a; return a
             end)()
             if _G.Cfg.RadarArrowsEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                 local rootPos = player.Character.HumanoidRootPart.Position
@@ -364,9 +514,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 if not onScreen then
                     local relativePos = Camera.CFrame:PointToObjectSpace(rootPos)
                     local angle = math.atan2(-relativePos.X, -relativePos.Z)
-                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor;
-                    -- Показывает четко на цель без собственного вращения символа
-                    arrow.Rotation = math.deg(angle) + 180 
+                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor; arrow.Rotation = 0
                     arrow.Position = UDim2.new(0.5, math.sin(angle) * _G.Cfg.RadarArrowsRadius, 0.5, math.cos(angle) * _G.Cfg.RadarArrowsRadius)
                 else arrow.Visible = false end
             else arrow.Visible = false end
@@ -378,16 +526,12 @@ end))
 LocalPlayer.CharacterAdded:Connect(function(char)
     local hum = char:WaitForChild("Humanoid")
     hum.Jumping:Connect(function()
-        if _G.Cfg.JumpVisualCirclesEnabled then
-            CreateJumpCircle(char.HumanoidRootPart.Position)
-        end
+        if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end
     end)
 end)
 if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
     LocalPlayer.Character.Humanoid.Jumping:Connect(function()
-        if _G.Cfg.JumpVisualCirclesEnabled then
-            CreateJumpCircle(LocalPlayer.Character.HumanoidRootPart.Position)
-        end
+        if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(LocalPlayer.Character.HumanoidRootPart.Position) end
     end)
 end
 
@@ -398,7 +542,6 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         local mousePos = UserInputService:GetMouseLocation()
         local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
         local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
-        
         if res and res.Instance then
             local character = res.Instance:FindFirstAncestorOfClass("Model")
             if character and character:FindFirstChildOfClass("Humanoid") and character ~= LocalPlayer.Character then
@@ -408,23 +551,15 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- // ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+-- // ИНИЦИАЛИЗАЦИЯ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange")
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
-
-local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled")
-AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
-
-local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled")
-AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-
+local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
+local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
-
-local mArr = CreateModule("ARROWS", "RadarArrowsEnabled")
-AddSlider(mArr, "Size", "RadarArrowsSize"); AddSlider(mArr, "Radius", "RadarArrowsRadius"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
-
+local mArr = CreateModule("ARROWS", "RadarArrowsEnabled"); AddSlider(mArr, "Size", "RadarArrowsSize"); AddSlider(mArr, "Radius", "RadarArrowsRadius"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
 
 local KillBtn = Instance.new("TextButton", Content); KillBtn.Size = UDim2.new(0, 230, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1)
