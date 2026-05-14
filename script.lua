@@ -38,10 +38,13 @@ _G.Cfg = {
     TargetStrafeOrbitSpeed = 5,
     TargetStrafeOrbitEnabledBind = "None",
     
+    -- РАСШИРЕННЫЙ CHINA HAT
     ChinaHatAccessoryEnabled = false,
     ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0),
-    ChinaHatHeightOffset = 0.8,
-    ChinaHatWidthScale = 3,
+    ChinaHatHeightOffset = 0.8, -- Высота над головой
+    ChinaHatWidthScale = 3,     -- Ширина конуса
+    ChinaHatHeightScale = 2,    -- Высота самого конуса
+    ChinaHatTransparency = 0,   -- Прозрачность
     ChinaHatAccessoryEnabledBind = "None",
     
     JumpVisualCirclesEnabled = false,
@@ -68,6 +71,46 @@ _G.Cfg = {
 local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
 GeminiGui.Name = "Gemini_V58_TargetHUD"
 GeminiGui.IgnoreGuiInset = true
+
+-- // NOTIFICATION SYSTEM
+local function ShowNotify(text, isEnabled)
+    local sound = Instance.new("Sound", game:GetService("SoundService"))
+    sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://1053296721"
+    sound.Volume = 0.5
+    sound:Play()
+    game:GetService("Debris"):AddItem(sound, 1)
+
+    local statusIcon = isEnabled and " ✅" or " ❌"
+    local nF = Instance.new("TextLabel", GeminiGui)
+    nF.Size = UDim2.new(0, 280, 0, 40)
+    nF.Position = UDim2.new(0.5, -140, 0.4, 0)
+    nF.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    nF.TextColor3 = Color3.fromRGB(180, 180, 180) 
+    nF.Text = text .. statusIcon
+    nF.Font = Enum.Font.SourceSans 
+    nF.TextSize = 18
+    nF.BackgroundTransparency = 1
+    nF.TextTransparency = 1
+    
+    local s = Instance.new("UIStroke", nF)
+    s.Thickness = 2
+    s.Color = isEnabled and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+    s.Transparency = 1
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
+    Instance.new("UICorner", nF).CornerRadius = UDim.new(0, 5)
+
+    local tI = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    TweenService:Create(nF, tI, {Position = UDim2.new(0.5, -140, 0.45, 0), BackgroundTransparency = 0, TextTransparency = 0}):Play()
+    TweenService:Create(s, tI, {Transparency = 0}):Play()
+    
+    task.delay(1, function()
+        local tO = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        TweenService:Create(nF, tO, {Position = UDim2.new(0.5, -140, 0.5, 0), BackgroundTransparency = 1, TextTransparency = 1}):Play()
+        TweenService:Create(s, tO, {Transparency = 1}):Play()
+        task.wait(0.3)
+        nF:Destroy()
+    end)
+end
 
 -- // TARGET HUD SYSTEM
 local TargetHUD = Instance.new("Frame", GeminiGui)
@@ -162,7 +205,7 @@ local UIList = Instance.new("UIListLayout", Content)
 UIList.Padding = UDim.new(0, 4)
 UIList.HorizontalAlignment = "Center"
 
--- // COLOR PICKER (Restore)
+-- // COLOR PICKER
 local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240)
 CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120)
@@ -291,7 +334,9 @@ local function CreateModule(name, key)
     
     local function Toggle()
         _G.Cfg[key] = not _G.Cfg[key]
-        Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0)
+        local isEnabled = _G.Cfg[key]
+        Ind.BackgroundColor3 = isEnabled and Color3.new(0,1,0) or Color3.new(1,0,0)
+        ShowNotify(name, isEnabled)
     end
     
     Btn.MouseButton1Click:Connect(Toggle)
@@ -421,7 +466,7 @@ local ESPMain = Instance.new("Frame", GeminiGui)
 ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
 local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
 
--- // CHAMS FUNCTION (Замена Arrows)
+-- // CHAMS FUNCTION
 local function UpdateChams()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -452,12 +497,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
     
-    -- Update Chams
     UpdateChams()
     
     if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
-        HatPart.Transparency = 0; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
-        HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, 2, _G.Cfg.ChinaHatWidthScale)
+        HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
+        HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale)
         HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
@@ -528,9 +572,16 @@ local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
+
+-- ОБНОВЛЕННЫЙ МОДУЛЬ CHINA HAT
+local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled")
+AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset")
+AddSlider(mHat, "Hat Width", "ChinaHatWidthScale")
+AddSlider(mHat, "Hat Height", "ChinaHatHeightScale")
+AddSlider(mHat, "Transparency", "ChinaHatTransparency")
+AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
+
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
--- Новая секция CHAMS
 local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill Color", "ChamsColor"); AddColorBtn(mCha, "Outline Color", "ChamsOutlineColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
 
