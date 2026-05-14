@@ -2,81 +2,191 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local Connections = {}
+local ArrowPool = {}
 
 -- // КОНФИГУРАЦИЯ
 _G.Cfg = {
     AimbotEnabled = false,
-    TargetESPSquareEnabled = false,
-    TargetStrafeOrbitEnabled = false,
-    ChinaHatAccessoryEnabled = false,
-    JumpVisualCirclesEnabled = false,
     AimbotMaxDistance = 1000,
-    AimbotSmoothness = 0.15,
-    TargetESPRotationSpeed = 2,
+    AimbotSmoothness = 1,
+    
+    TargetHudEnabled = false,
+    
+    KillAuraEnabled = false,
+    KillAuraRange = 25,
+    KillAuraJump = true,
+    KillAuraStrafe = true,
+    
+    TargetESPSquareEnabled = false,
     TargetESPSquareSize = 80,
     TargetESPBorderThickness = 2,
     TargetESPSquareColor = Color3.new(1, 1, 1),
+    TargetESPRotationSpeed = 2,
+    
+    TargetStrafeOrbitEnabled = false,
     TargetStrafeOrbitRadius = 10,
     TargetStrafeOrbitSpeed = 5,
+    
+    ChinaHatAccessoryEnabled = false,
+    ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0),
     ChinaHatHeightOffset = 0.8,
     ChinaHatWidthScale = 3,
-    ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0),
+    
+    JumpVisualCirclesEnabled = false,
     JumpCircleMaximumSize = 12,
     JumpCircleEffectColor = Color3.fromRGB(0, 255, 255),
+    
+    RadarArrowsEnabled = false,
+    RadarArrowsRadius = 150,
+    RadarArrowsSize = 20,
+    RadarArrowsColor = Color3.new(1, 1, 1),
+    
+    DamageParticlesEnabled = true,
+    ParticleColor = Color3.fromRGB(255, 255, 255),
+    ParticleSize = 4,
+    
     AspectRatioValue = 70
 }
 
 -- // GUI SETUP
 local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
-GeminiGui.Name = "Gemini_V51_WhiteFix"
+GeminiGui.Name = "Gemini_V58_TargetHUD"
 GeminiGui.IgnoreGuiInset = true
 
--- // ESP FRAME
-local ESPMain = Instance.new("Frame", GeminiGui)
-ESPMain.Size = UDim2.new(0, 80, 0, 80); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
-local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
+-- // TARGET HUD SYSTEM
+local TargetHUD = Instance.new("Frame", GeminiGui)
+TargetHUD.Size = UDim2.new(0, 200, 0, 70)
+TargetHUD.Position = UDim2.new(0.5, 50, 0.5, 50)
+TargetHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+TargetHUD.BorderSizePixel = 0
+TargetHUD.Visible = false
+TargetHUD.Active = true
+TargetHUD.Draggable = true 
 
--- // COLOR PICKER (WHITE FIX)
+local THudStroke = Instance.new("UIStroke", TargetHUD)
+THudStroke.Color = Color3.fromRGB(60, 60, 60)
+THudStroke.Thickness = 2
+
+local TargetIcon = Instance.new("ImageLabel", TargetHUD)
+TargetIcon.Size = UDim2.new(0, 50, 0, 50)
+TargetIcon.Position = UDim2.new(0, 10, 0, 10)
+TargetIcon.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+
+local TargetName = Instance.new("TextLabel", TargetHUD)
+TargetName.Size = UDim2.new(1, -75, 0, 20)
+TargetName.Position = UDim2.new(0, 65, 0, 10)
+TargetName.BackgroundTransparency = 1
+TargetName.TextColor3 = Color3.new(1, 1, 1)
+TargetName.Text = "No Target"
+TargetName.TextXAlignment = "Left"
+TargetName.Font = "SourceSansBold"
+TargetName.TextSize = 16
+
+local HealthBack = Instance.new("Frame", TargetHUD)
+HealthBack.Size = UDim2.new(1, -75, 0, 15)
+HealthBack.Position = UDim2.new(0, 65, 0, 35)
+HealthBack.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
+
+local HealthBar = Instance.new("Frame", HealthBack)
+HealthBar.Size = UDim2.new(1, 0, 1, 0)
+HealthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+HealthBar.BorderSizePixel = 0
+
+local HealthText = Instance.new("TextLabel", HealthBack)
+HealthText.Size = UDim2.new(1, 0, 1, 0)
+HealthText.BackgroundTransparency = 1
+HealthText.TextColor3 = Color3.new(1, 1, 1)
+HealthText.Text = "100 / 100"
+HealthText.TextSize = 12
+HealthText.Font = "SourceSansBold"
+
+-- // MAIN FRAME SETUP
+local MainFrame = Instance.new("Frame", GeminiGui)
+MainFrame.Size = UDim2.new(0, 250, 0, 30)
+MainFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(0.7, 0, 1, 0)
+Title.Position = UDim2.new(0.05, 0, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "By extazz"
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+task.spawn(function()
+    while task.wait() do
+        Title.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
+    end
+end)
+
+local CollapseBtn = Instance.new("TextButton", MainFrame)
+CollapseBtn.Size = UDim2.new(0, 30, 0, 30)
+CollapseBtn.Position = UDim2.new(1, -30, 0, 0)
+CollapseBtn.Text = "-"
+CollapseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+CollapseBtn.TextColor3 = Color3.new(1, 1, 1)
+
+local Content = Instance.new("ScrollingFrame", MainFrame)
+Content.Size = UDim2.new(1, 0, 0, 350)
+Content.Position = UDim2.new(0, 0, 0, 30)
+Content.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Content.ScrollBarThickness = 2
+Content.AutomaticCanvasSize = "Y"
+
+CollapseBtn.MouseButton1Click:Connect(function()
+    Content.Visible = not Content.Visible
+    CollapseBtn.Text = Content.Visible and "-" or "+"
+end)
+
+local UIList = Instance.new("UIListLayout", Content)
+UIList.Padding = UDim.new(0, 4)
+UIList.HorizontalAlignment = "Center"
+
+-- // COLOR PICKER
 local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); CPFrame.Visible = false; CPFrame.Active = true; CPFrame.Draggable = true; CPFrame.ZIndex = 20
 Instance.new("UIStroke", CPFrame).Color = Color3.fromRGB(50, 50, 50)
 
--- Основное поле (Sat/Val)
-local SatValBox = Instance.new("Frame", CPFrame)
-SatValBox.Size = UDim2.new(0, 200, 0, 150); SatValBox.Position = UDim2.new(0, 10, 0, 10); SatValBox.BackgroundColor3 = Color3.new(1, 0, 0); SatValBox.BorderSizePixel = 0; SatValBox.ZIndex = 21
+local SatValBox = Instance.new("Frame", CPFrame); SatValBox.Size = UDim2.new(0, 200, 0, 150); SatValBox.Position = UDim2.new(0, 10, 0, 10); SatValBox.ZIndex = 21
+local SVGradientH = Instance.new("UIGradient", SatValBox)
+local SatValOverlay = Instance.new("Frame", SatValBox); SatValOverlay.Size = UDim2.new(1,0,1,0); SatValOverlay.ZIndex = 22; SatValOverlay.BackgroundTransparency = 0
+local SVGradientV = Instance.new("UIGradient", SatValOverlay); SVGradientV.Rotation = 90; SVGradientV.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,1)})
+SatValOverlay.BackgroundColor3 = Color3.new(0,0,0)
 
--- Градиент Белого (Saturation)
-local SatGrad = Instance.new("Frame", SatValBox); SatGrad.Size = UDim2.new(1,0,1,0); SatGrad.BackgroundTransparency = 0; SatGrad.BorderSizePixel = 0; SatGrad.ZIndex = 22
-local SGrad = Instance.new("UIGradient", SatGrad); SGrad.Color = ColorSequence.new(Color3.new(1,1,1)); SGrad.Transparency = NumberSequence.new(0, 1)
-
--- Градиент Черного (Value)
-local ValGradFrame = Instance.new("Frame", SatValBox); ValGradFrame.Size = UDim2.new(1,0,1,0); ValGradFrame.BackgroundTransparency = 0; ValGradFrame.BorderSizePixel = 0; ValGradFrame.ZIndex = 23
-local VGrad = Instance.new("UIGradient", ValGradFrame); VGrad.Rotation = 90; VGrad.Color = ColorSequence.new(Color3.new(0,0,0)); VGrad.Transparency = NumberSequence.new(1, 0)
+local HueBox = Instance.new("Frame", CPFrame); HueBox.Size = UDim2.new(0, 200, 0, 15); HueBox.Position = UDim2.new(0, 10, 0, 170); HueBox.ZIndex = 21
+local HueGradient = Instance.new("UIGradient", HueBox)
+HueGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.new(1,0,0)), ColorSequenceKeypoint.new(0.16, Color3.new(1,1,0)),
+    ColorSequenceKeypoint.new(0.33, Color3.new(0,1,0)), ColorSequenceKeypoint.new(0.5, Color3.new(0,1,1)),
+    ColorSequenceKeypoint.new(0.66, Color3.new(0,0,1)), ColorSequenceKeypoint.new(0.83, Color3.new(1,0,1)),
+    ColorSequenceKeypoint.new(1, Color3.new(1,0,0))
+})
 
 local SVIndicator = Instance.new("Frame", SatValBox); SVIndicator.Size = UDim2.new(0, 4, 0, 4); SVIndicator.BackgroundColor3 = Color3.new(1,1,1); SVIndicator.ZIndex = 25; SVIndicator.BorderSizePixel = 1
-
 local SVTrigger = Instance.new("TextButton", SatValBox); SVTrigger.Size = UDim2.new(1, 0, 1, 0); SVTrigger.BackgroundTransparency = 1; SVTrigger.Text = ""; SVTrigger.ZIndex = 26
-
--- Полоска Hue
-local HueBox = Instance.new("Frame", CPFrame); HueBox.Size = UDim2.new(0, 200, 0, 15); HueBox.Position = UDim2.new(0, 10, 0, 170); HueBox.ZIndex = 21
-local HGrad = Instance.new("UIGradient", HueBox); HGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromHSV(0,1,1)), ColorSequenceKeypoint.new(0.16, Color3.fromHSV(0.16,1,1)), ColorSequenceKeypoint.new(0.33, Color3.fromHSV(0.33,1,1)), ColorSequenceKeypoint.new(0.5, Color3.fromHSV(0.5,1,1)), ColorSequenceKeypoint.new(0.66, Color3.fromHSV(0.66,1,1)), ColorSequenceKeypoint.new(0.83, Color3.fromHSV(0.83,1,1)), ColorSequenceKeypoint.new(1, Color3.fromHSV(1,1,1))})
 local HueTrigger = Instance.new("TextButton", HueBox); HueTrigger.Size = UDim2.new(1, 0, 1, 0); HueTrigger.BackgroundTransparency = 1; HueTrigger.Text = ""; HueTrigger.ZIndex = 26
 
 local curKey, h, s, v = "", 0, 1, 1
 local function UpdateRGB()
     local color = Color3.fromHSV(h, s, v)
-    if _G.Cfg[curKey] then _G.Cfg[curKey] = color end
-    SatValBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+    if _G.Cfg[curKey] ~= nil then _G.Cfg[curKey] = color end
+    SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1))
 end
 
 HueTrigger.MouseButton1Down:Connect(function()
     local move; move = UserInputService.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement then
-            h = math.clamp((input.Position.X - HueBox.AbsolutePosition.X) / HueBox.AbsoluteSize.X, 0, 1); UpdateRGB()
+            h = math.clamp((input.Position.X - HueBox.AbsolutePosition.X) / HueBox.AbsoluteSize.X, 0, 1)
+            UpdateRGB()
         end
     end)
     UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
@@ -86,8 +196,9 @@ SVTrigger.MouseButton1Down:Connect(function()
     local move; move = UserInputService.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement then
             s = math.clamp((input.Position.X - SatValBox.AbsolutePosition.X) / SatValBox.AbsoluteSize.X, 0, 1)
-            v = 1 - math.clamp((input.Position.Y - SatValBox.AbsolutePosition.Y) / SatValBox.AbsoluteSize.Y, 0, 1)
-            SVIndicator.Position = UDim2.new(s, -2, 1-v, -2); UpdateRGB()
+            v = math.clamp((input.Position.Y - SatValBox.AbsolutePosition.Y) / SatValBox.AbsoluteSize.Y, 0, 1)
+            SVIndicator.Position = UDim2.new(s, -2, v, -2)
+            UpdateRGB()
         end
     end)
     UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
@@ -96,24 +207,11 @@ end)
 local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25
 ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false end)
 
--- // MAIN WINDOW
-local MainFrame = Instance.new("Frame", GeminiGui)
-MainFrame.Size = UDim2.new(0, 250, 0, 30); MainFrame.Position = UDim2.new(0.05, 0, 0.4, 0); MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); MainFrame.BorderSizePixel = 0; MainFrame.Active = true; MainFrame.Draggable = true
-
-local Title = Instance.new("TextLabel", MainFrame); Title.Size = UDim2.new(1, -40, 1, 0); Title.Position = UDim2.new(0, 10, 0, 0); Title.Text = "GEMINI V51"; Title.TextColor3 = Color3.new(1,1,1); Title.BackgroundTransparency = 1; Title.TextXAlignment = "Left"; Title.Font = "SourceSansBold"
-local CollapseBtn = Instance.new("TextButton", MainFrame); CollapseBtn.Size = UDim2.new(0, 30, 0, 30); CollapseBtn.Position = UDim2.new(1, -30, 0, 0); CollapseBtn.Text = "_"; CollapseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35); CollapseBtn.TextColor3 = Color3.new(1,1,1)
-
-local Content = Instance.new("ScrollingFrame", MainFrame)
-Content.Size = UDim2.new(1, 0, 0, 320); Content.Position = UDim2.new(0, 0, 0, 30); Content.BackgroundColor3 = Color3.fromRGB(15, 15, 15); Content.ScrollBarThickness = 2; Content.AutomaticCanvasSize = "Y"
-local UIList = Instance.new("UIListLayout", Content); UIList.Padding = UDim.new(0, 4); UIList.HorizontalAlignment = "Center"
-
-CollapseBtn.MouseButton1Click:Connect(function() Content.Visible = not Content.Visible; CollapseBtn.Text = Content.Visible and "_" or "+" end)
-
--- // HELPER FUNCTIONS
+-- // UI BUILDERS
 local function CreateModule(name, key)
     local Mod = Instance.new("Frame", Content); Mod.Size = UDim2.new(0, 230, 0, 35); Mod.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Mod.AutomaticSize = "Y"
     local Btn = Instance.new("TextButton", Mod); Btn.Size = UDim2.new(1, 0, 0, 35); Btn.Text = "  " .. name; Btn.TextXAlignment = "Left"; Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35); Btn.TextColor3 = Color3.new(1,1,1)
-    local Ind = Instance.new("Frame", Btn); Ind.Size = UDim2.new(0, 4, 1, 0); Ind.Position = UDim2.new(1, -4, 0, 0); Ind.BackgroundColor3 = Color3.new(1,0,0)
+    local Ind = Instance.new("Frame", Btn); Ind.Size = UDim2.new(0, 4, 1, 0); Ind.Position = UDim2.new(1, -4, 0, 0); Ind.BackgroundColor3 = _G.Cfg[key] and Color3.new(0,1,0) or Color3.new(1,0,0)
     local Arr = Instance.new("TextButton", Btn); Arr.Size = UDim2.new(0, 25, 1, 0); Arr.Position = UDim2.new(1, -35, 0, 0); Arr.Text = ">"; Arr.BackgroundColor3 = Color3.fromRGB(45,45,45); Arr.TextColor3 = Color3.new(1,1,1)
     local Inner = Instance.new("Frame", Mod); Inner.Size = UDim2.new(1, 0, 0, 0); Inner.Position = UDim2.new(0, 0, 0, 35); Inner.Visible = false; Inner.AutomaticSize = "Y"; Inner.BackgroundColor3 = Color3.fromRGB(20,20,20)
     Instance.new("UIListLayout", Inner)
@@ -134,23 +232,11 @@ local function AddColorBtn(parent, text, key)
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
 end
 
--- СБОРКА
-local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "FOV", "AspectRatioValue")
-local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Thickness", "TargetESPBorderThickness"); AddColorBtn(mEsp, "ESP Color", "TargetESPSquareColor")
-local mOrb = CreateModule("STRAFE ORBIT", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Height", "ChinaHatHeightOffset"); AddSlider(mHat, "Scale", "ChinaHatWidthScale"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
-local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Jump Color", "JumpCircleEffectColor")
-
-local KillBtn = Instance.new("TextButton", Content); KillBtn.Size = UDim2.new(0, 230, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1)
-
--- // ENGINE FUNCTIONS
-local HatPart = Instance.new("Part", workspace); HatPart.CanCollide, HatPart.Anchored, HatPart.Transparency = false, false, 1
-local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
-
+-- // CORE FUNCTIONS
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (LocalPlayer.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
@@ -158,11 +244,104 @@ local function GetTarget()
     return t
 end
 
+local function CreateStar(position)
+    local bgui = Instance.new("BillboardGui", GeminiGui); bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0); bgui.AlwaysOnTop = true
+    local p = Instance.new("Part", workspace); p.Size = Vector3.new(0.1,0.1,0.1); p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Position = position; bgui.Adornee = p
+    local f = Instance.new("Frame", bgui); f.Size = UDim2.new(1,0,1,0); f.BackgroundColor3 = _G.Cfg.ParticleColor; Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
+    local tI = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    TweenService:Create(p, tI, {Position = p.Position + Vector3.new(math.random(-5,5), math.random(4,8), math.random(-5,5))}):Play()
+    TweenService:Create(f, tI, {BackgroundTransparency = 1, Size = UDim2.new(0,0,0,0)}):Play()
+    task.delay(0.6, function() p:Destroy(); bgui:Destroy() end)
+end
+
+-- // JUMP CIRCLE EFFECT
+local function CreateJumpCircle(pos)
+    if not _G.Cfg.JumpVisualCirclesEnabled then return end
+    local p = Instance.new("Part", workspace)
+    p.Shape = Enum.PartType.Cylinder
+    p.Size = Vector3.new(0.1, 0, 0)
+    p.CFrame = CFrame.new(pos - Vector3.new(0, 2.9, 0)) * CFrame.Angles(0, 0, math.rad(90))
+    p.Transparency = 0.5
+    p.Anchored = true
+    p.CanCollide = false
+    p.Material = Enum.Material.Neon
+    p.Color = _G.Cfg.JumpCircleEffectColor
+    
+    local tI = TweenInfo.new(0.8, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    TweenService:Create(p, tI, {
+        Size = Vector3.new(0.1, _G.Cfg.JumpCircleMaximumSize, _G.Cfg.JumpCircleMaximumSize),
+        Transparency = 1
+    }):Play()
+    task.delay(0.8, function() p:Destroy() end)
+end
+
+-- // CHINA HAT SETUP
+local HatPart = Instance.new("Part", workspace)
+HatPart.Name = "Gemini_ChinaHat"
+HatPart.CanCollide = false
+HatPart.Anchored = true
+HatPart.CastShadow = false
+HatPart.Transparency = 1
+local HatMesh = Instance.new("SpecialMesh", HatPart)
+HatMesh.MeshType = "FileMesh"
+HatMesh.MeshId = "rbxassetid://1033714"
+
+-- // MAIN LOOPS
+local ESPMain = Instance.new("Frame", GeminiGui); ESPMain.Size = UDim2.new(0, 80, 0, 80); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
+local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
+
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
+    
+    -- // CHINA HAT LOGIC
+    if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
+        HatPart.Transparency = 0
+        HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
+        HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, 2, _G.Cfg.ChinaHatWidthScale)
+        HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
+    else
+        HatPart.Transparency = 1
+    end
 
+    -- Target HUD Logic
+    if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
+        TargetHUD.Visible = true
+        local hum = target.Character.Humanoid
+        TargetName.Text = target.DisplayName
+        TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"
+        
+        local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        TweenService:Create(HealthBar, TweenInfo.new(0.2), {Size = UDim2.new(hpPercent, 0, 1, 0)}):Play()
+        HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+    else
+        TargetHUD.Visible = false
+    end
+
+    -- // KILL AURA (COMBINED AIMBOT + TRIGGERBOT)
+    if _G.Cfg.KillAuraEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        local dist = (char.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
+        if dist <= _G.Cfg.KillAuraRange then
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position), _G.Cfg.AimbotSmoothness)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+            task.wait()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        end
+    elseif _G.Cfg.AimbotEnabled and target and target.Character:FindFirstChild("Head") then
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
+    end
+    
+    -- Orbit Logic
+    if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
+        local root = char.HumanoidRootPart
+        local targetRoot = target.Character.HumanoidRootPart
+        local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed
+        local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius
+        root.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
+    end
+
+    -- ESP Square
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
@@ -173,36 +352,75 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
-    if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("HumanoidRootPart") then
-        for _, v in pairs(char:GetChildren()) do if v:IsA("BasePart") then v.CanCollide = false end end
-        local t = tick() * _G.Cfg.TargetStrafeOrbitSpeed
-        char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + Vector3.new(math.cos(t)*_G.Cfg.TargetStrafeOrbitRadius, 0, math.sin(t)*_G.Cfg.TargetStrafeOrbitRadius), target.Character.HumanoidRootPart.Position)
-    end
-
-    if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
-        HatPart.Parent = char; HatPart.Transparency = 0.3; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, 1, _G.Cfg.ChinaHatWidthScale)
-        HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
-    else HatPart.Transparency = 1 end
-
-    if _G.Cfg.AimbotEnabled and target and target.Character:FindFirstChild("Head") then
-        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
+    -- Radar Arrows
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local arrow = ArrowPool[player] or (function()
+                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "^"; a.Font = "SourceSansBold"; ArrowPool[player] = a; return a
+            end)()
+            if _G.Cfg.RadarArrowsEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local rootPos = player.Character.HumanoidRootPart.Position
+                local _, onScreen = Camera:WorldToViewportPoint(rootPos)
+                if not onScreen then
+                    local relativePos = Camera.CFrame:PointToObjectSpace(rootPos)
+                    local angle = math.atan2(-relativePos.X, -relativePos.Z)
+                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor; arrow.Rotation = math.deg(angle) + 180
+                    arrow.Position = UDim2.new(0.5, math.sin(angle) * _G.Cfg.RadarArrowsRadius, 0.5, math.cos(angle) * _G.Cfg.RadarArrowsRadius)
+                else arrow.Visible = false end
+            else arrow.Visible = false end
+        end
     end
 end))
 
-local jumping = false
-table.insert(Connections, RunService.Heartbeat:Connect(function()
-    if not _G.Cfg.JumpVisualCirclesEnabled then return end
-    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-    if hum and hum.FloorMaterial == Enum.Material.Air and not jumping then
-        jumping = true
-        local p = Instance.new("Part", workspace); p.Anchored, p.CanCollide = true, false; p.Shape = "Cylinder"; p.Material = "Neon"; p.Color = _G.Cfg.JumpCircleEffectColor; p.Size = Vector3.new(0.1, 1, 1)
-        p.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, -2.8, 0) * CFrame.Angles(0, 0, math.rad(90))
-        TweenService:Create(p, TweenInfo.new(0.5), {Size = Vector3.new(0.1, _G.Cfg.JumpCircleMaximumSize, _G.Cfg.JumpCircleMaximumSize), Transparency = 1}):Play()
-        task.delay(0.5, function() p:Destroy() end)
-    elseif hum and hum.FloorMaterial ~= Enum.Material.Air then jumping = false end
-end))
-
-KillBtn.MouseButton1Click:Connect(function()
-    for _, c in pairs(Connections) do c:Disconnect() end
-    GeminiGui:Destroy(); HatPart:Destroy(); _G.Cfg = nil
+-- // JUMP DETECTION
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid")
+    hum.Jumping:Connect(function()
+        if _G.Cfg.JumpVisualCirclesEnabled then
+            CreateJumpCircle(char.HumanoidRootPart.Position)
+        end
+    end)
 end)
+if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+    LocalPlayer.Character.Humanoid.Jumping:Connect(function()
+        if _G.Cfg.JumpVisualCirclesEnabled then
+            CreateJumpCircle(LocalPlayer.Character.HumanoidRootPart.Position)
+        end
+    end)
+end
+
+-- // HIT PARTICLES
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe or not _G.Cfg.DamageParticlesEnabled then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local mousePos = UserInputService:GetMouseLocation()
+        local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+        local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
+        
+        if res and res.Instance then
+            local character = res.Instance:FindFirstAncestorOfClass("Model")
+            if character and character:FindFirstChildOfClass("Humanoid") and character ~= LocalPlayer.Character then
+                for i = 1, 8 do CreateStar(res.Position) end
+            end
+        end
+    end
+end)
+
+-- // ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
+local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange")
+local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
+
+local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled")
+AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
+
+local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled")
+AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
+
+local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
+local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
+local mArr = CreateModule("ARROWS", "RadarArrowsEnabled"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
+local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
+
+local KillBtn = Instance.new("TextButton", Content); KillBtn.Size = UDim2.new(0, 230, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1)
+KillBtn.MouseButton1Click:Connect(function() for _, c in pairs(Connections) do c:Disconnect() end GeminiGui:Destroy(); HatPart:Destroy() end)
