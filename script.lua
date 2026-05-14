@@ -7,7 +7,8 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local Connections = {}
-local ArrowPool = {}
+local ChamsFolder = Instance.new("Folder", game.CoreGui)
+ChamsFolder.Name = "Gemini_Chams_Storage"
 
 -- // КОНФИГУРАЦИЯ
 _G.Cfg = {
@@ -48,11 +49,12 @@ _G.Cfg = {
     JumpCircleEffectColor = Color3.fromRGB(0, 255, 255),
     JumpVisualCirclesEnabledBind = "None",
     
-    RadarArrowsEnabled = false,
-    RadarArrowsRadius = 150,
-    RadarArrowsSize = 20,
-    RadarArrowsColor = Color3.new(1, 1, 1),
-    RadarArrowsEnabledBind = "None",
+    ChamsEnabled = false,
+    ChamsColor = Color3.new(1, 0, 0),
+    ChamsOutlineColor = Color3.new(1, 1, 1),
+    ChamsFillTransparency = 0.5,
+    ChamsOutlineTransparency = 0,
+    ChamsEnabledBind = "None",
     
     DamageParticlesEnabled = true,
     ParticleColor = Color3.fromRGB(255, 255, 255),
@@ -160,7 +162,7 @@ local UIList = Instance.new("UIListLayout", Content)
 UIList.Padding = UDim.new(0, 4)
 UIList.HorizontalAlignment = "Center"
 
--- // COLOR PICKER
+-- // COLOR PICKER (Restore)
 local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240)
 CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120)
@@ -180,7 +182,6 @@ local SVGradientH = Instance.new("UIGradient", SatValBox)
 local SatValOverlay = Instance.new("Frame", SatValBox)
 SatValOverlay.Size = UDim2.new(1,0,1,0)
 SatValOverlay.ZIndex = 22
-SatValOverlay.BackgroundTransparency = 0
 local SVGradientV = Instance.new("UIGradient", SatValOverlay)
 SVGradientV.Rotation = 90
 SVGradientV.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,1)})
@@ -299,7 +300,6 @@ local function CreateModule(name, key)
         Arr.Text = Inner.Visible and "v" or ">"
     end)
 
-    -- Bind UI (FIXED LOGIC)
     local bindKey = key .. "Bind"
     local bF = Instance.new("Frame", Inner)
     bF.Size = UDim2.new(1, 0, 0, 25)
@@ -321,21 +321,14 @@ local function CreateModule(name, key)
     
     bI.FocusLost:Connect(function()
         local inputStr = bI.Text:gsub("%s+", "") 
-        if inputStr == "" then
-            _G.Cfg[bindKey] = "None"
-        else
-            _G.Cfg[bindKey] = inputStr
-        end
+        if inputStr == "" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end
         bI.Text = _G.Cfg[bindKey]
     end)
     
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
-        local currentBind = _G.Cfg[bindKey]
-        if currentBind ~= "None" then
-            if input.KeyCode.Name:lower() == currentBind:lower() then
-                Toggle()
-            end
+        if _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then
+            Toggle()
         end
     end))
 
@@ -395,14 +388,10 @@ local function CreateStar(position)
     bgui.AlwaysOnTop = true
     local p = Instance.new("Part", workspace)
     p.Size = Vector3.new(0.1,0.1,0.1)
-    p.Transparency = 1
-    p.CanCollide = false
-    p.Anchored = true
-    p.Position = position
+    p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Position = position
     bgui.Adornee = p
     local f = Instance.new("Frame", bgui)
-    f.Size = UDim2.new(1,0,1,0)
-    f.BackgroundColor3 = _G.Cfg.ParticleColor
+    f.Size = UDim2.new(1,0,1,0); f.BackgroundColor3 = _G.Cfg.ParticleColor
     Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
     local tI = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     TweenService:Create(p, tI, {Position = p.Position + Vector3.new(math.random(-5,5), math.random(4,8), math.random(-5,5))}):Play()
@@ -413,14 +402,9 @@ end
 local function CreateJumpCircle(pos)
     if not _G.Cfg.JumpVisualCirclesEnabled then return end
     local p = Instance.new("Part", workspace)
-    p.Shape = Enum.PartType.Cylinder
-    p.Size = Vector3.new(0.1, 0, 0)
+    p.Shape = Enum.PartType.Cylinder; p.Size = Vector3.new(0.1, 0, 0)
     p.CFrame = CFrame.new(pos - Vector3.new(0, 2.9, 0)) * CFrame.Angles(0, 0, math.rad(90))
-    p.Transparency = 0.5
-    p.Anchored = true
-    p.CanCollide = false
-    p.Material = Enum.Material.Neon
-    p.Color = _G.Cfg.JumpCircleEffectColor
+    p.Transparency = 0.5; p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon; p.Color = _G.Cfg.JumpCircleEffectColor
     local tI = TweenInfo.new(0.8, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     TweenService:Create(p, tI, {Size = Vector3.new(0.1, _G.Cfg.JumpCircleMaximumSize, _G.Cfg.JumpCircleMaximumSize), Transparency = 1}):Play()
     task.delay(0.8, function() p:Destroy() end)
@@ -428,69 +412,63 @@ end
 
 -- // CHINA HAT SETUP
 local HatPart = Instance.new("Part", workspace)
-HatPart.Name = "Gemini_ChinaHat"
-HatPart.CanCollide = false
-HatPart.Anchored = true
-HatPart.CastShadow = false
-HatPart.Transparency = 1
+HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart)
-HatMesh.MeshType = "FileMesh"
-HatMesh.MeshId = "rbxassetid://1033714"
+HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // MAIN LOOPS
+-- // TARGET ESP SQUARE
 local ESPMain = Instance.new("Frame", GeminiGui)
-ESPMain.Size = UDim2.new(0, 80, 0, 80)
-ESPMain.BackgroundTransparency = 1
-ESPMain.AnchorPoint = Vector2.new(0.5, 0.5)
-ESPMain.Visible = false
-local ESPStroke = Instance.new("UIStroke", ESPMain)
-ESPStroke.ApplyStrokeMode = "Border"
+ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
+local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
 
+-- // CHAMS FUNCTION (Замена Arrows)
+local function UpdateChams()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            local highlight = ChamsFolder:FindFirstChild(player.Name)
+            
+            if _G.Cfg.ChamsEnabled and char then
+                if not highlight then
+                    highlight = Instance.new("Highlight", ChamsFolder)
+                    highlight.Name = player.Name
+                end
+                highlight.Adornee = char
+                highlight.FillColor = _G.Cfg.ChamsColor
+                highlight.OutlineColor = _G.Cfg.ChamsOutlineColor
+                highlight.FillTransparency = _G.Cfg.ChamsFillTransparency
+                highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            else
+                if highlight then highlight:Destroy() end
+            end
+        end
+    end
+end
+
+-- // MAIN RENDER LOOP
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
     
+    -- Update Chams
+    UpdateChams()
+    
     if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
-        HatPart.Transparency = 0
-        HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
+        HatPart.Transparency = 0; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
         HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, 2, _G.Cfg.ChinaHatWidthScale)
         HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
-    else
-        HatPart.Transparency = 1
-    end
+    else HatPart.Transparency = 1 end
 
     if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
         local hum = target.Character.Humanoid
         TargetName.Text = target.DisplayName
         TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"
-        local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-        TweenService:Create(HealthBar, TweenInfo.new(0.2), {Size = UDim2.new(hpPercent, 0, 1, 0)}):Play()
+        HealthBar.Size = UDim2.new(math.clamp(hum.Health / hum.MaxHealth, 0, 1), 0, 1, 0)
         HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
-    else
-        TargetHUD.Visible = false
-    end
-
-    if _G.Cfg.KillAuraEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-        local dist = (char.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
-        if dist <= _G.Cfg.KillAuraRange then
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position), _G.Cfg.AimbotSmoothness)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-            task.wait()
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-        end
-    elseif _G.Cfg.AimbotEnabled and target and target.Character:FindFirstChild("Head") then
-        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
-    end
-    
-    if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
-        local root = char.HumanoidRootPart
-        local targetRoot = target.Character.HumanoidRootPart
-        local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed
-        local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius
-        root.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
-    end
+    else TargetHUD.Visible = false end
 
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
@@ -502,37 +480,31 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local arrow = ArrowPool[player] or (function()
-                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "▲"; a.Font = "SourceSansBold"; a.AnchorPoint = Vector2.new(0.5, 0.5); ArrowPool[player] = a; return a
-            end)()
-            if _G.Cfg.RadarArrowsEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                local rootPos = player.Character.HumanoidRootPart.Position
-                local _, onScreen = Camera:WorldToViewportPoint(rootPos)
-                if not onScreen then
-                    local relativePos = Camera.CFrame:PointToObjectSpace(rootPos)
-                    local angle = math.atan2(-relativePos.X, -relativePos.Z)
-                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor; arrow.Rotation = 0
-                    arrow.Position = UDim2.new(0.5, math.sin(angle) * _G.Cfg.RadarArrowsRadius, 0.5, math.cos(angle) * _G.Cfg.RadarArrowsRadius)
-                else arrow.Visible = false end
-            else arrow.Visible = false end
+    if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
+        local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed
+        local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius
+        char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
+    end
+
+    if _G.Cfg.KillAuraEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
+        local dist = (char.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
+        if dist <= _G.Cfg.KillAuraRange then
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position), _G.Cfg.AimbotSmoothness)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+            task.wait(); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
         end
+    elseif _G.Cfg.AimbotEnabled and target and target.Character:FindFirstChild("Head") then
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
 end))
 
 -- // JUMP DETECTION
-LocalPlayer.CharacterAdded:Connect(function(char)
+local function ConnectJump(char)
     local hum = char:WaitForChild("Humanoid")
-    hum.Jumping:Connect(function()
-        if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end
-    end)
-end)
-if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-    LocalPlayer.Character.Humanoid.Jumping:Connect(function()
-        if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(LocalPlayer.Character.HumanoidRootPart.Position) end
-    end)
+    hum.Jumping:Connect(function() if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end end)
 end
+LocalPlayer.CharacterAdded:Connect(ConnectJump)
+if LocalPlayer.Character then ConnectJump(LocalPlayer.Character) end
 
 -- // HIT PARTICLES
 UserInputService.InputBegan:Connect(function(input, gpe)
@@ -542,15 +514,15 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
         local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
-            local character = res.Instance:FindFirstAncestorOfClass("Model")
-            if character and character:FindFirstChildOfClass("Humanoid") and character ~= LocalPlayer.Character then
+            local char = res.Instance:FindFirstAncestorOfClass("Model")
+            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character then
                 for i = 1, 8 do CreateStar(res.Position) end
             end
         end
     end
 end)
 
--- // ИНИЦИАЛИЗАЦИЯ
+-- // ИНИЦИАЛИЗАЦИЯ МЕНЮ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange")
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
@@ -558,8 +530,9 @@ local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled"); AddSlider(mEs
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
-local mArr = CreateModule("ARROWS", "RadarArrowsEnabled"); AddSlider(mArr, "Size", "RadarArrowsSize"); AddSlider(mArr, "Radius", "RadarArrowsRadius"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
+-- Новая секция CHAMS
+local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill Color", "ChamsColor"); AddColorBtn(mCha, "Outline Color", "ChamsOutlineColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
 
 local KillBtn = Instance.new("TextButton", Content); KillBtn.Size = UDim2.new(0, 230, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1)
-KillBtn.MouseButton1Click:Connect(function() for _, c in pairs(Connections) do c:Disconnect() end GeminiGui:Destroy(); HatPart:Destroy() end)
+KillBtn.MouseButton1Click:Connect(function() for _, c in pairs(Connections) do c:Disconnect() end GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy() end)
