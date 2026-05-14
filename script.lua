@@ -38,13 +38,12 @@ _G.Cfg = {
     TargetStrafeOrbitSpeed = 5,
     TargetStrafeOrbitEnabledBind = "None",
     
-    -- РАСШИРЕННЫЙ CHINA HAT
     ChinaHatAccessoryEnabled = false,
     ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0),
-    ChinaHatHeightOffset = 0.8, -- Высота над головой
-    ChinaHatWidthScale = 3,     -- Ширина конуса
-    ChinaHatHeightScale = 2,    -- Высота самого конуса
-    ChinaHatTransparency = 0,   -- Прозрачность
+    ChinaHatHeightOffset = 0.8,
+    ChinaHatWidthScale = 3,
+    ChinaHatHeightScale = 2,
+    ChinaHatTransparency = 0,
     ChinaHatAccessoryEnabledBind = "None",
     
     JumpVisualCirclesEnabled = false,
@@ -461,10 +460,61 @@ HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored =
 local HatMesh = Instance.new("SpecialMesh", HatPart)
 HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // TARGET ESP SQUARE
+-- // TARGET ESP SQUARE (ОБНОВЛЕНО: ДИЗАЙН КАК НА ФОТО)
 local ESPMain = Instance.new("Frame", GeminiGui)
-ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
-local ESPStroke = Instance.new("UIStroke", ESPMain); ESPStroke.ApplyStrokeMode = "Border"
+ESPMain.BackgroundTransparency = 1
+ESPMain.AnchorPoint = Vector2.new(0.5, 0.5)
+ESPMain.Visible = false
+
+-- Создание углов
+local function CreateCorner(name, pos, rot)
+    local corner = Instance.new("Frame", ESPMain)
+    corner.Name = name
+    corner.Size = UDim2.new(0.3, 0, 0.3, 0) -- Размер каждого уголка
+    corner.Position = pos
+    corner.BackgroundTransparency = 1
+    
+    -- Горизонтальная линия
+    local hLine = Instance.new("Frame", corner)
+    hLine.Size = UDim2.new(1, 0, 0, 0)
+    hLine.BorderSizePixel = 0
+    hLine.ZIndex = 5
+    
+    -- Вертикальная линия
+    local vLine = Instance.new("Frame", corner)
+    vLine.Size = UDim2.new(0, 0, 1, 0)
+    vLine.BorderSizePixel = 0
+    vLine.ZIndex = 5
+
+    -- Добавляем UIStroke для толщины линий (как на фото)
+    local hStroke = Instance.new("UIStroke", hLine)
+    hStroke.Thickness = _G.Cfg.TargetESPBorderThickness
+    hStroke.ApplyStrokeMode = "Border"
+    
+    local vStroke = Instance.new("UIStroke", vLine)
+    vStroke.Thickness = _G.Cfg.TargetESPBorderThickness
+    vStroke.ApplyStrokeMode = "Border"
+
+    -- Позиционирование линий в зависимости от угла
+    if name == "TopLeft" then
+        hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(0,0,0,0)
+    elseif name == "TopRight" then
+        hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(1,0,0,0)
+    elseif name == "BottomLeft" then
+        hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(0,0,0,0)
+    elseif name == "BottomRight" then
+        hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(1,0,0,0)
+    end
+
+    return {hLine, vLine, hStroke, vStroke}
+end
+
+local corners = {
+    CreateCorner("TopLeft", UDim2.new(0,0,0,0)),
+    CreateCorner("TopRight", UDim2.new(0.7,0,0,0)),
+    CreateCorner("BottomLeft", UDim2.new(0,0,0.7,0)),
+    CreateCorner("BottomRight", UDim2.new(0.7,0,0.7,0))
+}
 
 -- // CHAMS FUNCTION
 local function UpdateChams()
@@ -499,12 +549,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     
     UpdateChams()
     
+    -- CHINA HAT
     if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
         HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
         HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale)
         HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
+    -- TARGET HUD
     if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
         local hum = target.Character.Humanoid
@@ -514,16 +566,26 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
     else TargetHUD.Visible = false end
 
+    -- TARGET ESP (ОБНОВЛЕННАЯ ЛОГИКА ОТОБРАЖЕНИЯ)
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
-            ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
+            ESPMain.Visible = true
+            ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
             ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize)
-            ESPStroke.Thickness = _G.Cfg.TargetESPBorderThickness; ESPStroke.Color = _G.Cfg.TargetESPSquareColor
             ESPMain.Rotation = (tick() * 100 * _G.Cfg.TargetESPRotationSpeed) % 360
+            
+            -- Обновление цвета и толщины всех уголков
+            for _, cornerData in pairs(corners) do
+                cornerData[3].Thickness = _G.Cfg.TargetESPBorderThickness -- hStroke
+                cornerData[4].Thickness = _G.Cfg.TargetESPBorderThickness -- vStroke
+                cornerData[3].Color = _G.Cfg.TargetESPSquareColor
+                cornerData[4].Color = _G.Cfg.TargetESPSquareColor
+            end
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
+    -- STRAFE & AIMBOT/KILL AURA
     if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
         local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed
         local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius
@@ -572,15 +634,7 @@ local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("TARGET ESP", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-
--- ОБНОВЛЕННЫЙ МОДУЛЬ CHINA HAT
-local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled")
-AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset")
-AddSlider(mHat, "Hat Width", "ChinaHatWidthScale")
-AddSlider(mHat, "Hat Height", "ChinaHatHeightScale")
-AddSlider(mHat, "Transparency", "ChinaHatTransparency")
-AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
-
+local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Hat Width", "ChinaHatWidthScale"); AddSlider(mHat, "Hat Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
 local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill Color", "ChamsColor"); AddColorBtn(mCha, "Outline Color", "ChamsOutlineColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
