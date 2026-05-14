@@ -352,11 +352,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
-    -- Radar Arrows
+    -- Arrows (Fixed Direction Logic)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local arrow = ArrowPool[player] or (function()
-                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "^"; a.Font = "SourceSansBold"; ArrowPool[player] = a; return a
+                local a = Instance.new("TextLabel", GeminiGui); a.BackgroundTransparency = 1; a.Text = "^"; a.Font = "SourceSansBold"; a.AnchorPoint = Vector2.new(0.5, 0.5); ArrowPool[player] = a; return a
             end)()
             if _G.Cfg.RadarArrowsEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                 local rootPos = player.Character.HumanoidRootPart.Position
@@ -364,7 +364,9 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 if not onScreen then
                     local relativePos = Camera.CFrame:PointToObjectSpace(rootPos)
                     local angle = math.atan2(-relativePos.X, -relativePos.Z)
-                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor; arrow.Rotation = math.deg(angle) + 180
+                    arrow.Visible = true; arrow.TextSize = _G.Cfg.RadarArrowsSize; arrow.TextColor3 = _G.Cfg.RadarArrowsColor;
+                    -- Показывает четко на цель без собственного вращения символа
+                    arrow.Rotation = math.deg(angle) + 180 
                     arrow.Position = UDim2.new(0.5, math.sin(angle) * _G.Cfg.RadarArrowsRadius, 0.5, math.cos(angle) * _G.Cfg.RadarArrowsRadius)
                 else arrow.Visible = false end
             else arrow.Visible = false end
@@ -419,7 +421,10 @@ AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "
 
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Circle Color", "JumpCircleEffectColor")
-local mArr = CreateModule("ARROWS", "RadarArrowsEnabled"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
+
+local mArr = CreateModule("ARROWS", "RadarArrowsEnabled")
+AddSlider(mArr, "Size", "RadarArrowsSize"); AddSlider(mArr, "Radius", "RadarArrowsRadius"); AddColorBtn(mArr, "Arrow Color", "RadarArrowsColor")
+
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
 
 local KillBtn = Instance.new("TextButton", Content); KillBtn.Size = UDim2.new(0, 230, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1)
