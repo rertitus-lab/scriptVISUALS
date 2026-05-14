@@ -126,7 +126,7 @@ local Title = Instance.new("TextLabel", MainFrame)
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Position = UDim2.new(0.05, 0, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "By extazz"
+Title.Text = "тгк: extazz_scripts"
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 18
 Title.TextXAlignment = Enum.TextXAlignment.Left
@@ -320,7 +320,7 @@ local function CreateModule(name, key)
     bI.TextColor3 = Color3.new(1,1,1)
     
     bI.FocusLost:Connect(function()
-        local inputStr = bI.Text:gsub("%s+", "") -- Удаляем пробелы
+        local inputStr = bI.Text:gsub("%s+", "") 
         if inputStr == "" then
             _G.Cfg[bindKey] = "None"
         else
@@ -333,7 +333,6 @@ local function CreateModule(name, key)
         if gpe then return end
         local currentBind = _G.Cfg[bindKey]
         if currentBind ~= "None" then
-            -- Сверяем название клавиши или саму клавишу
             if input.KeyCode.Name:lower() == currentBind:lower() then
                 Toggle()
             end
