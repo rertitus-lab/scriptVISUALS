@@ -14,7 +14,7 @@ ChamsFolder.Name = "Gemini_Chams_Storage"
 _G.Cfg = {
     AimbotEnabled = false,
     AimbotMaxDistance = 1000,
-    AimbotSmoothness = 1,
+    AimbotSmoothness = 0.15, -- Сделано чуть плавнее для "умного" наведения
     AimbotEnabledBind = "None",
     
     TargetHudEnabled = false,
@@ -426,6 +426,40 @@ local function GetTarget()
     return t
 end
 
+-- ПРОВЕРКА ВИДИМОСТИ (WALL CHECK)
+local function IsVisible(targetPart)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {char, targetPart.Parent, GeminiGui, ChamsFolder}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    return result == nil 
+end
+
+-- ПРОВЕРКА НАВЕДЕНИЯ МЫШИ (MOUSE OVER CHECK)
+local function IsMouseOverTarget(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return false end
+    local mousePos = UserInputService:GetMouseLocation()
+    local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, GeminiGui, ChamsFolder}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local result = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, raycastParams)
+    
+    if result and result.Instance then
+        return result.Instance:IsDescendantOf(targetPlayer.Character)
+    end
+    return false
+end
+
 local function CreateStar(position)
     local bgui = Instance.new("BillboardGui", GeminiGui)
     bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0)
@@ -460,52 +494,28 @@ HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored =
 local HatMesh = Instance.new("SpecialMesh", HatPart)
 HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // TARGET ESP SQUARE (ОБНОВЛЕНО: ДИЗАЙН КАК НА ФОТО)
+-- // TARGET ESP SQUARE
 local ESPMain = Instance.new("Frame", GeminiGui)
 ESPMain.BackgroundTransparency = 1
 ESPMain.AnchorPoint = Vector2.new(0.5, 0.5)
 ESPMain.Visible = false
 
--- Создание углов
 local function CreateCorner(name, pos, rot)
     local corner = Instance.new("Frame", ESPMain)
     corner.Name = name
-    corner.Size = UDim2.new(0.3, 0, 0.3, 0) -- Размер каждого уголка
+    corner.Size = UDim2.new(0.3, 0, 0.3, 0)
     corner.Position = pos
     corner.BackgroundTransparency = 1
-    
-    -- Горизонтальная линия
     local hLine = Instance.new("Frame", corner)
-    hLine.Size = UDim2.new(1, 0, 0, 0)
-    hLine.BorderSizePixel = 0
-    hLine.ZIndex = 5
-    
-    -- Вертикальная линия
+    hLine.Size = UDim2.new(1, 0, 0, 0); hLine.BorderSizePixel = 0; hLine.ZIndex = 5
     local vLine = Instance.new("Frame", corner)
-    vLine.Size = UDim2.new(0, 0, 1, 0)
-    vLine.BorderSizePixel = 0
-    vLine.ZIndex = 5
-
-    -- Добавляем UIStroke для толщины линий (как на фото)
-    local hStroke = Instance.new("UIStroke", hLine)
-    hStroke.Thickness = _G.Cfg.TargetESPBorderThickness
-    hStroke.ApplyStrokeMode = "Border"
-    
-    local vStroke = Instance.new("UIStroke", vLine)
-    vStroke.Thickness = _G.Cfg.TargetESPBorderThickness
-    vStroke.ApplyStrokeMode = "Border"
-
-    -- Позиционирование линий в зависимости от угла
-    if name == "TopLeft" then
-        hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(0,0,0,0)
-    elseif name == "TopRight" then
-        hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(1,0,0,0)
-    elseif name == "BottomLeft" then
-        hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(0,0,0,0)
-    elseif name == "BottomRight" then
-        hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(1,0,0,0)
-    end
-
+    vLine.Size = UDim2.new(0, 0, 1, 0); vLine.BorderSizePixel = 0; vLine.ZIndex = 5
+    local hStroke = Instance.new("UIStroke", hLine); hStroke.Thickness = _G.Cfg.TargetESPBorderThickness; hStroke.ApplyStrokeMode = "Border"
+    local vStroke = Instance.new("UIStroke", vLine); vStroke.Thickness = _G.Cfg.TargetESPBorderThickness; vStroke.ApplyStrokeMode = "Border"
+    if name == "TopLeft" then hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(0,0,0,0)
+    elseif name == "TopRight" then hLine.Position = UDim2.new(0,0,0,0); vLine.Position = UDim2.new(1,0,0,0)
+    elseif name == "BottomLeft" then hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(0,0,0,0)
+    elseif name == "BottomRight" then hLine.Position = UDim2.new(0,0,1,0); vLine.Position = UDim2.new(1,0,0,0) end
     return {hLine, vLine, hStroke, vStroke}
 end
 
@@ -522,41 +532,29 @@ local function UpdateChams()
         if player ~= LocalPlayer then
             local char = player.Character
             local highlight = ChamsFolder:FindFirstChild(player.Name)
-            
             if _G.Cfg.ChamsEnabled and char then
-                if not highlight then
-                    highlight = Instance.new("Highlight", ChamsFolder)
-                    highlight.Name = player.Name
-                end
-                highlight.Adornee = char
-                highlight.FillColor = _G.Cfg.ChamsColor
-                highlight.OutlineColor = _G.Cfg.ChamsOutlineColor
-                highlight.FillTransparency = _G.Cfg.ChamsFillTransparency
-                highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency
-                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            else
-                if highlight then highlight:Destroy() end
-            end
+                if not highlight then highlight = Instance.new("Highlight", ChamsFolder); highlight.Name = player.Name end
+                highlight.Adornee = char; highlight.FillColor = _G.Cfg.ChamsColor; highlight.OutlineColor = _G.Cfg.ChamsOutlineColor
+                highlight.FillTransparency = _G.Cfg.ChamsFillTransparency; highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency; highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            else if highlight then highlight:Destroy() end end
         end
     end
 end
 
 -- // MAIN RENDER LOOP
+local lastAttackTime = 0
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
-    
     UpdateChams()
     
-    -- CHINA HAT
     if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
         HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor
         HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale)
         HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
-    -- TARGET HUD
     if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
         local hum = target.Character.Humanoid
@@ -566,41 +564,48 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
     else TargetHUD.Visible = false end
 
-    -- TARGET ESP (ОБНОВЛЕННАЯ ЛОГИКА ОТОБРАЖЕНИЯ)
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
-            ESPMain.Visible = true
-            ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
-            ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize)
-            ESPMain.Rotation = (tick() * 100 * _G.Cfg.TargetESPRotationSpeed) % 360
-            
-            -- Обновление цвета и толщины всех уголков
-            for _, cornerData in pairs(corners) do
-                cornerData[3].Thickness = _G.Cfg.TargetESPBorderThickness -- hStroke
-                cornerData[4].Thickness = _G.Cfg.TargetESPBorderThickness -- vStroke
-                cornerData[3].Color = _G.Cfg.TargetESPSquareColor
-                cornerData[4].Color = _G.Cfg.TargetESPSquareColor
-            end
+            ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 100 * _G.Cfg.TargetESPRotationSpeed) % 360
+            for _, cornerData in pairs(corners) do cornerData[3].Thickness = _G.Cfg.TargetESPBorderThickness; cornerData[4].Thickness = _G.Cfg.TargetESPBorderThickness; cornerData[3].Color = _G.Cfg.TargetESPSquareColor; cornerData[4].Color = _G.Cfg.TargetESPSquareColor end
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
-    -- STRAFE & AIMBOT/KILL AURA
     if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
         local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed
         local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius
         char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
     end
 
-    if _G.Cfg.KillAuraEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
-        local dist = (char.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
-        if dist <= _G.Cfg.KillAuraRange then
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position), _G.Cfg.AimbotSmoothness)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-            task.wait(); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+    -- // УМНАЯ KILL AURA И AIMBOT
+    if target and target.Character and char and char:FindFirstChild("HumanoidRootPart") then
+        local targetPart = target.Character:FindFirstChild("HumanoidRootPart")
+        local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
+        
+        if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange then
+            -- Интеллектуальная проверка: атакуем только если цель видима
+            if IsVisible(targetPart) then
+                -- Наведение (Плавный аим)
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
+                
+                -- Система "Умного клика" (Рандомизированный CPS для обхода защит)
+                if tick() - lastAttackTime > (math.random(8, 14) / 100) then -- Примерно 7-12 кликов в секунду
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                    task.wait(0.01)
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                    lastAttackTime = tick()
+                    
+                    -- Авто-прыжок при атаке
+                    if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then
+                        char.Humanoid.Jump = true
+                    end
+                end
+            end
+        elseif _G.Cfg.AimbotEnabled and target.Character:FindFirstChild("Head") then
+            -- Обычный Аимбот, если Аура выключена или цель далеко
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
         end
-    elseif _G.Cfg.AimbotEnabled and target and target.Character:FindFirstChild("Head") then
-        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
 end))
 
