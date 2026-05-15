@@ -11,6 +11,8 @@ local Connections = {}
 local ChamsFolder = Instance.new("Folder", game.CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
 
+local FriendsList = {}
+
 -- // ПОЛНАЯ КОНФИГУРАЦИЯ
 _G.Cfg = {
     AimbotEnabled = false,
@@ -75,6 +77,12 @@ _G.Cfg = {
     ParticleColor = Color3.fromRGB(255, 255, 255),
     ParticleSize = 4,
     DamageParticlesEnabledBind = "None",
+
+    ClickFriendEnabled = false,
+    ClickFriendEnabledBind = "None",
+
+    DeleteFriendEnabled = false,
+    DeleteFriendEnabledBind = "None",
     
     AspectRatioValue = 80
 }
@@ -85,7 +93,7 @@ local HitSounds = {
     [3] = "rbxassetid://135478009117226",
     [4] = "rbxassetid://96735711388006",
     [5] = "rbxassetid://126048302910782",
-    [6] = "rbxassetid://7255642553" -- Обновленный ID
+    [6] = "rbxassetid://7255642553"
 }
 
 local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
@@ -128,6 +136,59 @@ local function ShowNotify(text, isEnabled)
         TweenService:Create(s, tO, {Transparency = 1}):Play()
         task.wait(0.3)
         nF:Destroy()
+    end)
+end
+
+-- // FRIEND SYSTEM LOGIC
+local function StartFriendProcess(isDelete)
+    local BigLabel = Instance.new("TextLabel", GeminiGui)
+    BigLabel.Size = UDim2.new(1, 0, 0, 100)
+    BigLabel.Position = UDim2.new(0, 0, 0.2, 0)
+    BigLabel.BackgroundTransparency = 1
+    BigLabel.Text = isDelete and "нажмите три раза по игроку чтобы удалить из друзей" or "кликните по своему другу три раза в течении 5 секунд!"
+    BigLabel.TextColor3 = isDelete and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0)
+    BigLabel.Font = Enum.Font.SourceSansBold
+    BigLabel.TextSize = 40
+    BigLabel.TextStrokeTransparency = 0
+    
+    local ClickData = {}
+    local ForceStop = false
+    
+    local ClickCon = UserInputService.InputBegan:Connect(function(input, gpe)
+        if not gpe and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mousePos = UserInputService:GetMouseLocation()
+            local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+            local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
+            if res and res.Instance then
+                local char = res.Instance:FindFirstAncestorOfClass("Model")
+                local p = Players:GetPlayerFromCharacter(char)
+                if p and p ~= LocalPlayer then
+                    if isDelete and not FriendsList[p.Name] then return end
+                    ClickData[p.Name] = (ClickData[p.Name] or 0) + 1
+                    if ClickData[p.Name] >= 3 then
+                        if isDelete then
+                            FriendsList[p.Name] = nil
+                            if char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
+                            ShowNotify("Friend Removed: " .. p.DisplayName, false)
+                            _G.Cfg.DeleteFriendEnabled = false
+                        else
+                            FriendsList[p.Name] = true
+                            ShowNotify("Friend Added: " .. p.DisplayName, true)
+                            _G.Cfg.ClickFriendEnabled = false
+                        end
+                        ForceStop = true
+                    end
+                end
+            end
+        end
+    end)
+    
+    task.spawn(function()
+        local start = tick()
+        repeat task.wait() until tick() - start > 5 or ForceStop
+        ClickCon:Disconnect()
+        if BigLabel.Parent then BigLabel:Destroy() end
+        if isDelete then _G.Cfg.DeleteFriendEnabled = false else _G.Cfg.ClickFriendEnabled = false end
     end)
 end
 
@@ -290,16 +351,26 @@ local function CreateModule(name, key)
     
     local function RunToggle()
         _G.Cfg[key] = not _G.Cfg[key]
-        Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
-        ShowNotify(name, _G.Cfg[key])
         
         if key == "SpeedEnabled" and not _G.Cfg[key] then
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
                 LocalPlayer.Character.Humanoid.WalkSpeed = 16
             end
         end
+
+        if key == "ClickFriendEnabled" and _G.Cfg[key] then
+            StartFriendProcess(false)
+        elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
+            StartFriendProcess(true)
+        end
     end
     Toggle.MouseButton1Click:Connect(RunToggle)
+    
+    task.spawn(function()
+        while task.wait(0.1) do
+            Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+        end
+    end)
     
     local Inner = Instance.new("Frame", ModFrame)
     Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1
@@ -334,7 +405,7 @@ end
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+        if v ~= LocalPlayer and not FriendsList[v.Name] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (LocalPlayer.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
@@ -429,10 +500,25 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character; local highlight = ChamsFolder:FindFirstChild(player.Name)
-            if _G.Cfg.ChamsEnabled and char then
+            if FriendsList[player.Name] then
+                if highlight then highlight:Destroy() end
+                local friendHighlight = char and char:FindFirstChild("FriendHighlight")
+                if not friendHighlight and char then
+                    friendHighlight = Instance.new("Highlight", char)
+                    friendHighlight.Name = "FriendHighlight"
+                    friendHighlight.FillColor = Color3.fromRGB(0, 255, 0)
+                    friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0)
+                    friendHighlight.FillTransparency = 0.8
+                    friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
+                end
+            elseif _G.Cfg.ChamsEnabled and char then
+                if char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
                 if not highlight then highlight = Instance.new("Highlight", ChamsFolder); highlight.Name = player.Name end
                 highlight.Adornee = char; highlight.FillColor = _G.Cfg.ChamsColor; highlight.OutlineColor = _G.Cfg.ChamsOutlineColor; highlight.FillTransparency = _G.Cfg.ChamsFillTransparency; highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency; highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            else if highlight then highlight:Destroy() end end
+            else 
+                if highlight then highlight:Destroy() end
+                if char and char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
+            end
         end
     end
     
@@ -498,7 +584,6 @@ BLContainer.BackgroundTransparency = 1
 local BLLayout = Instance.new("UIListLayout", BLContainer)
 BLLayout.Padding = UDim.new(0, 2)
 
--- Dragging logic
 local dragging, dragInput, dragStart, startPos
 BindListFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -528,7 +613,8 @@ local function UpdateKeybindList()
         "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "NoClipEnabled", 
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
-        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled"
+        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
+        "ClickFriendEnabled", "DeleteFriendEnabled"
     }
     
     for _, key in pairs(modules) do
@@ -572,7 +658,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
             local char = res.Instance:FindFirstAncestorOfClass("Model")
-            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character then 
+            local p = Players:GetPlayerFromCharacter(char)
+            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character and not FriendsList[char.Name] then 
                 if _G.Cfg.DamageParticlesEnabled then
                     for i = 1, 8 do CreateStar(res.Position) end 
                 end
@@ -600,6 +687,8 @@ local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mH
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
 local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
+local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled")
+local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled")
 
 local KillBtn = Instance.new("TextButton", ContentScroll); KillBtn.Size = UDim2.new(0, 305, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = "SourceSansBold"
 Instance.new("UICorner", KillBtn)
