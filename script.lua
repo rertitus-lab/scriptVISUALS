@@ -84,7 +84,8 @@ local HitSounds = {
     [2] = "rbxassetid://130201387574815",
     [3] = "rbxassetid://135478009117226",
     [4] = "rbxassetid://96735711388006",
-    [5] = "rbxassetid://126048302910782"
+    [5] = "rbxassetid://126048302910782",
+    [6] = "rbxassetid://7255642553" -- Обновленный ID
 }
 
 local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
@@ -93,7 +94,7 @@ GeminiGui.IgnoreGuiInset = true
 
 local function ShowNotify(text, isEnabled)
     local sound = Instance.new("Sound", game:GetService("SoundService"))
-    sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://1053296721"
+    sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://129384639546095"
     sound.Volume = 0.5
     sound:Play()
     game:GetService("Debris"):AddItem(sound, 1)
@@ -471,7 +472,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- // KEYBIND LIST SYSTEM (FIXED)
+-- // KEYBIND LIST SYSTEM
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30)
 BindListFrame.Position = UDim2.new(0, 20, 0.5, 0)
@@ -518,7 +519,6 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 local function UpdateKeybindList()
-    -- Очищаем старые метки
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
     end
@@ -533,7 +533,6 @@ local function UpdateKeybindList()
     
     for _, key in pairs(modules) do
         local bindKey = key .. "Bind"
-        -- Показываем ТОЛЬКО если функция включена И у нее назначен бинд
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
             activeCount = activeCount + 1
             local label = Instance.new("TextLabel", BLContainer)
@@ -553,7 +552,6 @@ local function UpdateKeybindList()
     end
 end
 
--- Обновляем список раз в полсекунды (чтобы не лагало)
 task.spawn(function()
     while task.wait(0.5) do
         UpdateKeybindList()
@@ -579,7 +577,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
                     for i = 1, 8 do CreateStar(res.Position) end 
                 end
                 if _G.Cfg.HitSoundEnabled then
-                    local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 5)
+                    local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
                     local sId = HitSounds[sIdx]
                     local s = Instance.new("Sound", game:GetService("SoundService"))
                     s.SoundId = sId; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
@@ -594,7 +592,7 @@ local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", 
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
-local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-5)", "HitSoundMode")
+local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
