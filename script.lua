@@ -25,12 +25,16 @@ _G.Cfg = {
     KillAuraRange = 25,
     KillAuraJump = true,
     KillAuraStrafe = true,
+    KillAuraSpeed = 1, -- Новая настройка (1 = 0.1 сек, 10 = 1.0 сек)
     KillAuraEnabledBind = "None",
     
-    -- Новые параметры Speed
     SpeedEnabled = false,
     WalkSpeedValue = 16,
     SpeedEnabledBind = "None",
+
+    HitSoundEnabled = false,
+    HitSoundMode = 1, 
+    HitSoundEnabledBind = "None",
     
     TargetESPSquareEnabled = false,
     TargetESPSquareSize = 80,
@@ -70,6 +74,15 @@ _G.Cfg = {
     DamageParticlesEnabledBind = "None",
     
     AspectRatioValue = 70
+}
+
+-- // ОБНОВЛЕННЫЙ СПИСОК ЗВУКОВ (ВАШИ ID)
+local HitSounds = {
+    [1] = "rbxassetid://140604838213617",
+    [2] = "rbxassetid://130201387574815",
+    [3] = "rbxassetid://135478009117226",
+    [4] = "rbxassetid://96735711388006",
+    [5] = "rbxassetid://126048302910782"
 }
 
 -- // GUI SETUP
@@ -188,7 +201,6 @@ local function ToggleMenu()
 end
 Island.MouseButton1Click:Connect(ToggleMenu)
 
--- Обновление статистики
 task.spawn(function()
     while task.wait(0.5) do
         local fps = math.floor(workspace:GetRealPhysicsFPS())
@@ -285,7 +297,6 @@ local function CreateModule(name, key)
         Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
         ShowNotify(name, _G.Cfg[key])
         
-        -- Сброс скорости при выключении
         if key == "SpeedEnabled" and not _G.Cfg[key] then
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
                 LocalPlayer.Character.Humanoid.WalkSpeed = 16
@@ -368,11 +379,9 @@ local function CreateJumpCircle(pos)
     task.delay(0.8, function() p:Destroy() end)
 end
 
--- // CHINA HAT
 local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // TARGET HUD
 local TargetHUD = Instance.new("Frame", GeminiGui); TargetHUD.Size = UDim2.new(0, 200, 0, 70); TargetHUD.Position = UDim2.new(0.5, 50, 0.5, 50); TargetHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 20); TargetHUD.Visible = false; TargetHUD.Active = true; TargetHUD.Draggable = true 
 Instance.new("UIStroke", TargetHUD).Color = Color3.fromRGB(60, 60, 60)
 local TargetIcon = Instance.new("ImageLabel", TargetHUD); TargetIcon.Size = UDim2.new(0, 50, 0, 50); TargetIcon.Position = UDim2.new(0, 10, 0, 10)
@@ -381,7 +390,6 @@ local HealthBack = Instance.new("Frame", TargetHUD); HealthBack.Size = UDim2.new
 local HealthBar = Instance.new("Frame", HealthBack); HealthBar.Size = UDim2.new(1, 0, 1, 0); HealthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100); HealthBar.BorderSizePixel = 0
 local HealthText = Instance.new("TextLabel", HealthBack); HealthText.Size = UDim2.new(1, 0, 1, 0); HealthText.BackgroundTransparency = 1; HealthText.TextColor3 = Color3.new(1, 1, 1); HealthText.TextSize = 12; HealthText.Font = "SourceSansBold"
 
--- // ИСПРАВЛЕННЫЙ TARGET ESP
 local ESPMain = Instance.new("Frame", GeminiGui); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
 local function CreateCorner(name, pos)
     local corner = Instance.new("Frame", ESPMain); corner.Size = UDim2.new(0.3, 0, 0.3, 0); corner.Position = pos; corner.BackgroundTransparency = 1
@@ -400,12 +408,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
     
-    -- Функция Speed
     if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then
         char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
     end
 
-    -- Chams
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character; local highlight = ChamsFolder:FindFirstChild(player.Name)
@@ -441,7 +447,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
         if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-            if tick() - lastAttackTime > (math.random(8, 14) / 100) then
+            
+            -- // ОБНОВЛЕННАЯ ЛОГИКА СКОРОСТИ KILL AURA
+            local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
+            if tick() - lastAttackTime > attackDelay then
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); lastAttackTime = tick()
                 if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
             end
@@ -458,25 +467,34 @@ local function ConnectJump(char)
 end
 LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then ConnectJump(LocalPlayer.Character) end
 
--- // HIT PARTICLES
+-- // CLICK ACTIONS (PARTICLES & HIT SOUND)
 UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe or not _G.Cfg.DamageParticlesEnabled then return end
+    if gpe then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
             local char = res.Instance:FindFirstAncestorOfClass("Model")
-            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character then for i = 1, 8 do CreateStar(res.Position) end end
+            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character then 
+                if _G.Cfg.DamageParticlesEnabled then
+                    for i = 1, 8 do CreateStar(res.Position) end 
+                end
+                -- ОБНОВЛЕННАЯ ЛОГИКА HIT SOUND С ВАШИМИ ID
+                if _G.Cfg.HitSoundEnabled then
+                    local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 5)
+                    local sId = HitSounds[sIdx]
+                    local s = Instance.new("Sound", game:GetService("SoundService"))
+                    s.SoundId = sId; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
+                end
+            end
         end
     end
 end)
 
 -- // ИНИЦИАЛИЗАЦИЯ МЕНЮ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
-local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange")
-
--- НОВЫЙ МОДУЛЬ СКОРОСТИ
+local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
-
+local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-5)", "HitSoundMode")
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
