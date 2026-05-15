@@ -15,7 +15,7 @@ ChamsFolder.Name = "Gemini_Chams_Storage"
 _G.Cfg = {
     AimbotEnabled = false,
     AimbotMaxDistance = 1000,
-    AimbotSmoothness = 0.15,
+    AimbotSmoothness = 1,
     AimbotEnabledBind = "None",
     
     TargetHudEnabled = false,
@@ -25,27 +25,30 @@ _G.Cfg = {
     KillAuraRange = 25,
     KillAuraJump = true,
     KillAuraStrafe = true,
-    KillAuraSpeed = 1, -- Новая настройка (1 = 0.1 сек, 10 = 1.0 сек)
+    KillAuraSpeed = 1, 
     KillAuraEnabledBind = "None",
     
     SpeedEnabled = false,
     WalkSpeedValue = 16,
     SpeedEnabledBind = "None",
 
+    NoClipEnabled = false,
+    NoClipEnabledBind = "None",
+
     HitSoundEnabled = false,
     HitSoundMode = 1, 
     HitSoundEnabledBind = "None",
     
     TargetESPSquareEnabled = false,
-    TargetESPSquareSize = 80,
-    TargetESPBorderThickness = 2,
+    TargetESPSquareSize = 110,
+    TargetESPBorderThickness = 6.5,
     TargetESPSquareColor = Color3.new(1, 1, 1),
     TargetESPRotationSpeed = 2,
     TargetESPSquareEnabledBind = "None",
     
     TargetStrafeOrbitEnabled = false,
-    TargetStrafeOrbitRadius = 10,
-    TargetStrafeOrbitSpeed = 5,
+    TargetStrafeOrbitRadius = 5,
+    TargetStrafeOrbitSpeed = 15,
     TargetStrafeOrbitEnabledBind = "None",
     
     ChinaHatAccessoryEnabled = false,
@@ -68,15 +71,14 @@ _G.Cfg = {
     ChamsOutlineTransparency = 0,
     ChamsEnabledBind = "None",
     
-    DamageParticlesEnabled = true,
+    DamageParticlesEnabled = false,
     ParticleColor = Color3.fromRGB(255, 255, 255),
     ParticleSize = 4,
     DamageParticlesEnabledBind = "None",
     
-    AspectRatioValue = 70
+    AspectRatioValue = 80
 }
 
--- // ОБНОВЛЕННЫЙ СПИСОК ЗВУКОВ (ВАШИ ID)
 local HitSounds = {
     [1] = "rbxassetid://140604838213617",
     [2] = "rbxassetid://130201387574815",
@@ -85,12 +87,10 @@ local HitSounds = {
     [5] = "rbxassetid://126048302910782"
 }
 
--- // GUI SETUP
 local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
 GeminiGui.Name = "Gemini_V60_Final"
 GeminiGui.IgnoreGuiInset = true
 
--- // NOTIFICATION SYSTEM
 local function ShowNotify(text, isEnabled)
     local sound = Instance.new("Sound", game:GetService("SoundService"))
     sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://1053296721"
@@ -130,7 +130,6 @@ local function ShowNotify(text, isEnabled)
     end)
 end
 
--- // ВЕРХНИЙ ОСТРОВОК
 local Island = Instance.new("TextButton", GeminiGui)
 Island.Size = UDim2.new(0, 350, 0, 35)
 Island.Position = UDim2.new(0.5, -175, 0, 10)
@@ -162,7 +161,6 @@ StatsLabel.TextSize = 14
 StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 StatsLabel.TextXAlignment = "Right"
 
--- // ЦЕНТРАЛЬНОЕ МЕНЮ
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 650, 0, 450)
 MainFrame.Position = UDim2.new(0.5, -325, 0.5, -225)
@@ -186,7 +184,6 @@ local UIGrid = Instance.new("UIGridLayout", ContentScroll)
 UIGrid.CellSize = UDim2.new(0, 305, 0, 130)
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 
--- // АНИМАЦИЯ МЕНЮ
 local MenuOpen = false
 local function ToggleMenu()
     MenuOpen = not MenuOpen
@@ -217,7 +214,6 @@ CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120)
 CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 CPFrame.Visible = false
 CPFrame.Active = true
-CPFrame.Draggable = true
 CPFrame.ZIndex = 20
 Instance.new("UIStroke", CPFrame).Color = Color3.fromRGB(50, 50, 50)
 
@@ -276,7 +272,6 @@ end)
 local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25
 ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false end)
 
--- // UI BUILDERS
 local function CreateModule(name, key)
     local ModFrame = Instance.new("Frame", ContentScroll)
     ModFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -313,7 +308,7 @@ local function CreateModule(name, key)
     local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
     local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 14
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 12
-    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey] end)
+    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey] end)
     
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
         if not gpe and _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then RunToggle() end
@@ -357,6 +352,24 @@ local function IsVisible(targetPart)
     local result = workspace:Raycast(origin, direction, raycastParams)
     return result == nil 
 end
+
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and not part.CanCollide then
+                if part.Name ~= "HumanoidRootPart" then 
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end))
 
 local function CreateStar(position)
     local bgui = Instance.new("BillboardGui", GeminiGui)
@@ -447,8 +460,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
         if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-            
-            -- // ОБНОВЛЕННАЯ ЛОГИКА СКОРОСТИ KILL AURA
             local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
             if tick() - lastAttackTime > attackDelay then
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); lastAttackTime = tick()
@@ -460,6 +471,95 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 end))
 
+-- // KEYBIND LIST SYSTEM (FIXED)
+local BindListFrame = Instance.new("Frame", GeminiGui)
+BindListFrame.Size = UDim2.new(0, 180, 0, 30)
+BindListFrame.Position = UDim2.new(0, 20, 0.5, 0)
+BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+BindListFrame.Visible = false
+Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 5)
+local BLStroke = Instance.new("UIStroke", BindListFrame)
+BLStroke.Color = Color3.fromRGB(60, 60, 60)
+BLStroke.Thickness = 1.5
+
+local BLTitle = Instance.new("TextLabel", BindListFrame)
+BLTitle.Size = UDim2.new(1, 0, 0, 25)
+BLTitle.Text = "Keybind List"
+BLTitle.TextColor3 = Color3.new(1, 1, 1)
+BLTitle.Font = Enum.Font.SourceSansBold
+BLTitle.TextSize = 14
+BLTitle.BackgroundTransparency = 1
+
+local BLContainer = Instance.new("Frame", BindListFrame)
+BLContainer.Size = UDim2.new(1, -10, 1, -30)
+BLContainer.Position = UDim2.new(0, 5, 0, 25)
+BLContainer.BackgroundTransparency = 1
+local BLLayout = Instance.new("UIListLayout", BLContainer)
+BLLayout.Padding = UDim.new(0, 2)
+
+-- Dragging logic
+local dragging, dragInput, dragStart, startPos
+BindListFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true; dragStart = input.Position; startPos = BindListFrame.Position
+    end
+end)
+BindListFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        BindListFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+local function UpdateKeybindList()
+    -- Очищаем старые метки
+    for _, child in pairs(BLContainer:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    
+    local activeCount = 0
+    local modules = {
+        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "NoClipEnabled", 
+        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
+        "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
+        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled"
+    }
+    
+    for _, key in pairs(modules) do
+        local bindKey = key .. "Bind"
+        -- Показываем ТОЛЬКО если функция включена И у нее назначен бинд
+        if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
+            activeCount = activeCount + 1
+            local label = Instance.new("TextLabel", BLContainer)
+            label.Size = UDim2.new(1, 0, 0, 18)
+            label.BackgroundTransparency = 1
+            label.Text = " " .. key:gsub("Enabled", ""):upper() .. " [" .. tostring(_G.Cfg[bindKey]):upper() .. "]"
+            label.TextColor3 = Color3.fromRGB(200, 200, 200)
+            label.TextSize = 13
+            label.Font = Enum.Font.SourceSans
+            label.TextXAlignment = Enum.TextXAlignment.Left
+        end
+    end
+    
+    BindListFrame.Visible = activeCount > 0
+    if activeCount > 0 then
+        BindListFrame.Size = UDim2.new(0, 180, 0, 30 + (activeCount * 20))
+    end
+end
+
+-- Обновляем список раз в полсекунды (чтобы не лагало)
+task.spawn(function()
+    while task.wait(0.5) do
+        UpdateKeybindList()
+    end
+end)
+
 -- // JUMP DETECTION
 local function ConnectJump(char)
     local hum = char:WaitForChild("Humanoid")
@@ -467,7 +567,7 @@ local function ConnectJump(char)
 end
 LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then ConnectJump(LocalPlayer.Character) end
 
--- // CLICK ACTIONS (PARTICLES & HIT SOUND)
+-- // CLICK ACTIONS
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -478,7 +578,6 @@ UserInputService.InputBegan:Connect(function(input, gpe)
                 if _G.Cfg.DamageParticlesEnabled then
                     for i = 1, 8 do CreateStar(res.Position) end 
                 end
-                -- ОБНОВЛЕННАЯ ЛОГИКА HIT SOUND С ВАШИМИ ID
                 if _G.Cfg.HitSoundEnabled then
                     local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 5)
                     local sId = HitSounds[sIdx]
@@ -494,6 +593,7 @@ end)
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
+local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-5)", "HitSoundMode")
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
