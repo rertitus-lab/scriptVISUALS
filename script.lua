@@ -27,6 +27,11 @@ _G.Cfg = {
     KillAuraStrafe = true,
     KillAuraEnabledBind = "None",
     
+    -- Новые параметры Speed
+    SpeedEnabled = false,
+    WalkSpeedValue = 16,
+    SpeedEnabledBind = "None",
+    
     TargetESPSquareEnabled = false,
     TargetESPSquareSize = 80,
     TargetESPBorderThickness = 2,
@@ -279,6 +284,13 @@ local function CreateModule(name, key)
         _G.Cfg[key] = not _G.Cfg[key]
         Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
         ShowNotify(name, _G.Cfg[key])
+        
+        -- Сброс скорости при выключении
+        if key == "SpeedEnabled" and not _G.Cfg[key] then
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = 16
+            end
+        end
     end
     Toggle.MouseButton1Click:Connect(RunToggle)
     
@@ -388,6 +400,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     Camera.FieldOfView = _G.Cfg.AspectRatioValue
     
+    -- Функция Speed
+    if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
+    end
+
     -- Chams
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -456,6 +473,10 @@ end)
 -- // ИНИЦИАЛИЗАЦИЯ МЕНЮ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange")
+
+-- НОВЫЙ МОДУЛЬ СКОРОСТИ
+local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
+
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
