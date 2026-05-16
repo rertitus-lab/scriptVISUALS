@@ -1,19 +1,31 @@
+local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService") -- Нужен для сохранения настроек в JSON
+
+-- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появлялся
+if CoreGui:FindFirstChild("Gemini_V60_Final") then
+    CoreGui.Gemini_V60_Final:Destroy()
+end
+if CoreGui:FindFirstChild("Gemini_Chams_Storage") then
+    CoreGui.Gemini_Chams_Storage:Destroy()
+end
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Stats = game:GetService("Stats")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local Connections = {}
-local ChamsFolder = Instance.new("Folder", game.CoreGui)
+local ChamsFolder = Instance.new("Folder", CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
 
 local FriendsList = {}
 
--- // ПОЛНАЯ КОНФИГУРАЦИЯ
+-- // ПОЛНАЯ КОНФИГУРАЦИЯ (Дефолтная)
 _G.Cfg = {
     AimbotEnabled = false,
     AimbotMaxDistance = 1000,
@@ -45,7 +57,6 @@ _G.Cfg = {
     TargetESPSquareSize = 110,
     TargetESPBorderThickness = 6.5,
     TargetESPSquareColor = Color3.new(1, 1, 1),
-    TargetESPRotationSpeed = 2,
     TargetESPSquareEnabledBind = "None",
     
     TargetStrafeOrbitEnabled = false,
@@ -76,6 +87,7 @@ _G.Cfg = {
     DamageParticlesEnabled = false,
     ParticleColor = Color3.fromRGB(255, 255, 255),
     ParticleSize = 4,
+    ParticleAmount = 8, -- Настройка количества частиц
     DamageParticlesEnabledBind = "None",
 
     ClickFriendEnabled = false,
@@ -84,8 +96,63 @@ _G.Cfg = {
     DeleteFriendEnabled = false,
     DeleteFriendEnabledBind = "None",
     
-    AspectRatioValue = 80
+    WorldColorEnabled = false,
+    WorldColorValue = Color3.fromRGB(255, 0, 0),
+    WorldColorTransparency = 0.5,
+    WorldColorDarkness = 0,
+    WorldColorEnabledBind = "None",
+    
+    AspectRatioValue = 80,
+    
+    -- НАСТРОЙКИ ДЛЯ БАЙПАСА FOV
+    CustomFovEnabled = false,
+    CustomFovValue = 100,
+    CustomFovEnabledBind = "None"
 }
+
+-- // СИСТЕМА СОХРАНЕНИЯ И ЗАГРУЗКИ КОНФИГА
+local ConfigFileName = "Gemini_V60_Config.json"
+
+local function SaveConfig()
+    local copy = {}
+    for k, v in pairs(_G.Cfg) do
+        if typeof(v) == "Color3" then
+            copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+        else
+            copy[k] = v
+        end
+    end
+    pcall(function()
+        writefile(ConfigFileName, HttpService:JSONEncode(copy))
+    end)
+end
+
+local function LoadConfig()
+    if isfile and isfile(ConfigFileName) then
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(readfile(ConfigFileName))
+        end)
+        if success and type(data) == "table" then
+            for k, v in pairs(data) do
+                if type(v) == "table" and v.isColor then
+                    _G.Cfg[k] = Color3.new(v.R, v.G, v.B)
+                else
+                    _G.Cfg[k] = v
+                end
+            end
+        end
+    end
+end
+
+-- Сразу загружаем старый конфиг, если он есть
+LoadConfig()
+
+-- ЖЕСТКИЙ БАЙПАС ДЛЯ BRIDGE DUEL (Перехват изменений FOV самой игры)
+table.insert(Connections, Camera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
+    if _G.Cfg.CustomFovEnabled and Camera.FieldOfView ~= _G.Cfg.CustomFovValue then
+        Camera.FieldOfView = _G.Cfg.CustomFovValue
+    end
+end))
 
 local HitSounds = {
     [1] = "rbxassetid://140604838213617",
@@ -96,9 +163,10 @@ local HitSounds = {
     [6] = "rbxassetid://7255642553"
 }
 
-local GeminiGui = Instance.new("ScreenGui", game.CoreGui)
+local GeminiGui = Instance.new("ScreenGui", CoreGui)
 GeminiGui.Name = "Gemini_V60_Final"
 GeminiGui.IgnoreGuiInset = true
+GeminiGui.ResetOnSpawn = false 
 
 local function ShowNotify(text, isEnabled)
     local sound = Instance.new("Sound", game:GetService("SoundService"))
@@ -176,6 +244,7 @@ local function StartFriendProcess(isDelete)
                             ShowNotify("Friend Added: " .. p.DisplayName, true)
                             _G.Cfg.ClickFriendEnabled = false
                         end
+                        SaveConfig() 
                         ForceStop = true
                     end
                 end
@@ -189,6 +258,7 @@ local function StartFriendProcess(isDelete)
         ClickCon:Disconnect()
         if BigLabel.Parent then BigLabel:Destroy() end
         if isDelete then _G.Cfg.DeleteFriendEnabled = false else _G.Cfg.ClickFriendEnabled = false end
+        SaveConfig()
     end)
 end
 
@@ -225,10 +295,10 @@ StatsLabel.TextXAlignment = "Right"
 
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 650, 0, 450)
-MainFrame.Position = UDim2.new(0.5, -325, 0.5, -225)
+MainFrame.Position = UDim2.new(0.5, -325, 0.5, -180) 
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-MainFrame.Visible = false
-MainFrame.BackgroundTransparency = 1
+MainFrame.Visible = false 
+MainFrame.BackgroundTransparency = 1 
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
 local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Color = Color3.fromRGB(50, 50, 50)
@@ -246,7 +316,7 @@ local UIGrid = Instance.new("UIGridLayout", ContentScroll)
 UIGrid.CellSize = UDim2.new(0, 305, 0, 130)
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 
-local MenuOpen = false
+local MenuOpen = false 
 local function ToggleMenu()
     MenuOpen = not MenuOpen
     if MenuOpen then
@@ -304,6 +374,7 @@ local function UpdateRGB()
     local color = Color3.fromHSV(h, s, v)
     if _G.Cfg[curKey] ~= nil then _G.Cfg[curKey] = color end
     SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1))
+    SaveConfig() 
 end
 
 local SVTrigger = Instance.new("TextButton", SatValBox); SVTrigger.Size = UDim2.new(1, 0, 1, 0); SVTrigger.BackgroundTransparency = 1; SVTrigger.Text = ""; SVTrigger.ZIndex = 26
@@ -332,7 +403,7 @@ SVTrigger.MouseButton1Down:Connect(function()
 end)
 
 local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25
-ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false end)
+ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveConfig() end)
 
 local function CreateModule(name, key)
     local ModFrame = Instance.new("Frame", ContentScroll)
@@ -351,6 +422,7 @@ local function CreateModule(name, key)
     
     local function RunToggle()
         _G.Cfg[key] = not _G.Cfg[key]
+        ShowNotify(name, _G.Cfg[key])
         
         if key == "SpeedEnabled" and not _G.Cfg[key] then
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -363,6 +435,13 @@ local function CreateModule(name, key)
         elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
             StartFriendProcess(true)
         end
+        
+        if key == "WorldColorEnabled" and not _G.Cfg[key] then
+            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+            Lighting.ExposureCompensation = 0
+        end
+        SaveConfig() 
     end
     Toggle.MouseButton1Click:Connect(RunToggle)
     
@@ -380,7 +459,7 @@ local function CreateModule(name, key)
     local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
     local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 14
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 12
-    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey] end)
+    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
     
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
         if not gpe and _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then RunToggle() end
@@ -393,7 +472,7 @@ local function AddSlider(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
     local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 11
-    i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v end end)
+    i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v; SaveConfig() end end)
 end
 
 local function AddColorBtn(parent, text, key)
@@ -491,10 +570,29 @@ local lastAttackTime = 0
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
-    Camera.FieldOfView = _G.Cfg.AspectRatioValue
+    
+    -- Дополнительный форс-контроль FOV в цикле рендера
+    if _G.Cfg.CustomFovEnabled then
+        Camera.FieldOfView = _G.Cfg.CustomFovValue
+    else
+        Camera.FieldOfView = _G.Cfg.AspectRatioValue
+    end
     
     if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then
         char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
+    end
+
+    if _G.Cfg.WorldColorEnabled then
+        local baseColor = _G.Cfg.WorldColorValue
+        local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1)
+        local dark = math.clamp(_G.Cfg.WorldColorDarkness, 0, 5)
+        
+        local defaultAmbient = Color3.fromRGB(128, 128, 128)
+        local blendedColor = defaultAmbient:Lerp(baseColor, trans)
+        
+        Lighting.Ambient = blendedColor
+        Lighting.OutdoorAmbient = blendedColor
+        Lighting.ExposureCompensation = -dark
     end
 
     for _, player in pairs(Players:GetPlayers()) do
@@ -614,7 +712,7 @@ local function UpdateKeybindList()
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
-        "ClickFriendEnabled", "DeleteFriendEnabled"
+        "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled"
     }
     
     for _, key in pairs(modules) do
@@ -661,7 +759,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
             local p = Players:GetPlayerFromCharacter(char)
             if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character and not FriendsList[char.Name] then 
                 if _G.Cfg.DamageParticlesEnabled then
-                    for i = 1, 8 do CreateStar(res.Position) end 
+                    local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
+                    for i = 1, pAmt do CreateStar(res.Position) end 
                 end
                 if _G.Cfg.HitSoundEnabled then
                     local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
@@ -686,9 +785,16 @@ local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlide
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
 local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
-local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor")
+
+-- НАСТРОЙКИ СЛАЙДЕРОВ ДЛЯ ЧАСТИЦ (РАЗМЕР И КОЛИЧЕСТВО)
+local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
+
 local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled")
 local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled")
+local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
+
+-- МОДУЛЬ КНОПКИ ДЛЯ FOV (С БАЙПАСОМ)
+local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled"); AddSlider(mFov, "FOV Value", "CustomFovValue")
 
 local KillBtn = Instance.new("TextButton", ContentScroll); KillBtn.Size = UDim2.new(0, 305, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = "SourceSansBold"
 Instance.new("UICorner", KillBtn)
