@@ -36,9 +36,9 @@ _G.Cfg = {
     TargetHudEnabledBind = "None",
     
     KillAuraEnabled = false,
+    KillStrafeEnabled = false,
     KillAuraRange = 25,
     KillAuraJump = true,
-    KillAuraStrafe = true,
     KillAuraSpeed = 1, 
     KillAuraEnabledBind = "None",
     
@@ -87,7 +87,7 @@ _G.Cfg = {
     DamageParticlesEnabled = false,
     ParticleColor = Color3.fromRGB(255, 255, 255),
     ParticleSize = 4,
-    ParticleAmount = 8, -- Настройка количества частиц
+    ParticleAmount = 8, 
     DamageParticlesEnabledBind = "None",
 
     ClickFriendEnabled = false,
@@ -144,7 +144,6 @@ local function LoadConfig()
     end
 end
 
--- Сразу загружаем старый конфиг, если он есть
 LoadConfig()
 
 -- ЖЕСТКИЙ БАЙПАС ДЛЯ BRIDGE DUEL (Перехват изменений FOV самой игры)
@@ -468,6 +467,19 @@ local function CreateModule(name, key)
     return Inner
 end
 
+-- // Функция для создания мини-тогглов (подменю)
+local function AddToggle(parent, text, key)
+    local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
+    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
+    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
+    btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+    btn.MouseButton1Click:Connect(function()
+        _G.Cfg[key] = not _G.Cfg[key]
+        btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+        SaveConfig()
+    end)
+end
+
 local function AddSlider(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
@@ -565,13 +577,17 @@ local function CreateCorner(name, pos)
 end
 local corners = {CreateCorner("TL", UDim2.new(0,0,0,0)), CreateCorner("TR", UDim2.new(0.7,0,0,0)), CreateCorner("BL", UDim2.new(0,0,0.7,0)), CreateCorner("BR", UDim2.new(0.7,0,0.7,0))}
 
--- // RENDER LOOP
+-- // RENDER LOOP ПЕРЕМЕННЫЕ
 local lastAttackTime = 0
+
+-- // НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ KILL STRAFE ПРЫЖКА
+local lastStrafeJumpTime = 0
+local nextStrafeJumpDelay = math.random(1, 8) / 10 -- Генерация от 0.1 до 0.8 сек
+
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
     local char = LocalPlayer.Character
     
-    -- Дополнительный форс-контроль FOV в цикле рендера
     if _G.Cfg.CustomFovEnabled then
         Camera.FieldOfView = _G.Cfg.CustomFovValue
     else
@@ -597,25 +613,25 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
 
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            local char = player.Character; local highlight = ChamsFolder:FindFirstChild(player.Name)
+            local plChar = player.Character; local highlight = ChamsFolder:FindFirstChild(player.Name)
             if FriendsList[player.Name] then
                 if highlight then highlight:Destroy() end
-                local friendHighlight = char and char:FindFirstChild("FriendHighlight")
-                if not friendHighlight and char then
-                    friendHighlight = Instance.new("Highlight", char)
+                local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
+                if not friendHighlight and plChar then
+                    friendHighlight = Instance.new("Highlight", plChar)
                     friendHighlight.Name = "FriendHighlight"
                     friendHighlight.FillColor = Color3.fromRGB(0, 255, 0)
                     friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0)
                     friendHighlight.FillTransparency = 0.8
                     friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
                 end
-            elseif _G.Cfg.ChamsEnabled and char then
-                if char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
+            elseif _G.Cfg.ChamsEnabled and plChar then
+                if plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
                 if not highlight then highlight = Instance.new("Highlight", ChamsFolder); highlight.Name = player.Name end
-                highlight.Adornee = char; highlight.FillColor = _G.Cfg.ChamsColor; highlight.OutlineColor = _G.Cfg.ChamsOutlineColor; highlight.FillTransparency = _G.Cfg.ChamsFillTransparency; highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency; highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Adornee = plChar; highlight.FillColor = _G.Cfg.ChamsColor; highlight.OutlineColor = _G.Cfg.ChamsOutlineColor; highlight.FillTransparency = _G.Cfg.ChamsFillTransparency; highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency; highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             else 
                 if highlight then highlight:Destroy() end
-                if char and char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
+                if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
             end
         end
     end
@@ -643,7 +659,38 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     if target and target.Character and char and char:FindFirstChild("HumanoidRootPart") then
         local targetPart = target.Character:FindFirstChild("HumanoidRootPart")
         local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
+        
+        -- // KILL AURA ЛОГИКА
         if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
+            
+            -- // ЛЕГИТНЫЙ KILL STRAFE (Использует физику ходьбы, а не телепортацию)
+            if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
+                local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
+                local distFlat = flatToTarget.Magnitude
+                
+                if distFlat > 0.1 then
+                    local dirToTarget = flatToTarget.Unit
+                    local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit
+                    
+                    local noise = math.sin(tick() * 4) * 0.3
+                    local distanceError = distFlat - (3 + noise)
+                    
+                    local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
+                    
+                    char.Humanoid:Move(moveDir, false)
+                    
+                    -- // ТОТ САМЫЙ РАНДОМНЫЙ ПРЫЖОК
+                    if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
+                        -- Проверяем, что мы не летим в воздухе (чтобы не спамить попытки прыжка)
+                        if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
+                            char.Humanoid.Jump = true
+                            lastStrafeJumpTime = tick()
+                            nextStrafeJumpDelay = math.random(1, 8) / 10 -- Новое число от 0.1 до 0.8
+                        end
+                    end
+                end
+            end
+
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
             local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
             if tick() - lastAttackTime > attackDelay then
@@ -755,9 +802,9 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
-            local char = res.Instance:FindFirstAncestorOfClass("Model")
-            local p = Players:GetPlayerFromCharacter(char)
-            if char and char:FindFirstChildOfClass("Humanoid") and char ~= LocalPlayer.Character and not FriendsList[char.Name] then 
+            local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
+            local p = Players:GetPlayerFromCharacter(hitChar)
+            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[hitChar.Name] then 
                 if _G.Cfg.DamageParticlesEnabled then
                     local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
                     for i = 1, pAmt do CreateStar(res.Position) end 
@@ -775,7 +822,12 @@ end)
 
 -- // ИНИЦИАЛИЗАЦИЯ МЕНЮ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
-local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
+
+local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); 
+AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); 
+AddSlider(mKilla, "Range", "KillAuraRange"); 
+AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
+
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
@@ -785,15 +837,10 @@ local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlide
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
 local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
-
--- НАСТРОЙКИ СЛАЙДЕРОВ ДЛЯ ЧАСТИЦ (РАЗМЕР И КОЛИЧЕСТВО)
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
-
 local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled")
 local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled")
 local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
-
--- МОДУЛЬ КНОПКИ ДЛЯ FOV (С БАЙПАСОМ)
 local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled"); AddSlider(mFov, "FOV Value", "CustomFovValue")
 
 local KillBtn = Instance.new("TextButton", ContentScroll); KillBtn.Size = UDim2.new(0, 305, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = "SourceSansBold"
