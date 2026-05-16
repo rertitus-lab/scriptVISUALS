@@ -34,11 +34,13 @@ _G.Cfg = {
     
     TargetHudEnabled = false,
     TargetHudEnabledBind = "None",
+    TargetHudNormalColor = Color3.fromRGB(0, 255, 100), -- Цвет обычного Health bar
+    TargetHudDamageColor = Color3.fromRGB(255, 0, 0),   -- Цвет Health Bar при уроне
+    TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50),    -- Позиция Target HUD
     
     KillAuraEnabled = false,
     KillStrafeEnabled = false,
     KillAuraRange = 25,
-    KillAuraJump = true,
     KillAuraSpeed = 1, 
     KillAuraEnabledBind = "None",
     
@@ -107,7 +109,9 @@ _G.Cfg = {
     -- НАСТРОЙКИ ДЛЯ БАЙПАСА FOV
     CustomFovEnabled = false,
     CustomFovValue = 100,
-    CustomFovEnabledBind = "None"
+    CustomFovEnabledBind = "None",
+    
+    BindListPosition = UDim2.new(0, 20, 0.5, 0)         -- Позиция Keybind List
 }
 
 -- // СИСТЕМА СОХРАНЕНИЯ И ЗАГРУЗКИ КОНФИГА
@@ -118,6 +122,8 @@ local function SaveConfig()
     for k, v in pairs(_G.Cfg) do
         if typeof(v) == "Color3" then
             copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+        elseif typeof(v) == "UDim2" then
+            copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
         else
             copy[k] = v
         end
@@ -136,6 +142,8 @@ local function LoadConfig()
             for k, v in pairs(data) do
                 if type(v) == "table" and v.isColor then
                     _G.Cfg[k] = Color3.new(v.R, v.G, v.B)
+                elseif type(v) == "table" and v.isUDim2 then
+                    _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
                 else
                     _G.Cfg[k] = v
                 end
@@ -471,7 +479,7 @@ end
 local function AddToggle(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
-    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
+    local btn = Instance.new("TextButton", btn); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
     btn.MouseButton1Click:Connect(function()
         _G.Cfg[key] = not _G.Cfg[key]
@@ -558,13 +566,98 @@ end
 local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
-local TargetHUD = Instance.new("Frame", GeminiGui); TargetHUD.Size = UDim2.new(0, 200, 0, 70); TargetHUD.Position = UDim2.new(0.5, 50, 0.5, 50); TargetHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 20); TargetHUD.Visible = false; TargetHUD.Active = true; TargetHUD.Draggable = true 
-Instance.new("UIStroke", TargetHUD).Color = Color3.fromRGB(60, 60, 60)
-local TargetIcon = Instance.new("ImageLabel", TargetHUD); TargetIcon.Size = UDim2.new(0, 50, 0, 50); TargetIcon.Position = UDim2.new(0, 10, 0, 10)
-local TargetName = Instance.new("TextLabel", TargetHUD); TargetName.Size = UDim2.new(1, -75, 0, 20); TargetName.Position = UDim2.new(0, 65, 0, 10); TargetName.BackgroundTransparency = 1; TargetName.TextColor3 = Color3.new(1, 1, 1); TargetName.Text = "No Target"; TargetName.Font = "SourceSansBold"; TargetName.TextSize = 16
-local HealthBack = Instance.new("Frame", TargetHUD); HealthBack.Size = UDim2.new(1, -75, 0, 15); HealthBack.Position = UDim2.new(0, 65, 0, 35); HealthBack.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
-local HealthBar = Instance.new("Frame", HealthBack); HealthBar.Size = UDim2.new(1, 0, 1, 0); HealthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100); HealthBar.BorderSizePixel = 0
-local HealthText = Instance.new("TextLabel", HealthBack); HealthText.Size = UDim2.new(1, 0, 1, 0); HealthText.BackgroundTransparency = 1; HealthText.TextColor3 = Color3.new(1, 1, 1); HealthText.TextSize = 12; HealthText.Font = "SourceSansBold"
+-- // ЕБЕЙШИЙ TARGET HUD ИНИЦИАЛИЗАЦИЯ
+local TargetHUD = Instance.new("Frame", GeminiGui)
+TargetHUD.Size = UDim2.new(0, 250, 0, 90) 
+TargetHUD.Position = _G.Cfg.TargetHudPosition
+TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15) 
+TargetHUD.BackgroundTransparency = 0.2 
+TargetHUD.Visible = false
+TargetHUD.Active = true
+TargetHUD.Draggable = true 
+
+-- Сохранение позиции Target HUD после окончания перетаскивания
+TargetHUD.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        _G.Cfg.TargetHudPosition = TargetHUD.Position
+        SaveConfig()
+    end
+end)
+
+-- Динамический Glow эффект
+local TargetHUD_Glow = Instance.new("Frame", TargetHUD)
+TargetHUD_Glow.Size = UDim2.new(1, 4, 1, 4)
+TargetHUD_Glow.Position = UDim2.new(0, -2, 0, -2)
+TargetHUD_Glow.BackgroundColor3 = Color3.fromRGB(0, 255, 255) 
+TargetHUD_Glow.BackgroundTransparency = 0.8
+TargetHUD_Glow.ZIndex = TargetHUD.ZIndex - 1
+Instance.new("UICorner", TargetHUD_Glow).CornerRadius = UDim.new(0, 15)
+
+-- Скругление основного худа
+local cornerHUD = Instance.new("UICorner", TargetHUD)
+cornerHUD.CornerRadius = UDim.new(0, 12)
+
+-- Обводка основного худа
+local strokeHUD = Instance.new("UIStroke", TargetHUD)
+strokeHUD.Color = Color3.fromRGB(0, 255, 255)
+strokeHUD.Thickness = 2
+local glowGradient = Instance.new("UIGradient", strokeHUD)
+glowGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))
+})
+glowGradient.Rotation = 45 
+local glowGradientBack = Instance.new("UIGradient", TargetHUD_Glow)
+glowGradientBack.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))
+})
+glowGradientBack.Rotation = 45
+
+local TargetIcon = Instance.new("ImageLabel", TargetHUD)
+TargetIcon.Size = UDim2.new(0, 60, 0, 60)
+TargetIcon.Position = UDim2.new(0, 15, 0, 15)
+TargetIcon.BackgroundTransparency = 1
+Instance.new("UICorner", TargetIcon).CornerRadius = UDim.new(1,0) 
+
+local TargetName = Instance.new("TextLabel", TargetHUD)
+TargetName.Size = UDim2.new(1, -95, 0, 25)
+TargetName.Position = UDim2.new(0, 90, 0, 15)
+TargetName.BackgroundTransparency = 1
+TargetName.TextColor3 = Color3.new(1, 1, 1)
+TargetName.Text = "No Target"
+TargetName.Font = "SourceSansBold"
+TargetName.TextSize = 20
+TargetName.TextXAlignment = Enum.TextXAlignment.Left
+
+local HealthBack = Instance.new("Frame", TargetHUD)
+HealthBack.Size = UDim2.new(1, -95, 0, 20)
+HealthBack.Position = UDim2.new(0, 90, 0, 45)
+HealthBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30) 
+Instance.new("UICorner", HealthBack).CornerRadius = UDim.new(0, 5)
+
+local HealthBar = Instance.new("Frame", HealthBack)
+HealthBar.Size = UDim2.new(1, 0, 1, 0)
+HealthBar.BackgroundColor3 = Color3.new(1, 1, 1) -- Используем градиенты ниже
+HealthBar.BorderSizePixel = 0
+Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 5)
+local barGradient = Instance.new("UIGradient", HealthBar)
+
+local HealthText = Instance.new("TextLabel", HealthBack)
+HealthText.Size = UDim2.new(1, 0, 1, 0)
+HealthText.BackgroundTransparency = 1
+HealthText.TextColor3 = Color3.new(1, 1, 1)
+HealthText.TextSize = 14
+HealthText.Font = "SourceSansBold"
+HealthText.TextXAlignment = Enum.TextXAlignment.Center
+
+-- State variables for animated health updates and damage detection
+local lastTargetUserId = nil
+local lastTargetHealth = nil
+local isDamageFlashing = false
+
+local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local currentTween = nil
 
 local ESPMain = Instance.new("Frame", GeminiGui); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
 local function CreateCorner(name, pos)
@@ -582,7 +675,7 @@ local lastAttackTime = 0
 
 -- // НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ KILL STRAFE ПРЫЖКА
 local lastStrafeJumpTime = 0
-local nextStrafeJumpDelay = math.random(1, 8) / 10 -- Генерация от 0.1 до 0.8 сек
+local nextStrafeJumpDelay = math.random(1, 8) / 10 
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget()
@@ -640,9 +733,71 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale); HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
-    if _G.Cfg.TargetHudEnabled and target and target.Character:FindFirstChild("Humanoid") then
-        TargetHUD.Visible = true; local hum = target.Character.Humanoid; TargetName.Text = target.DisplayName; TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"; HealthBar.Size = UDim2.new(math.clamp(hum.Health / hum.MaxHealth, 0, 1), 0, 1, 0); HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
-    else TargetHUD.Visible = false end
+    -- // ЕБЕЙШИЙ TARGET HUD ЛОГИКА В ЦИКЛЕ
+    if _G.Cfg.TargetHudEnabled and target and target.Character and target.Character:FindFirstChild("Humanoid") then
+        TargetHUD.Visible = true
+        local hum = target.Character.Humanoid
+        
+        -- Плавно вращаем градиенты для "ебейшего" стиля (ускорено в 1.5 раза)
+        if glowGradient then glowGradient.Rotation = (tick() * 15) % 360 end
+        if glowGradientBack then glowGradientBack.Rotation = (tick() * 15) % 360 end
+
+        -- При получении нового таргета
+        if lastTargetUserId ~= target.UserId then
+            lastTargetUserId = target.UserId
+            TargetName.Text = target.DisplayName
+            TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"
+            lastTargetHealth = hum.Health 
+            local initialHealthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+            HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0) 
+            
+            isDamageFlashing = false
+        end
+
+        -- // Логика анимации полоски здоровья
+        local healthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        
+        -- Детекция урона
+        if lastTargetHealth and hum.Health < lastTargetHealth then
+            isDamageFlashing = true
+            task.delay(0.3, function()
+                isDamageFlashing = false
+            end)
+        end
+        
+        -- Обновляем предыдущее здоровье
+        lastTargetHealth = hum.Health
+        
+        -- Динамическое обновление цветов из настроек
+        local normColor = _G.Cfg.TargetHudNormalColor or Color3.fromRGB(0, 255, 100)
+        local dmgColor = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
+        
+        if isDamageFlashing then
+            barGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, dmgColor:Lerp(Color3.new(0, 0, 0), 0.2)),
+                ColorSequenceKeypoint.new(1, dmgColor)
+            })
+        else
+            barGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, normColor:Lerp(Color3.new(0, 0, 0), 0.2)),
+                ColorSequenceKeypoint.new(1, normColor)
+            })
+        end
+        
+        -- // Твининг (плавное изменение) размера полоски
+        if currentTween then currentTween:Cancel() end 
+        currentTween = TweenService:Create(HealthBar, tweenInfo, {Size = UDim2.new(healthPercent, 0, 1, 0)})
+        currentTween:Play()
+        
+        -- Обновляем текст здоровья
+        HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+
+    else
+        TargetHUD.Visible = false
+        lastTargetUserId = nil
+        lastTargetHealth = nil
+        if currentTween then currentTween:Cancel() end 
+    end
 
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
@@ -663,7 +818,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         -- // KILL AURA ЛОГИКА
         if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
             
-            -- // ЛЕГИТНЫЙ KILL STRAFE (Использует физику ходьбы, а не телепортацию)
+            -- // ЛЕГИТНЫЙ KILL STRAFE 
             if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
                 local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
                 local distFlat = flatToTarget.Magnitude
@@ -681,11 +836,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                     
                     -- // ТОТ САМЫЙ РАНДОМНЫЙ ПРЫЖОК
                     if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
-                        -- Проверяем, что мы не летим в воздухе (чтобы не спамить попытки прыжка)
                         if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
                             char.Humanoid.Jump = true
                             lastStrafeJumpTime = tick()
-                            nextStrafeJumpDelay = math.random(1, 8) / 10 -- Новое число от 0.1 до 0.8
+                            nextStrafeJumpDelay = math.random(1, 8) / 10 
                         end
                     end
                 end
@@ -706,7 +860,7 @@ end))
 -- // KEYBIND LIST SYSTEM
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30)
-BindListFrame.Position = UDim2.new(0, 20, 0.5, 0)
+BindListFrame.Position = _G.Cfg.BindListPosition
 BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 BindListFrame.Visible = false
 Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 5)
@@ -745,7 +899,13 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+        if dragging then
+            dragging = false 
+            _G.Cfg.BindListPosition = BindListFrame.Position
+            SaveConfig()
+        end
+    end
 end)
 
 local function UpdateKeybindList()
@@ -798,7 +958,6 @@ LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then C
 
 -- // CLICK ACTIONS
 UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
@@ -831,7 +990,11 @@ AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
+
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
+AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") -- Кнопка цвета обычного бара
+AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor") -- Кнопка цвета бара при уроне
+
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
