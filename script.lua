@@ -1,7 +1,7 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService") -- Нужен для сохранения настроек в JSON
 
--- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появлялся
+-- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появились
 if CoreGui:FindFirstChild("Gemini_V60_Final") then
     CoreGui.Gemini_V60_Final:Destroy()
 end
@@ -479,7 +479,7 @@ end
 local function AddToggle(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
-    local btn = Instance.new("TextButton", btn); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
+    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
     btn.MouseButton1Click:Connect(function()
         _G.Cfg[key] = not _G.Cfg[key]
