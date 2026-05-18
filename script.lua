@@ -134,7 +134,7 @@ local function SaveConfig()
         else
             copy[k] = v
         end
-        end
+    end
     pcall(function()
         writefile(ConfigFileName, HttpService:JSONEncode(copy))
     end)
@@ -181,6 +181,8 @@ GeminiGui.Name = "Gemini_V60_Final"
 GeminiGui.IgnoreGuiInset = true
 GeminiGui.ResetOnSpawn = false 
 
+local TARGET_FONT = Enum.Font.GothamBlack -- АХУЕННЫЙ ТОЛСТО-КВАДРАТНЫЙ ШРИФТ
+
 local function ShowNotify(text, isEnabled)
     local sound = Instance.new("Sound", game:GetService("SoundService"))
     sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://129384639546095"
@@ -195,8 +197,8 @@ local function ShowNotify(text, isEnabled)
     nF.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
     nF.TextColor3 = Color3.fromRGB(180, 180, 180) 
     nF.Text = text .. statusIcon
-    nF.Font = Enum.Font.SourceSans 
-    nF.TextSize = 18
+    nF.Font = TARGET_FONT 
+    nF.TextSize = 16
     nF.BackgroundTransparency = 1
     nF.TextTransparency = 1
     
@@ -227,8 +229,8 @@ local function StartFriendProcess(isDelete)
     BigLabel.BackgroundTransparency = 1
     BigLabel.Text = isDelete and "нажмите три раза по игроку чтобы удалить из друзей" or "кликните по своему другу три раза в течении 5 секунд!"
     BigLabel.TextColor3 = isDelete and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0)
-    BigLabel.Font = Enum.Font.SourceSansBold
-    BigLabel.TextSize = 40
+    BigLabel.Font = TARGET_FONT
+    BigLabel.TextSize = 30
     BigLabel.TextStrokeTransparency = 0
     
     local ClickData = {}
@@ -300,8 +302,8 @@ IslandTitle.Size = UDim2.new(0.5, 0, 1, 0)
 IslandTitle.Position = UDim2.new(0, 15, 0, 0)
 IslandTitle.BackgroundTransparency = 1
 IslandTitle.Text = "тгк: extazz_scripts"
-IslandTitle.Font = Enum.Font.SourceSansBold
-IslandTitle.TextSize = 16
+IslandTitle.Font = TARGET_FONT
+IslandTitle.TextSize = 14
 IslandTitle.TextColor3 = Color3.new(1, 1, 1)
 IslandTitle.TextXAlignment = "Left"
 
@@ -310,14 +312,15 @@ StatsLabel.Size = UDim2.new(0.5, 0, 1, 0)
 StatsLabel.Position = UDim2.new(0.5, -10, 0, 0)
 StatsLabel.BackgroundTransparency = 1
 StatsLabel.Text = "FPS: 0 | PING: 0ms"
-StatsLabel.Font = Enum.Font.SourceSans
-StatsLabel.TextSize = 14
+StatsLabel.Font = TARGET_FONT
+StatsLabel.TextSize = 12
 StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 StatsLabel.TextXAlignment = "Right"
 
+-- Увеличенный MainFrame для боковой панели
 local MainFrame = Instance.new("Frame", GeminiGui)
-MainFrame.Size = UDim2.new(0, 650, 0, 450)
-MainFrame.Position = UDim2.new(0.5, -325, 0.5, -180) 
+MainFrame.Size = UDim2.new(0, 750, 0, 450)
+MainFrame.Position = UDim2.new(0.5, -375, 0.5, -180) 
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Visible = false 
 MainFrame.BackgroundTransparency = 1 
@@ -335,26 +338,81 @@ local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Thickness = 1
 MainStroke.Color = Color3.fromRGB(45, 45, 45)
 
+-- СИСТЕМА КАТЕГОРИЙ (SIDEBAR)
+local Sidebar = Instance.new("Frame", MainFrame)
+Sidebar.Size = UDim2.new(0, 150, 1, -20)
+Sidebar.Position = UDim2.new(0, 10, 0, 10)
+Sidebar.BackgroundTransparency = 1
+
+local CategoryHighlight = Instance.new("Frame", Sidebar)
+CategoryHighlight.Size = UDim2.new(1, 0, 0, 40)
+CategoryHighlight.Position = UDim2.new(0, 0, 0, 0)
+CategoryHighlight.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Instance.new("UICorner", CategoryHighlight).CornerRadius = UDim.new(0, 6)
+
+local categories = {"Combat", "Movement", "Visuals", "Misc"}
+local catIcons = {Combat = "🤺", Movement = "🏃", Visuals = "👁️", Misc = "⚙️"}
+local catButtons = {}
+local moduleFrames = {} -- Сохраняем все модули для сортировки
+
 local ContentScroll = Instance.new("ScrollingFrame", MainFrame)
-ContentScroll.Size = UDim2.new(1, -20, 1, -20)
-ContentScroll.Position = UDim2.new(0, 10, 0, 10)
+ContentScroll.Size = UDim2.new(1, -180, 1, -20)
+ContentScroll.Position = UDim2.new(0, 170, 0, 10)
 ContentScroll.BackgroundTransparency = 1
 ContentScroll.ScrollBarThickness = 2
 ContentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 ContentScroll.AutomaticCanvasSize = "Y"
 
 local UIGrid = Instance.new("UIGridLayout", ContentScroll)
-UIGrid.CellSize = UDim2.new(0, 305, 0, 130)
+UIGrid.CellSize = UDim2.new(0, 275, 0, 130)
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+
+local function SwitchCategory(catName)
+    local targetBtn = catButtons[catName]
+    if targetBtn then
+        TweenService:Create(CategoryHighlight, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = targetBtn.Position}):Play()
+        
+        for name, btn in pairs(catButtons) do
+            if name == catName then
+                btn.TextColor3 = Color3.fromRGB(0, 0, 0)
+            else
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+        end
+    end
+    
+    for _, mod in pairs(moduleFrames) do
+        mod.frame.Visible = (mod.category == catName)
+    end
+end
+
+for i, cat in ipairs(categories) do
+    local yPos = (i - 1) * 45
+    local btn = Instance.new("TextButton", Sidebar)
+    btn.Size = UDim2.new(1, 0, 0, 40)
+    btn.Position = UDim2.new(0, 0, 0, yPos)
+    btn.BackgroundTransparency = 1
+    btn.Text = "  " .. catIcons[cat] .. " " .. cat
+    btn.Font = TARGET_FONT
+    btn.TextSize = 14
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    
+    catButtons[cat] = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        SwitchCategory(cat)
+    end)
+end
 
 local MenuOpen = false 
 local function ToggleMenu()
     MenuOpen = not MenuOpen
     if MenuOpen then
         MainFrame.Visible = true
-        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -325, 0.5, -225)}):Play()
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -375, 0.5, -225)}):Play()
     else
-        local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -325, 0.5, -180)})
+        local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -375, 0.5, -180)})
         t:Play()
         t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
     end
@@ -432,18 +490,20 @@ SVTrigger.MouseButton1Down:Connect(function()
     UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
 end)
 
-local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25
+local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25; ApplyBtn.Font = TARGET_FONT
 ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveConfig() end)
 
-local function CreateModule(name, key)
+local function CreateModule(name, key, category)
     local ModFrame = Instance.new("Frame", ContentScroll)
     ModFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
     Instance.new("UICorner", ModFrame)
     local s = Instance.new("UIStroke", ModFrame); s.Color = Color3.fromRGB(45,45,45); s.Thickness = 1
     
+    table.insert(moduleFrames, {frame = ModFrame, category = category or "Misc"})
+
     local Title = Instance.new("TextLabel", ModFrame)
     Title.Size = UDim2.new(1, -50, 0, 35); Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.Text = name; Title.TextColor3 = Color3.new(1,1,1); Title.Font = "SourceSansBold"; Title.TextSize = 18; Title.TextXAlignment = "Left"; Title.BackgroundTransparency = 1
+    Title.Text = name; Title.TextColor3 = Color3.new(1,1,1); Title.Font = TARGET_FONT; Title.TextSize = 14; Title.TextXAlignment = "Left"; Title.BackgroundTransparency = 1
     
     local Toggle = Instance.new("TextButton", ModFrame)
     Toggle.Size = UDim2.new(0, 45, 0, 22); Toggle.Position = UDim2.new(1, -55, 0, 7)
@@ -462,10 +522,8 @@ local function CreateModule(name, key)
 
         if key == "ClickFriendEnabled" and _G.Cfg[key] then
             StartFriendProcess(false)
-            if MenuOpen then ToggleMenu() end
         elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
             StartFriendProcess(true)
-            if MenuOpen then ToggleMenu() end
         end
         
         if key == "WorldColorEnabled" and not _G.Cfg[key] then
@@ -493,8 +551,8 @@ local function CreateModule(name, key)
     
     local bindKey = key .. "Bind"
     local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
-    local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 14
-    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 12
+    local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT
+    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
     bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
     
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
@@ -506,7 +564,7 @@ end
 
 local function AddToggle(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
-    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
+    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT
     local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
     btn.MouseButton1Click:Connect(function()
@@ -518,13 +576,13 @@ end
 
 local function AddSlider(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
-    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
-    local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 11
+    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT
+    local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 10; i.Font = TARGET_FONT
     i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v; SaveConfig() end end)
 end
 
 local function AddColorBtn(parent, text, key)
-    local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 18); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"; b.TextSize = 13
+    local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 18); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"; b.TextSize = 12; b.Font = TARGET_FONT
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
 end
 
@@ -649,7 +707,7 @@ TargetName.Position = UDim2.new(0, 90, 0, 15)
 TargetName.BackgroundTransparency = 1
 TargetName.TextColor3 = Color3.new(1, 1, 1)
 TargetName.Text = "No Target"
-TargetName.Font = "SourceSansBold"
+TargetName.Font = TARGET_FONT
 TargetName.TextSize = 20
 TargetName.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -671,7 +729,7 @@ HealthText.Size = UDim2.new(1, 0, 1, 0)
 HealthText.BackgroundTransparency = 1
 HealthText.TextColor3 = Color3.new(1, 1, 1)
 HealthText.TextSize = 14
-HealthText.Font = "SourceSansBold"
+HealthText.Font = TARGET_FONT
 HealthText.TextXAlignment = Enum.TextXAlignment.Center
 
 local lastTargetUserId = nil
@@ -833,7 +891,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
-            ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 100 * _G.Cfg.TargetESPRotationSpeed) % 360
+            ESPMain.Visible = true
+            ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
+            ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize)
+            ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 -- ВОЗВРАЩЕНО ВРАЩЕНИЕ КВАДРАТА С ЕГО СКОРОСТЬЮ
+
             for _, c in pairs(corners) do 
                 c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = _G.Cfg.TargetESPSquareColor; c[4].Color = _G.Cfg.TargetESPSquareColor 
                 c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[5].Color = _G.Cfg.TargetESPSquareColor; c[6].Color = _G.Cfg.TargetESPSquareColor
@@ -898,7 +960,7 @@ local BLTitle = Instance.new("TextLabel", BindListFrame)
 BLTitle.Size = UDim2.new(1, 0, 0, 25)
 BLTitle.Text = "Keybind List"
 BLTitle.TextColor3 = Color3.new(1, 1, 1)
-BLTitle.Font = Enum.Font.SourceSansBold
+BLTitle.Font = TARGET_FONT
 BLTitle.TextSize = 14
 BLTitle.BackgroundTransparency = 1
 
@@ -934,19 +996,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-local function CreateStar(position)
-    local bgui = Instance.new("BillboardGui", GeminiGui)
-    bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0); bgui.AlwaysOnTop = true
-    local p = Instance.new("Part", workspace); p.Size = Vector3.new(0.1,0.1,0.1); p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Position = position
-    bgui.Adornee = p
-    local f = Instance.new("Frame", bgui); f.Size = UDim2.new(1,0,1,0); f.BackgroundColor3 = _G.Cfg.ParticleColor
-    Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
-    local tI = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    TweenService:Create(p, tI, {Position = p.Position + Vector3.new(math.random(-5,5), math.random(4,8), math.random(-5,5))}):Play()
-    TweenService:Create(f, tI, {BackgroundTransparency = 1, Size = UDim2.new(0,0,0,0)}):Play()
-    task.delay(0.6, function() p:Destroy(); bgui:Destroy() end)
-end
-
 local function UpdateKeybindList()
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
@@ -954,7 +1003,7 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "KillStrafeEnabled", "SpeedEnabled", "NoClipEnabled", 
+        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "NoClipEnabled", 
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
@@ -971,7 +1020,7 @@ local function UpdateKeybindList()
             label.Text = " " .. key:gsub("Enabled", ""):upper() .. " [" .. tostring(_G.Cfg[bindKey]):upper() .. "]"
             label.TextColor3 = Color3.fromRGB(200, 200, 200)
             label.TextSize = 13
-            label.Font = Enum.Font.SourceSans
+            label.Font = TARGET_FONT
             label.TextXAlignment = Enum.TextXAlignment.Left
         end
     end
@@ -1016,34 +1065,54 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
-local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
+local mAim = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 
-local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); 
+local mKilla = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); 
 AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); 
 AddSlider(mKilla, "Range", "KillAuraRange"); 
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
+local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
-local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
-local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
-local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
+local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
+local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
 
-local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
+local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals")
 AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") 
 AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor") 
 
-local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Target ESP", "TargetESPSquareColor")
-local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
-local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
-local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
-local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
-local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled")
-local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled")
-local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
-local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled"); AddSlider(mFov, "FOV Value", "CustomFovValue")
-local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled"); AddSlider(mTime, "Hours (0-23)", "TimeChangerHours")
-local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
+local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor")
+local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
+local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled", "Visuals"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
+local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
+local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
 
-local KillBtn = Instance.new("TextButton", ContentScroll); KillBtn.Size = UDim2.new(0, 305, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = "SourceSansBold"
+-- ФУНКЦИИ, ПЕРЕНЕСЕННЫЕ В РАЗДЕЛ VISUALS ПО ЗАПРОСУ:
+local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
+local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(mTime, "Hours (0-23)", "TimeChangerHours")
+local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
+local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
+local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(mFov, "FOV Value", "CustomFovValue")
+
+-- ОСТАВШИЕСЯ ФУНКЦИИ В РАЗДЕЛЕ MISC:
+local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled", "Misc")
+local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled", "Misc")
+
+local KillFrame = Instance.new("Frame", ContentScroll)
+KillFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", KillFrame)
+Instance.new("UIStroke", KillFrame).Color = Color3.fromRGB(45, 45, 45)
+table.insert(moduleFrames, {frame = KillFrame, category = "Misc"})
+
+local KillBtn = Instance.new("TextButton", KillFrame)
+KillBtn.Size = UDim2.new(1, -20, 0, 40)
+KillBtn.Position = UDim2.new(0, 10, 0.5, -20)
+KillBtn.Text = "KILL SCRIPT"
+KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20)
+KillBtn.TextColor3 = Color3.new(1,1,1)
+KillBtn.Font = TARGET_FONT
+KillBtn.TextSize = 16
 Instance.new("UICorner", KillBtn)
 KillBtn.MouseButton1Click:Connect(function() for _, c in pairs(Connections) do c:Disconnect() end GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy() end)
+
+-- Переключаем на начальную категорию после создания всех модулей
+SwitchCategory("Combat")
