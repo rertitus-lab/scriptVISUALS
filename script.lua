@@ -1,7 +1,7 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService") -- Нужен для сохранения настроек в JSON
 
--- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появились
+-- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появлялся
 if CoreGui:FindFirstChild("Gemini_V60_Final") then
     CoreGui.Gemini_V60_Final:Destroy()
 end
@@ -34,9 +34,9 @@ _G.Cfg = {
     
     TargetHudEnabled = false,
     TargetHudEnabledBind = "None",
-    TargetHudNormalColor = Color3.fromRGB(0, 255, 100), -- Цвет обычного Health bar
-    TargetHudDamageColor = Color3.fromRGB(255, 0, 0),   -- Цвет Health Bar при уроне
-    TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50),    -- Позиция Target HUD
+    TargetHudNormalColor = Color3.fromRGB(0, 255, 100),
+    TargetHudDamageColor = Color3.fromRGB(255, 0, 0),
+    TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50),
     
     KillAuraEnabled = false,
     KillStrafeEnabled = false,
@@ -59,6 +59,7 @@ _G.Cfg = {
     TargetESPSquareSize = 110,
     TargetESPBorderThickness = 6.5,
     TargetESPSquareColor = Color3.new(1, 1, 1),
+    TargetESPRotationSpeed = 1,
     TargetESPSquareEnabledBind = "None",
     
     TargetStrafeOrbitEnabled = false,
@@ -106,15 +107,21 @@ _G.Cfg = {
     
     AspectRatioValue = 80,
     
-    -- НАСТРОЙКИ ДЛЯ БАЙПАСА FOV
     CustomFovEnabled = false,
     CustomFovValue = 100,
     CustomFovEnabledBind = "None",
     
-    BindListPosition = UDim2.new(0, 20, 0.5, 0)         -- Позиция Keybind List
+    BindListPosition = UDim2.new(0, 20, 0.5, 0),
+
+    TimeChangerEnabled = false,
+    TimeChangerHours = 12,
+    TimeChangerEnabledBind = "None",
+
+    FullBrightEnabled = false,
+    FullBrightBrightness = 2,
+    FullBrightEnabledBind = "None"
 }
 
--- // СИСТЕМА СОХРАНЕНИЯ И ЗАГРУЗКИ КОНФИГА
 local ConfigFileName = "Gemini_V60_Config.json"
 
 local function SaveConfig()
@@ -127,7 +134,7 @@ local function SaveConfig()
         else
             copy[k] = v
         end
-    end
+        end
     pcall(function()
         writefile(ConfigFileName, HttpService:JSONEncode(copy))
     end)
@@ -154,7 +161,6 @@ end
 
 LoadConfig()
 
--- ЖЕСТКИЙ БАЙПАС ДЛЯ BRIDGE DUEL (Перехват изменений FOV самой игры)
 table.insert(Connections, Camera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
     if _G.Cfg.CustomFovEnabled and Camera.FieldOfView ~= _G.Cfg.CustomFovValue then
         Camera.FieldOfView = _G.Cfg.CustomFovValue
@@ -214,7 +220,6 @@ local function ShowNotify(text, isEnabled)
     end)
 end
 
--- // FRIEND SYSTEM LOGIC
 local function StartFriendProcess(isDelete)
     local BigLabel = Instance.new("TextLabel", GeminiGui)
     BigLabel.Size = UDim2.new(1, 0, 0, 100)
@@ -273,12 +278,22 @@ local Island = Instance.new("TextButton", GeminiGui)
 Island.Size = UDim2.new(0, 350, 0, 35)
 Island.Position = UDim2.new(0.5, -175, 0, 10)
 Island.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Island.BackgroundTransparency = 0
 Island.Text = ""
 Island.AutoButtonColor = false
-Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 6)
+
+local Island_Glow = Instance.new("Frame", Island)
+Island_Glow.Size = UDim2.new(1, 4, 1, 4)
+Island_Glow.Position = UDim2.new(0, -2, 0, -2)
+Island_Glow.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Island_Glow.BackgroundTransparency = 0.5
+Island_Glow.ZIndex = Island.ZIndex - 1
+Instance.new("UICorner", Island_Glow).CornerRadius = UDim.new(0, 8)
+
 local IslandStroke = Instance.new("UIStroke", Island)
-IslandStroke.Color = Color3.fromRGB(50, 50, 50)
-IslandStroke.Thickness = 1.5
+IslandStroke.Thickness = 1
+IslandStroke.Color = Color3.fromRGB(45, 45, 45)
 
 local IslandTitle = Instance.new("TextLabel", Island)
 IslandTitle.Size = UDim2.new(0.5, 0, 1, 0)
@@ -303,13 +318,22 @@ StatsLabel.TextXAlignment = "Right"
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 650, 0, 450)
 MainFrame.Position = UDim2.new(0.5, -325, 0.5, -180) 
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Visible = false 
 MainFrame.BackgroundTransparency = 1 
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+local MainFrame_Glow = Instance.new("Frame", MainFrame)
+MainFrame_Glow.Size = UDim2.new(1, 4, 1, 4)
+MainFrame_Glow.Position = UDim2.new(0, -2, 0, -2)
+MainFrame_Glow.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame_Glow.BackgroundTransparency = 0.5
+MainFrame_Glow.ZIndex = MainFrame.ZIndex - 1
+Instance.new("UICorner", MainFrame_Glow).CornerRadius = UDim.new(0, 10)
+
 local MainStroke = Instance.new("UIStroke", MainFrame)
-MainStroke.Color = Color3.fromRGB(50, 50, 50)
-MainStroke.Thickness = 2
+MainStroke.Thickness = 1
+MainStroke.Color = Color3.fromRGB(45, 45, 45)
 
 local ContentScroll = Instance.new("ScrollingFrame", MainFrame)
 ContentScroll.Size = UDim2.new(1, -20, 1, -20)
@@ -328,7 +352,7 @@ local function ToggleMenu()
     MenuOpen = not MenuOpen
     if MenuOpen then
         MainFrame.Visible = true
-        TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -325, 0.5, -225)}):Play()
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -325, 0.5, -225)}):Play()
     else
         local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -325, 0.5, -180)})
         t:Play()
@@ -346,7 +370,6 @@ task.spawn(function()
     end
 end)
 
--- // COLOR PICKER
 local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240)
 CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120)
@@ -439,14 +462,20 @@ local function CreateModule(name, key)
 
         if key == "ClickFriendEnabled" and _G.Cfg[key] then
             StartFriendProcess(false)
+            if MenuOpen then ToggleMenu() end
         elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
             StartFriendProcess(true)
+            if MenuOpen then ToggleMenu() end
         end
         
         if key == "WorldColorEnabled" and not _G.Cfg[key] then
             Lighting.Ambient = Color3.fromRGB(128, 128, 128)
             Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
             Lighting.ExposureCompensation = 0
+        end
+
+        if key == "FullBrightEnabled" and not _G.Cfg[key] then
+            Lighting.Brightness = 1
         end
         SaveConfig() 
     end
@@ -475,7 +504,6 @@ local function CreateModule(name, key)
     return Inner
 end
 
--- // Функция для создания мини-тогглов (подменю)
 local function AddToggle(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 13
@@ -500,7 +528,6 @@ local function AddColorBtn(parent, text, key)
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
 end
 
--- // CORE FUNCTIONS
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
     for _, v in pairs(Players:GetPlayers()) do
@@ -566,7 +593,7 @@ end
 local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // ЕБЕЙШИЙ TARGET HUD ИНИЦИАЛИЗАЦИЯ
+-- // TARGET HUD ИНИЦИАЛИЗАЦИЯ
 local TargetHUD = Instance.new("Frame", GeminiGui)
 TargetHUD.Size = UDim2.new(0, 250, 0, 90) 
 TargetHUD.Position = _G.Cfg.TargetHudPosition
@@ -576,7 +603,6 @@ TargetHUD.Visible = false
 TargetHUD.Active = true
 TargetHUD.Draggable = true 
 
--- Сохранение позиции Target HUD после окончания перетаскивания
 TargetHUD.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         _G.Cfg.TargetHudPosition = TargetHUD.Position
@@ -584,7 +610,6 @@ TargetHUD.InputEnded:Connect(function(input)
     end
 end)
 
--- Динамический Glow эффект
 local TargetHUD_Glow = Instance.new("Frame", TargetHUD)
 TargetHUD_Glow.Size = UDim2.new(1, 4, 1, 4)
 TargetHUD_Glow.Position = UDim2.new(0, -2, 0, -2)
@@ -593,11 +618,9 @@ TargetHUD_Glow.BackgroundTransparency = 0.8
 TargetHUD_Glow.ZIndex = TargetHUD.ZIndex - 1
 Instance.new("UICorner", TargetHUD_Glow).CornerRadius = UDim.new(0, 15)
 
--- Скругление основного худа
 local cornerHUD = Instance.new("UICorner", TargetHUD)
 cornerHUD.CornerRadius = UDim.new(0, 12)
 
--- Обводка основного худа
 local strokeHUD = Instance.new("UIStroke", TargetHUD)
 strokeHUD.Color = Color3.fromRGB(0, 255, 255)
 strokeHUD.Thickness = 2
@@ -638,7 +661,7 @@ Instance.new("UICorner", HealthBack).CornerRadius = UDim.new(0, 5)
 
 local HealthBar = Instance.new("Frame", HealthBack)
 HealthBar.Size = UDim2.new(1, 0, 1, 0)
-HealthBar.BackgroundColor3 = Color3.new(1, 1, 1) -- Используем градиенты ниже
+HealthBar.BackgroundColor3 = Color3.new(1, 1, 1) 
 HealthBar.BorderSizePixel = 0
 Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 5)
 local barGradient = Instance.new("UIGradient", HealthBar)
@@ -651,7 +674,6 @@ HealthText.TextSize = 14
 HealthText.Font = "SourceSansBold"
 HealthText.TextXAlignment = Enum.TextXAlignment.Center
 
--- State variables for animated health updates and damage detection
 local lastTargetUserId = nil
 local lastTargetHealth = nil
 local isDamageFlashing = false
@@ -659,21 +681,36 @@ local isDamageFlashing = false
 local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local currentTween = nil
 
-local ESPMain = Instance.new("Frame", GeminiGui); ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
+local ESPMain = Instance.new("Frame", GeminiGui)
+ESPMain.BackgroundTransparency = 1
+ESPMain.AnchorPoint = Vector2.new(0.5, 0.5)
+ESPMain.Visible = false
+
 local function CreateCorner(name, pos)
     local corner = Instance.new("Frame", ESPMain); corner.Size = UDim2.new(0.3, 0, 0.3, 0); corner.Position = pos; corner.BackgroundTransparency = 1
-    local hL = Instance.new("Frame", corner); hL.BorderSizePixel = 0; hL.ZIndex = 5; hL.Size = UDim2.new(1, 0, 0, 0); hL.Position = (name:find("B")) and UDim2.new(0, 0, 1, 0) or UDim2.new(0, 0, 0, 0)
-    local vL = Instance.new("Frame", corner); vL.BorderSizePixel = 0; vL.ZIndex = 5; vL.Size = UDim2.new(0, 0, 1, 0); vL.Position = (name:find("R")) and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 0, 0)
+    
+    local hL = Instance.new("Frame", corner); hL.BorderSizePixel = 0; hL.ZIndex = 6; hL.Size = UDim2.new(1, 0, 0, 0); hL.Position = (name:find("B")) and UDim2.new(0, 0, 1, 0) or UDim2.new(0, 0, 0, 0)
+    local vL = Instance.new("Frame", corner); vL.BorderSizePixel = 0; vL.ZIndex = 6; vL.Size = UDim2.new(0, 0, 1, 0); vL.Position = (name:find("R")) and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 0, 0)
     local hS = Instance.new("UIStroke", hL); hS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     local vS = Instance.new("UIStroke", vL); vS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    return {hL, vL, hS, vS}
+    
+    -- СВЕЧЕНИЕ СЛОЙ 1
+    local hLG1 = Instance.new("Frame", corner); hLG1.BorderSizePixel = 0; hLG1.ZIndex = 5; hLG1.Size = UDim2.new(1, 0, 0, 0); hLG1.Position = hL.Position
+    local vLG1 = Instance.new("Frame", corner); vLG1.BorderSizePixel = 0; vLG1.ZIndex = 5; vLG1.Size = UDim2.new(0, 0, 1, 0); vLG1.Position = vL.Position
+    local hSG1 = Instance.new("UIStroke", hLG1); hSG1.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; hSG1.Transparency = 0.55
+    local vSG1 = Instance.new("UIStroke", vLG1); vSG1.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; vSG1.Transparency = 0.55
+
+    -- СВЕЧЕНИЕ СЛОЙ 2
+    local hLG2 = Instance.new("Frame", corner); hLG2.BorderSizePixel = 0; hLG2.ZIndex = 4; hLG2.Size = UDim2.new(1, 0, 0, 0); hLG2.Position = hL.Position
+    local vLG2 = Instance.new("Frame", corner); vLG2.BorderSizePixel = 0; vLG2.ZIndex = 4; vLG2.Size = UDim2.new(0, 0, 1, 0); vLG2.Position = vL.Position
+    local hSG2 = Instance.new("UIStroke", hLG2); hSG2.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; hSG2.Transparency = 0.8
+    local vSG2 = Instance.new("UIStroke", vLG2); vSG2.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; vSG2.Transparency = 0.8
+
+    return {hL, vL, hS, vS, hSG1, vSG1, hSG2, vSG2}
 end
 local corners = {CreateCorner("TL", UDim2.new(0,0,0,0)), CreateCorner("TR", UDim2.new(0.7,0,0,0)), CreateCorner("BL", UDim2.new(0,0,0.7,0)), CreateCorner("BR", UDim2.new(0.7,0,0.7,0))}
 
--- // RENDER LOOP ПЕРЕМЕННЫЕ
 local lastAttackTime = 0
-
--- // НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ KILL STRAFE ПРЫЖКА
 local lastStrafeJumpTime = 0
 local nextStrafeJumpDelay = math.random(1, 8) / 10 
 
@@ -686,6 +723,18 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     else
         Camera.FieldOfView = _G.Cfg.AspectRatioValue
     end
+
+    if _G.Cfg.TimeChangerEnabled then
+        Lighting.ClockTime = math.clamp(_G.Cfg.TimeChangerHours, 0, 23)
+    end
+
+    if _G.Cfg.FullBrightEnabled then
+        Lighting.Brightness = math.clamp(_G.Cfg.FullBrightBrightness, 0, 10)
+    end
+    
+    local rotationSpeed = (tick() * 35) % 360
+    if glowGradient then glowGradient.Rotation = rotationSpeed end
+    if glowGradientBack then glowGradientBack.Rotation = rotationSpeed end
     
     if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then
         char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
@@ -733,16 +782,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale); HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
-    -- // ЕБЕЙШИЙ TARGET HUD ЛОГИКА В ЦИКЛЕ
     if _G.Cfg.TargetHudEnabled and target and target.Character and target.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
         local hum = target.Character.Humanoid
         
-        -- Плавно вращаем градиенты для "ебейшего" стиля (ускорено в 1.5 раза)
-        if glowGradient then glowGradient.Rotation = (tick() * 15) % 360 end
-        if glowGradientBack then glowGradientBack.Rotation = (tick() * 15) % 360 end
-
-        -- При получении нового таргета
         if lastTargetUserId ~= target.UserId then
             lastTargetUserId = target.UserId
             TargetName.Text = target.DisplayName
@@ -750,25 +793,17 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             lastTargetHealth = hum.Health 
             local initialHealthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
             HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0) 
-            
             isDamageFlashing = false
         end
 
-        -- // Логика анимации полоски здоровья
         local healthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
         
-        -- Детекция урона
         if lastTargetHealth and hum.Health < lastTargetHealth then
             isDamageFlashing = true
-            task.delay(0.3, function()
-                isDamageFlashing = false
-            end)
+            task.delay(0.3, function() isDamageFlashing = false end)
         end
         
-        -- Обновляем предыдущее здоровье
         lastTargetHealth = hum.Health
-        
-        -- Динамическое обновление цветов из настроек
         local normColor = _G.Cfg.TargetHudNormalColor or Color3.fromRGB(0, 255, 100)
         local dmgColor = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
         
@@ -784,14 +819,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             })
         end
         
-        -- // Твининг (плавное изменение) размера полоски
         if currentTween then currentTween:Cancel() end 
         currentTween = TweenService:Create(HealthBar, tweenInfo, {Size = UDim2.new(healthPercent, 0, 1, 0)})
         currentTween:Play()
-        
-        -- Обновляем текст здоровья
         HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
-
     else
         TargetHUD.Visible = false
         lastTargetUserId = nil
@@ -803,7 +834,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
         if onScreen then
             ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 100 * _G.Cfg.TargetESPRotationSpeed) % 360
-            for _, c in pairs(corners) do c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = _G.Cfg.TargetESPSquareColor; c[4].Color = _G.Cfg.TargetESPSquareColor end
+            for _, c in pairs(corners) do 
+                c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = _G.Cfg.TargetESPSquareColor; c[4].Color = _G.Cfg.TargetESPSquareColor 
+                c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[5].Color = _G.Cfg.TargetESPSquareColor; c[6].Color = _G.Cfg.TargetESPSquareColor
+                c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[7].Color = _G.Cfg.TargetESPSquareColor; c[8].Color = _G.Cfg.TargetESPSquareColor
+            end
         else ESPMain.Visible = false end
     else ESPMain.Visible = false end
 
@@ -815,26 +850,18 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         local targetPart = target.Character:FindFirstChild("HumanoidRootPart")
         local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
         
-        -- // KILL AURA ЛОГИКА
         if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
-            
-            -- // ЛЕГИТНЫЙ KILL STRAFE 
             if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
                 local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
                 local distFlat = flatToTarget.Magnitude
-                
                 if distFlat > 0.1 then
                     local dirToTarget = flatToTarget.Unit
                     local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit
-                    
                     local noise = math.sin(tick() * 4) * 0.3
                     local distanceError = distFlat - (3 + noise)
-                    
                     local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
-                    
                     char.Humanoid:Move(moveDir, false)
                     
-                    -- // ТОТ САМЫЙ РАНДОМНЫЙ ПРЫЖОК
                     if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
                         if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
                             char.Humanoid.Jump = true
@@ -857,13 +884,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- // KEYBIND LIST SYSTEM
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30)
 BindListFrame.Position = _G.Cfg.BindListPosition
 BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 BindListFrame.Visible = false
-Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 6)
 local BLStroke = Instance.new("UIStroke", BindListFrame)
 BLStroke.Color = Color3.fromRGB(60, 60, 60)
 BLStroke.Thickness = 1.5
@@ -908,6 +934,19 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+local function CreateStar(position)
+    local bgui = Instance.new("BillboardGui", GeminiGui)
+    bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0); bgui.AlwaysOnTop = true
+    local p = Instance.new("Part", workspace); p.Size = Vector3.new(0.1,0.1,0.1); p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Position = position
+    bgui.Adornee = p
+    local f = Instance.new("Frame", bgui); f.Size = UDim2.new(1,0,1,0); f.BackgroundColor3 = _G.Cfg.ParticleColor
+    Instance.new("UICorner", f).CornerRadius = UDim.new(1,0)
+    local tI = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    TweenService:Create(p, tI, {Position = p.Position + Vector3.new(math.random(-5,5), math.random(4,8), math.random(-5,5))}):Play()
+    TweenService:Create(f, tI, {BackgroundTransparency = 1, Size = UDim2.new(0,0,0,0)}):Play()
+    task.delay(0.6, function() p:Destroy(); bgui:Destroy() end)
+end
+
 local function UpdateKeybindList()
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
@@ -915,11 +954,11 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "NoClipEnabled", 
+        "AimbotEnabled", "KillAuraEnabled", "KillStrafeEnabled", "SpeedEnabled", "NoClipEnabled", 
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
-        "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled"
+        "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
     for _, key in pairs(modules) do
@@ -949,14 +988,12 @@ task.spawn(function()
     end
 end)
 
--- // JUMP DETECTION
 local function ConnectJump(char)
     local hum = char:WaitForChild("Humanoid")
     hum.Jumping:Connect(function() if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end end)
 end
 LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then ConnectJump(LocalPlayer.Character) end
 
--- // CLICK ACTIONS
 UserInputService.InputBegan:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
@@ -979,7 +1016,6 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- // ИНИЦИАЛИЗАЦИЯ МЕНЮ
 local mAim = CreateModule("AIMBOT", "AimbotEnabled"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled"); 
@@ -992,10 +1028,10 @@ local mNoc = CreateModule("NOCLIP", "NoClipEnabled")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled")
-AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") -- Кнопка цвета обычного бара
-AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor") -- Кнопка цвета бара при уроне
+AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") 
+AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor") 
 
-local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Color", "TargetESPSquareColor")
+local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "Target ESP", "TargetESPSquareColor")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
@@ -1005,6 +1041,8 @@ local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled")
 local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled")
 local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
 local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled"); AddSlider(mFov, "FOV Value", "CustomFovValue")
+local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled"); AddSlider(mTime, "Hours (0-23)", "TimeChangerHours")
+local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
 
 local KillBtn = Instance.new("TextButton", ContentScroll); KillBtn.Size = UDim2.new(0, 305, 0, 35); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = "SourceSansBold"
 Instance.new("UICorner", KillBtn)
