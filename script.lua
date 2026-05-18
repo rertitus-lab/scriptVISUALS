@@ -48,6 +48,9 @@ _G.Cfg = {
     WalkSpeedValue = 16,
     SpeedEnabledBind = "None",
 
+    StrafeEnabled = false,
+    StrafeEnabledBind = "None",
+
     NoClipEnabled = false,
     NoClipEnabledBind = "None",
 
@@ -798,6 +801,19 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
     end
 
+    -- НОВАЯ ФУНКЦИЯ: HARD STRAFE (Убирает плавность разгона и торможения ходьбы как на земле, так и в воздухе)
+    if _G.Cfg.StrafeEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+        local hum = char.Humanoid
+        local rootPart = char.HumanoidRootPart
+        if hum.MoveDirection.Magnitude > 0 then
+            local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed
+            local instantVel = hum.MoveDirection.Unit * currentSpeed
+            rootPart.AssemblyLinearVelocity = Vector3.new(instantVel.X, rootPart.AssemblyLinearVelocity.Y, instantVel.Z)
+        else
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0)
+        end
+    end
+
     if _G.Cfg.WorldColorEnabled then
         local baseColor = _G.Cfg.WorldColorValue
         local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1)
@@ -996,6 +1012,75 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+local function CreateModule(name, key, category)
+    local ModFrame = Instance.new("Frame", ContentScroll)
+    ModFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", ModFrame)
+    local s = Instance.new("UIStroke", ModFrame); s.Color = Color3.fromRGB(45,45,45); s.Thickness = 1
+    
+    table.insert(moduleFrames, {frame = ModFrame, category = category or "Misc"})
+
+    local Title = Instance.new("TextLabel", ModFrame)
+    Title.Size = UDim2.new(1, -50, 0, 35); Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.Text = name; Title.TextColor3 = Color3.new(1,1,1); Title.Font = TARGET_FONT; Title.TextSize = 14; Title.TextXAlignment = "Left"; Title.BackgroundTransparency = 1
+    
+    local Toggle = Instance.new("TextButton", ModFrame)
+    Toggle.Size = UDim2.new(0, 45, 0, 22); Toggle.Position = UDim2.new(1, -55, 0, 7)
+    Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+    Toggle.Text = ""; Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1,0)
+    
+    local function RunToggle()
+        _G.Cfg[key] = not _G.Cfg[key]
+        ShowNotify(name, _G.Cfg[key])
+        
+        if key == "SpeedEnabled" and not _G.Cfg[key] then
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = 16
+            end
+        end
+
+        if key == "ClickFriendEnabled" and _G.Cfg[key] then
+            StartFriendProcess(false)
+        elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
+            StartFriendProcess(true)
+        end
+        
+        if key == "WorldColorEnabled" and not _G.Cfg[key] then
+            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+            Lighting.ExposureCompensation = 0
+        end
+
+        if key == "FullBrightEnabled" and not _G.Cfg[key] then
+            Lighting.Brightness = 1
+        end
+        SaveConfig() 
+    end
+    Toggle.MouseButton1Click:Connect(RunToggle)
+    
+    task.spawn(function()
+        while task.wait(0.1) do
+            Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+        end
+    end)
+    
+    local Inner = Instance.new("Frame", ModFrame)
+    Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1
+    local l = Instance.new("UIListLayout", Inner); l.Padding = UDim.new(0, 2)
+    
+    local bindKey = key .. "Bind"
+    local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
+    local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT
+    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
+    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
+    
+    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
+        if not gpe and _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then RunToggle() end
+    end))
+
+    return Inner
+end
+
 local function UpdateKeybindList()
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
@@ -1003,7 +1088,7 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "NoClipEnabled", 
+        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", 
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
@@ -1073,7 +1158,9 @@ AddSlider(mKilla, "Range", "KillAuraRange");
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
+-- ВЛАДКА MOVEMENT (ДОБАВЛЕН HARD STRAFE)
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
+local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals")
