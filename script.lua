@@ -44,6 +44,7 @@ _G.Cfg = {
     TargetHudNormalColor = Color3.fromRGB(0, 255, 100),
     TargetHudDamageColor = Color3.fromRGB(255, 0, 0),
     TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50),
+    TargetHudOnlyKillaura = false,
     
     KillAuraEnabled = false,
     KillStrafeEnabled = false,
@@ -60,6 +61,9 @@ _G.Cfg = {
 
     NoClipEnabled = false,
     NoClipEnabledBind = "None",
+    
+    SpiderEnabled = false,
+    SpiderEnabledBind = "None",
 
     HitSoundEnabled = false,
     HitSoundMode = 1, 
@@ -71,6 +75,7 @@ _G.Cfg = {
     TargetESPSquareColor = Color3.new(1, 1, 1),
     TargetESPRotationSpeed = 1,
     TargetESPSquareEnabledBind = "None",
+    TargetESPOnlyKillaura = false,
     
     TargetStrafeOrbitEnabled = false,
     TargetStrafeOrbitRadius = 5,
@@ -371,7 +376,7 @@ ContentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 ContentScroll.AutomaticCanvasSize = "Y"
 
 local UIGrid = Instance.new("UIGridLayout", ContentScroll)
-UIGrid.CellSize = UDim2.new(0, 275, 0, 130)
+UIGrid.CellSize = UDim2.new(0, 275, 0, 145) -- Сделали карточки чуть выше чтобы все влезло
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 
 local function SwitchCategory(catName)
@@ -640,24 +645,6 @@ local function IsVisible(targetPart)
     return result == nil 
 end
 
-table.insert(Connections, RunService.Stepped:Connect(function()
-    if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
-        end
-    elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and not part.CanCollide then
-                if part.Name ~= "HumanoidRootPart" then 
-                    part.CanCollide = true
-                end
-            end
-        end
-    end
-end))
-
 local function CreateStar(position)
     local bgui = Instance.new("BillboardGui", GeminiGui)
     bgui.Size = UDim2.new(_G.Cfg.ParticleSize*0.5,0,_G.Cfg.ParticleSize*0.5,0); bgui.AlwaysOnTop = true
@@ -800,10 +787,42 @@ local lastAttackTime = 0
 local lastStrafeJumpTime = 0
 local nextStrafeJumpDelay = math.random(1, 8) / 10 
 
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and not part.CanCollide then
+                if part.Name ~= "HumanoidRootPart" then 
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end))
+
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     local target = GetTarget() 
     local char = LocalPlayer.Character
     
+    local currentKaTarget = nil
+    if _G.Cfg.KillAuraEnabled then
+        currentKaTarget = GetKillauraTarget()
+    else
+        KillauraLockedTarget = nil
+    end
+    
+    -- Жесткий фикс для Only Killaura
+    local hudTarget = target
+    if _G.Cfg.TargetHudOnlyKillaura then hudTarget = currentKaTarget end
+    
+    local espTarget = target
+    if _G.Cfg.TargetESPOnlyKillaura then espTarget = currentKaTarget end
+
     if _G.Cfg.CustomFovEnabled then
         Camera.FieldOfView = _G.Cfg.CustomFovValue
     else
@@ -838,6 +857,38 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         end
     end
 
+    -- SPIDER ФУНКЦИЯ (Теперь чекает все 4 стороны)
+    if _G.Cfg.SpiderEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            local hrp = char.HumanoidRootPart
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, ChamsFolder, Chams3DFolder}
+            rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+            
+            local dirs = {
+                hrp.CFrame.LookVector,
+                -hrp.CFrame.LookVector,
+                hrp.CFrame.RightVector,
+                -hrp.CFrame.RightVector
+            }
+            
+            local touching = false
+            for _, dir in ipairs(dirs) do
+                local ray1 = workspace:Raycast(hrp.Position, dir * 2.5, rayParams)
+                local ray2 = workspace:Raycast(hrp.Position + Vector3.new(0, 1, 0), dir * 2.5, rayParams)
+                local ray3 = workspace:Raycast(hrp.Position - Vector3.new(0, 1, 0), dir * 2.5, rayParams)
+                if (ray1 and ray1.Instance.CanCollide) or (ray2 and ray2.Instance.CanCollide) or (ray3 and ray3.Instance.CanCollide) then
+                    touching = true
+                    break
+                end
+            end
+            
+            if touching then
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 45, hrp.AssemblyLinearVelocity.Z)
+            end
+        end
+    end
+
     if _G.Cfg.WorldColorEnabled then
         local baseColor = _G.Cfg.WorldColorValue
         local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1)
@@ -851,7 +902,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         Lighting.ExposureCompensation = -dark
     end
 
-    -- ИСПРАВЛЕННЫЙ 3D BOX CHAMS БЕЗ БАШЕН (ТЕПЕРЬ 100% РАБОТАЕТ В WORKSPACE)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local plChar = player.Character
@@ -903,14 +953,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale); HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
     else HatPart.Transparency = 1 end
 
-    if _G.Cfg.TargetHudEnabled and target and target.Character and target.Character:FindFirstChild("Humanoid") then
+    if _G.Cfg.TargetHudEnabled and hudTarget and hudTarget.Character and hudTarget.Character:FindFirstChild("Humanoid") then
         TargetHUD.Visible = true
-        local hum = target.Character.Humanoid
+        local hum = hudTarget.Character.Humanoid
         
-        if lastTargetUserId ~= target.UserId then
-            lastTargetUserId = target.UserId
-            TargetName.Text = target.DisplayName
-            TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. target.UserId .. "&w=150&h=150"
+        if lastTargetUserId ~= hudTarget.UserId then
+            lastTargetUserId = hudTarget.UserId
+            TargetName.Text = hudTarget.DisplayName
+            TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. hudTarget.UserId .. "&w=150&h=150"
             lastTargetHealth = hum.Health 
             local initialHealthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
             HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0) 
@@ -951,8 +1001,8 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         if currentTween then currentTween:Cancel() end 
     end
 
-    if _G.Cfg.TargetESPSquareEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") then
-        local pos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
+    if _G.Cfg.TargetESPSquareEnabled and espTarget and espTarget.Character:FindFirstChild("HumanoidRootPart") then
+        local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
         if onScreen then
             ESPMain.Visible = true
             ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
@@ -974,7 +1024,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     local didKillAura = false
     
     if _G.Cfg.KillAuraEnabled and char and char:FindFirstChild("HumanoidRootPart") then
-        local kaTarget = GetKillauraTarget()
+        local kaTarget = currentKaTarget
         if kaTarget and kaTarget.Character and kaTarget.Character:FindFirstChild("HumanoidRootPart") then
             local targetPart = kaTarget.Character.HumanoidRootPart
             local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
@@ -1087,7 +1137,7 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", 
+        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
@@ -1163,12 +1213,15 @@ local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
+local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals")
 AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") 
 AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor") 
+AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor")
+AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
 local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
