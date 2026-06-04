@@ -1,12 +1,15 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService") -- Нужен для сохранения настроек в JSON
 
--- // Очистка старых версий при перезапуске скрипта, чтобы интерфейс 100% появлялся
+-- // Очистка старых версий при перезапуске скрипта
 if CoreGui:FindFirstChild("Gemini_V60_Final") then
     CoreGui.Gemini_V60_Final:Destroy()
 end
 if CoreGui:FindFirstChild("Gemini_Chams_Storage") then
     CoreGui.Gemini_Chams_Storage:Destroy()
+end
+if workspace:FindFirstChild("Gemini_3D_Chams") then
+    workspace.Gemini_3D_Chams:Destroy()
 end
 
 local Players = game:GetService("Players")
@@ -22,6 +25,10 @@ local Camera = workspace.CurrentCamera
 local Connections = {}
 local ChamsFolder = Instance.new("Folder", CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
+
+-- Папка для 3D Чамсов должна быть в workspace, иначе они не рендерятся движком
+local Chams3DFolder = Instance.new("Folder", workspace)
+Chams3DFolder.Name = "Gemini_3D_Chams"
 
 local FriendsList = {}
 
@@ -87,7 +94,6 @@ _G.Cfg = {
     ChamsColor = Color3.new(1, 0, 0),
     ChamsOutlineColor = Color3.new(1, 1, 1),
     ChamsFillTransparency = 0.5,
-    ChamsOutlineTransparency = 0,
     ChamsEnabledBind = "None",
     
     DamageParticlesEnabled = false,
@@ -184,7 +190,7 @@ GeminiGui.Name = "Gemini_V60_Final"
 GeminiGui.IgnoreGuiInset = true
 GeminiGui.ResetOnSpawn = false 
 
-local TARGET_FONT = Enum.Font.GothamBlack -- АХУЕННЫЙ ТОЛСТО-КВАДРАТНЫЙ ШРИФТ
+local TARGET_FONT = Enum.Font.GothamBlack
 
 local function ShowNotify(text, isEnabled)
     local sound = Instance.new("Sound", game:GetService("SoundService"))
@@ -320,7 +326,6 @@ StatsLabel.TextSize = 12
 StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 StatsLabel.TextXAlignment = "Right"
 
--- Увеличенный MainFrame для боковой панели
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 750, 0, 450)
 MainFrame.Position = UDim2.new(0.5, -375, 0.5, -180) 
@@ -341,7 +346,6 @@ local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Thickness = 1
 MainStroke.Color = Color3.fromRGB(45, 45, 45)
 
--- СИСТЕМА КАТЕГОРИЙ (SIDEBAR)
 local Sidebar = Instance.new("Frame", MainFrame)
 Sidebar.Size = UDim2.new(0, 150, 1, -20)
 Sidebar.Position = UDim2.new(0, 10, 0, 10)
@@ -356,7 +360,7 @@ Instance.new("UICorner", CategoryHighlight).CornerRadius = UDim.new(0, 6)
 local categories = {"Combat", "Movement", "Visuals", "Misc"}
 local catIcons = {Combat = "🤺", Movement = "🏃", Visuals = "👁️", Misc = "⚙️"}
 local catButtons = {}
-local moduleFrames = {} -- Сохраняем все модули для сортировки
+local moduleFrames = {}
 
 local ContentScroll = Instance.new("ScrollingFrame", MainFrame)
 ContentScroll.Size = UDim2.new(1, -180, 1, -20)
@@ -600,6 +604,30 @@ local function GetTarget()
     return t
 end
 
+local KillauraLockedTarget = nil
+local function GetKillauraTarget()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    if KillauraLockedTarget and KillauraLockedTarget.Character and KillauraLockedTarget.Character:FindFirstChild("HumanoidRootPart") and KillauraLockedTarget.Character:FindFirstChild("Humanoid") and KillauraLockedTarget.Character.Humanoid.Health > 0 then
+        local dist = (myPos - KillauraLockedTarget.Character.HumanoidRootPart.Position).Magnitude
+        if dist <= _G.Cfg.KillAuraRange then
+            return KillauraLockedTarget
+        end
+    end
+
+    local t, d = nil, _G.Cfg.KillAuraRange
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and not FriendsList[v.Name] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+            local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
+            if dist < d then d = dist; t = v end
+        end
+    end
+    KillauraLockedTarget = t
+    return t
+end
+
 local function IsVisible(targetPart)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
@@ -654,7 +682,6 @@ end
 local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
--- // TARGET HUD ИНИЦИАЛИЗАЦИЯ
 local TargetHUD = Instance.new("Frame", GeminiGui)
 TargetHUD.Size = UDim2.new(0, 250, 0, 90) 
 TargetHUD.Position = _G.Cfg.TargetHudPosition
@@ -755,13 +782,11 @@ local function CreateCorner(name, pos)
     local hS = Instance.new("UIStroke", hL); hS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     local vS = Instance.new("UIStroke", vL); vS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     
-    -- СВЕЧЕНИЕ СЛОЙ 1
     local hLG1 = Instance.new("Frame", corner); hLG1.BorderSizePixel = 0; hLG1.ZIndex = 5; hLG1.Size = UDim2.new(1, 0, 0, 0); hLG1.Position = hL.Position
     local vLG1 = Instance.new("Frame", corner); vLG1.BorderSizePixel = 0; vLG1.ZIndex = 5; vLG1.Size = UDim2.new(0, 0, 1, 0); vLG1.Position = vL.Position
     local hSG1 = Instance.new("UIStroke", hLG1); hSG1.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; hSG1.Transparency = 0.55
     local vSG1 = Instance.new("UIStroke", vLG1); vSG1.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; vSG1.Transparency = 0.55
 
-    -- СВЕЧЕНИЕ СЛОЙ 2
     local hLG2 = Instance.new("Frame", corner); hLG2.BorderSizePixel = 0; hLG2.ZIndex = 4; hLG2.Size = UDim2.new(1, 0, 0, 0); hLG2.Position = hL.Position
     local vLG2 = Instance.new("Frame", corner); vLG2.BorderSizePixel = 0; vLG2.ZIndex = 4; vLG2.Size = UDim2.new(0, 0, 1, 0); vLG2.Position = vL.Position
     local hSG2 = Instance.new("UIStroke", hLG2); hSG2.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; hSG2.Transparency = 0.8
@@ -776,7 +801,7 @@ local lastStrafeJumpTime = 0
 local nextStrafeJumpDelay = math.random(1, 8) / 10 
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
-    local target = GetTarget()
+    local target = GetTarget() 
     local char = LocalPlayer.Character
     
     if _G.Cfg.CustomFovEnabled then
@@ -801,7 +826,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue
     end
 
-    -- НОВАЯ ФУНКЦИЯ: HARD STRAFE (Убирает плавность разгона и торможения ходьбы как на земле, так и в воздухе)
     if _G.Cfg.StrafeEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid
         local rootPart = char.HumanoidRootPart
@@ -827,11 +851,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         Lighting.ExposureCompensation = -dark
     end
 
+    -- ИСПРАВЛЕННЫЙ 3D BOX CHAMS БЕЗ БАШЕН (ТЕПЕРЬ 100% РАБОТАЕТ В WORKSPACE)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            local plChar = player.Character; local highlight = ChamsFolder:FindFirstChild(player.Name)
+            local plChar = player.Character
+            local boxESP = Chams3DFolder:FindFirstChild(player.Name .. "_3DBox")
+            
             if FriendsList[player.Name] then
-                if highlight then highlight:Destroy() end
+                if boxESP then boxESP:Destroy() end
                 local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
                 if not friendHighlight and plChar then
                     friendHighlight = Instance.new("Highlight", plChar)
@@ -841,12 +868,32 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                     friendHighlight.FillTransparency = 0.8
                     friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
                 end
-            elseif _G.Cfg.ChamsEnabled and plChar then
+            elseif _G.Cfg.ChamsEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") then
                 if plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
-                if not highlight then highlight = Instance.new("Highlight", ChamsFolder); highlight.Name = player.Name end
-                highlight.Adornee = plChar; highlight.FillColor = _G.Cfg.ChamsColor; highlight.OutlineColor = _G.Cfg.ChamsOutlineColor; highlight.FillTransparency = _G.Cfg.ChamsFillTransparency; highlight.OutlineTransparency = _G.Cfg.ChamsOutlineTransparency; highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                
+                if not boxESP then 
+                    boxESP = Instance.new("Part", Chams3DFolder)
+                    boxESP.Name = player.Name .. "_3DBox"
+                    boxESP.Size = Vector3.new(4.5, 6, 1.5)
+                    boxESP.Transparency = 1
+                    boxESP.CanCollide = false
+                    boxESP.Anchored = true
+                    
+                    local hl = Instance.new("Highlight", boxESP)
+                    hl.Name = "HL"
+                    hl.Adornee = boxESP
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                end
+                
+                boxESP.CFrame = plChar.HumanoidRootPart.CFrame
+                
+                local hl = boxESP.HL
+                hl.FillColor = _G.Cfg.ChamsColor
+                hl.OutlineColor = _G.Cfg.ChamsOutlineColor
+                hl.FillTransparency = _G.Cfg.ChamsFillTransparency
+                hl.OutlineTransparency = 0
             else 
-                if highlight then highlight:Destroy() end
+                if boxESP then boxESP:Destroy() end
                 if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
             end
         end
@@ -910,7 +957,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             ESPMain.Visible = true
             ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y)
             ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize)
-            ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 -- ВОЗВРАЩЕНО ВРАЩЕНИЕ КВАДРАТА С ЕГО СКОРОСТЬЮ
+            ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 
 
             for _, c in pairs(corners) do 
                 c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = _G.Cfg.TargetESPSquareColor; c[4].Color = _G.Cfg.TargetESPSquareColor 
@@ -924,41 +971,62 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius; char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
     end
 
-    if target and target.Character and char and char:FindFirstChild("HumanoidRootPart") then
-        local targetPart = target.Character:FindFirstChild("HumanoidRootPart")
-        local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
-        
-        if _G.Cfg.KillAuraEnabled and dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
-            if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
-                local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
-                local distFlat = flatToTarget.Magnitude
-                if distFlat > 0.1 then
-                    local dirToTarget = flatToTarget.Unit
-                    local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit
-                    local noise = math.sin(tick() * 4) * 0.3
-                    local distanceError = distFlat - (3 + noise)
-                    local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
-                    char.Humanoid:Move(moveDir, false)
-                    
-                    if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
-                        if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
-                            char.Humanoid.Jump = true
-                            lastStrafeJumpTime = tick()
-                            nextStrafeJumpDelay = math.random(1, 8) / 10 
+    local didKillAura = false
+    
+    if _G.Cfg.KillAuraEnabled and char and char:FindFirstChild("HumanoidRootPart") then
+        local kaTarget = GetKillauraTarget()
+        if kaTarget and kaTarget.Character and kaTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local targetPart = kaTarget.Character.HumanoidRootPart
+            local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
+            
+            if dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
+                didKillAura = true
+                
+                if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
+                    local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
+                    local distFlat = flatToTarget.Magnitude
+                    if distFlat > 0.1 then
+                        local dirToTarget = flatToTarget.Unit
+                        local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit
+                        local noise = math.sin(tick() * 4) * 0.3
+                        local distanceError = distFlat - (3 + noise)
+                        local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
+                        char.Humanoid:Move(moveDir, false)
+                        
+                        if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
+                            if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
+                                char.Humanoid.Jump = true
+                                lastStrafeJumpTime = tick()
+                                nextStrafeJumpDelay = math.random(1, 8) / 10 
+                            end
                         end
                     end
                 end
-            end
 
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-            local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
-            if tick() - lastAttackTime > attackDelay then
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); lastAttackTime = tick()
-                if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
+                local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
+                if tick() - lastAttackTime > attackDelay then
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); 
+                    lastAttackTime = tick()
+                    
+                    if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
+                    
+                    if _G.Cfg.HitSoundEnabled then
+                        local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
+                        local s = Instance.new("Sound", game:GetService("SoundService"))
+                        s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
+                    end
+                    if _G.Cfg.DamageParticlesEnabled then
+                        local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
+                        for i = 1, pAmt do CreateStar(targetPart.Position) end 
+                    end
+                end
             end
-        elseif _G.Cfg.AimbotEnabled and target.Character:FindFirstChild("Head") then
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
         end
+    end
+
+    if not didKillAura and _G.Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and char and char:FindFirstChild("HumanoidRootPart") then
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
 end))
 
@@ -1012,75 +1080,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-local function CreateModule(name, key, category)
-    local ModFrame = Instance.new("Frame", ContentScroll)
-    ModFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    Instance.new("UICorner", ModFrame)
-    local s = Instance.new("UIStroke", ModFrame); s.Color = Color3.fromRGB(45,45,45); s.Thickness = 1
-    
-    table.insert(moduleFrames, {frame = ModFrame, category = category or "Misc"})
-
-    local Title = Instance.new("TextLabel", ModFrame)
-    Title.Size = UDim2.new(1, -50, 0, 35); Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.Text = name; Title.TextColor3 = Color3.new(1,1,1); Title.Font = TARGET_FONT; Title.TextSize = 14; Title.TextXAlignment = "Left"; Title.BackgroundTransparency = 1
-    
-    local Toggle = Instance.new("TextButton", ModFrame)
-    Toggle.Size = UDim2.new(0, 45, 0, 22); Toggle.Position = UDim2.new(1, -55, 0, 7)
-    Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
-    Toggle.Text = ""; Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1,0)
-    
-    local function RunToggle()
-        _G.Cfg[key] = not _G.Cfg[key]
-        ShowNotify(name, _G.Cfg[key])
-        
-        if key == "SpeedEnabled" and not _G.Cfg[key] then
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-                LocalPlayer.Character.Humanoid.WalkSpeed = 16
-            end
-        end
-
-        if key == "ClickFriendEnabled" and _G.Cfg[key] then
-            StartFriendProcess(false)
-        elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then
-            StartFriendProcess(true)
-        end
-        
-        if key == "WorldColorEnabled" and not _G.Cfg[key] then
-            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
-            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-            Lighting.ExposureCompensation = 0
-        end
-
-        if key == "FullBrightEnabled" and not _G.Cfg[key] then
-            Lighting.Brightness = 1
-        end
-        SaveConfig() 
-    end
-    Toggle.MouseButton1Click:Connect(RunToggle)
-    
-    task.spawn(function()
-        while task.wait(0.1) do
-            Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
-        end
-    end)
-    
-    local Inner = Instance.new("Frame", ModFrame)
-    Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1
-    local l = Instance.new("UIListLayout", Inner); l.Padding = UDim.new(0, 2)
-    
-    local bindKey = key .. "Bind"
-    local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
-    local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT
-    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
-    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
-    
-    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
-        if not gpe and _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then RunToggle() end
-    end))
-
-    return Inner
-end
-
 local function UpdateKeybindList()
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
@@ -1130,6 +1129,9 @@ LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then C
 
 UserInputService.InputBegan:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        if tick() - lastAttackTime < 0.1 then return end
+        
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
             local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
@@ -1158,7 +1160,6 @@ AddSlider(mKilla, "Range", "KillAuraRange");
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
--- ВЛАДКА MOVEMENT (ДОБАВЛЕН HARD STRAFE)
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
@@ -1169,20 +1170,184 @@ AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor")
 
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
-local mCha = CreateModule("CHAMS (Wallhack)", "ChamsEnabled", "Visuals"); AddColorBtn(mCha, "Fill", "ChamsColor"); AddColorBtn(mCha, "Outline", "ChamsOutlineColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
 local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
 
--- ФУНКЦИИ, ПЕРЕНЕСЕННЫЕ В РАЗДЕЛ VISUALS ПО ЗАПРОСУ:
 local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
 local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(mTime, "Hours (0-23)", "TimeChangerHours")
 local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
 local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(mFov, "FOV Value", "CustomFovValue")
 
--- ОСТАВШИЕСЯ ФУНКЦИИ В РАЗДЕЛЕ MISC:
 local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled", "Misc")
 local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled", "Misc")
+
+local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local function encB64(data)
+    local sub = string.sub
+    local len = #data
+    local res = {}
+    for i = 1, len, 3 do
+        local b1 = string.byte(data, i)
+        local b2 = string.byte(data, i+1) or 0
+        local b3 = string.byte(data, i+2) or 0
+        local n = b1 * 65536 + b2 * 256 + b3
+        local n1 = math.floor(n / 262144) % 64 + 1
+        local n2 = math.floor(n / 4096) % 64 + 1
+        local n3 = math.floor(n / 64) % 64 + 1
+        local n4 = n % 64 + 1
+        table.insert(res, sub(b64chars, n1, n1) .. sub(b64chars, n2, n2) .. 
+                         (i+1 <= len and sub(b64chars, n3, n3) or "=") .. 
+                         (i+2 <= len and sub(b64chars, n4, n4) or "="))
+    end
+    return table.concat(res)
+end
+
+local function decB64(data)
+    local sub = string.sub
+    local find = string.find
+    local char = string.char
+    local res = {}
+    data = data:gsub("[^" .. b64chars .. "=]", "")
+    for i = 1, #data, 4 do
+        local o1 = find(b64chars, sub(data, i, i)) or 1
+        local o2 = find(b64chars, sub(data, i+1, i+1)) or 1
+        local o3 = find(b64chars, sub(data, i+2, i+2)) or 1
+        local o4 = find(b64chars, sub(data, i+3, i+3)) or 1
+        o1, o2, o3, o4 = o1-1, o2-1, o3-1, o4-1
+        local n = o1 * 262144 + o2 * 4096 + o3 * 64 + o4
+        local b1 = math.floor(n / 65536) % 256
+        local b2 = math.floor(n / 256) % 256
+        local b3 = n % 256
+        table.insert(res, char(b1))
+        if sub(data, i+2, i+2) ~= "=" then table.insert(res, char(b2)) end
+        if sub(data, i+3, i+3) ~= "=" then table.insert(res, char(b3)) end
+    end
+    return table.concat(res)
+end
+
+local function formatKey(str)
+    local res = {}
+    for i = 1, #str, 4 do
+        table.insert(res, str:sub(i, i+3))
+    end
+    return table.concat(res, "-")
+end
+
+-- // ИНТЕРФЕЙС GENERATE CONFIG KEY
+local GenConfigFrame = Instance.new("Frame", ContentScroll)
+GenConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", GenConfigFrame)
+Instance.new("UIStroke", GenConfigFrame).Color = Color3.fromRGB(45, 45, 45)
+table.insert(moduleFrames, {frame = GenConfigFrame, category = "Misc"})
+
+local GenTitle = Instance.new("TextLabel", GenConfigFrame)
+GenTitle.Size = UDim2.new(1, -10, 0, 25); GenTitle.Position = UDim2.new(0, 5, 0, 5)
+GenTitle.Text = "GENERATE CONFIG KEY"; GenTitle.TextColor3 = Color3.new(1,1,1); GenTitle.Font = TARGET_FONT; GenTitle.TextSize = 14; GenTitle.BackgroundTransparency = 1; GenTitle.TextXAlignment = "Left"
+
+local GenBox = Instance.new("TextBox", GenConfigFrame)
+GenBox.Size = UDim2.new(1, -20, 0, 40); GenBox.Position = UDim2.new(0, 10, 0, 35)
+GenBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); GenBox.TextColor3 = Color3.fromRGB(150, 150, 150); GenBox.Font = Enum.Font.Code; GenBox.TextSize = 10; GenBox.TextWrapped = true; GenBox.Text = "Your key will appear here"
+GenBox.ClearTextOnFocus = false; GenBox.TextEditable = false
+Instance.new("UICorner", GenBox).CornerRadius = UDim.new(0,4)
+
+local GenBtn = Instance.new("TextButton", GenConfigFrame)
+GenBtn.Size = UDim2.new(1, -20, 0, 24); GenBtn.Position = UDim2.new(0, 10, 0, 80)
+GenBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); GenBtn.TextColor3 = Color3.new(1,1,1); GenBtn.Text = "GENERATE"; GenBtn.Font = TARGET_FONT; GenBtn.TextSize = 14
+Instance.new("UICorner", GenBtn).CornerRadius = UDim.new(0,4)
+
+local CopyBtn = Instance.new("TextButton", GenConfigFrame)
+CopyBtn.Size = UDim2.new(1, -20, 0, 16); CopyBtn.Position = UDim2.new(0, 10, 0, 108)
+CopyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); CopyBtn.TextColor3 = Color3.fromRGB(200, 200, 200); CopyBtn.Text = "COPY"; CopyBtn.Font = TARGET_FONT; CopyBtn.TextSize = 10
+Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0,4)
+
+GenBtn.MouseButton1Click:Connect(function()
+    local copy = {}
+    for k, v in pairs(_G.Cfg) do
+        if typeof(v) == "Color3" then
+            copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+        elseif typeof(v) == "UDim2" then
+            copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
+        else
+            copy[k] = v
+        end
+    end
+    local jsonStr = HttpService:JSONEncode(copy)
+    local encoded = encB64(jsonStr)
+    GenBox.Text = formatKey(encoded)
+    ShowNotify("Config Key Generated", true)
+end)
+
+CopyBtn.MouseButton1Click:Connect(function()
+    if setclipboard then
+        setclipboard(GenBox.Text)
+        ShowNotify("Copied to clipboard", true)
+    else
+        ShowNotify("Executor not supported", false)
+    end
+end)
+
+-- // ИНТЕРФЕЙС LOAD CONFIG KEY
+local LoadConfigFrame = Instance.new("Frame", ContentScroll)
+LoadConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", LoadConfigFrame)
+Instance.new("UIStroke", LoadConfigFrame).Color = Color3.fromRGB(45, 45, 45)
+table.insert(moduleFrames, {frame = LoadConfigFrame, category = "Misc"})
+
+local LoadTitle = Instance.new("TextLabel", LoadConfigFrame)
+LoadTitle.Size = UDim2.new(1, -10, 0, 25); LoadTitle.Position = UDim2.new(0, 5, 0, 5)
+LoadTitle.Text = "LOAD CONFIG KEY"; LoadTitle.TextColor3 = Color3.new(1,1,1); LoadTitle.Font = TARGET_FONT; LoadTitle.TextSize = 14; LoadTitle.BackgroundTransparency = 1; LoadTitle.TextXAlignment = "Left"
+
+local LoadBox = Instance.new("TextBox", LoadConfigFrame)
+LoadBox.Size = UDim2.new(1, -20, 0, 40); LoadBox.Position = UDim2.new(0, 10, 0, 35)
+LoadBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); LoadBox.TextColor3 = Color3.new(1,1,1); LoadBox.Font = Enum.Font.Code; LoadBox.TextSize = 10; LoadBox.TextWrapped = true; LoadBox.Text = "Paste key here"
+LoadBox.ClearTextOnFocus = true
+Instance.new("UICorner", LoadBox).CornerRadius = UDim.new(0,4)
+
+local LoadBtn = Instance.new("TextButton", LoadConfigFrame)
+LoadBtn.Size = UDim2.new(1, -20, 0, 24); LoadBtn.Position = UDim2.new(0, 10, 0, 80)
+LoadBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); LoadBtn.TextColor3 = Color3.new(1,1,1); LoadBtn.Text = "LOAD"; LoadBtn.Font = TARGET_FONT; LoadBtn.TextSize = 14
+Instance.new("UICorner", LoadBtn).CornerRadius = UDim.new(0,4)
+
+local PasteBtn = Instance.new("TextButton", LoadConfigFrame)
+PasteBtn.Size = UDim2.new(1, -20, 0, 16); PasteBtn.Position = UDim2.new(0, 10, 0, 108)
+PasteBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); PasteBtn.TextColor3 = Color3.fromRGB(200, 200, 200); PasteBtn.Text = "PASTE"; PasteBtn.Font = TARGET_FONT; PasteBtn.TextSize = 10
+Instance.new("UICorner", PasteBtn).CornerRadius = UDim.new(0,4)
+
+LoadBtn.MouseButton1Click:Connect(function()
+    local txt = LoadBox.Text
+    if txt == "" or txt:find("Paste key") then return end
+    
+    local cleanTxt = txt:gsub("-", "")
+    local success, decoded = pcall(function() return decB64(cleanTxt) end)
+    if not success or not decoded or decoded == "" then ShowNotify("Invalid Key", false) return end
+    
+    local success2, data = pcall(function() return HttpService:JSONDecode(decoded) end)
+    if success2 and type(data) == "table" then
+        for k, v in pairs(data) do
+            if type(v) == "table" and v.isColor then
+                if _G.Cfg[k] ~= nil then _G.Cfg[k] = Color3.new(v.R, v.G, v.B) end
+            elseif type(v) == "table" and v.isUDim2 then
+                if _G.Cfg[k] ~= nil then _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset) end
+            else
+                if _G.Cfg[k] ~= nil then _G.Cfg[k] = v end
+            end
+        end
+        SaveConfig()
+        ShowNotify("Config Loaded", true)
+    else
+        ShowNotify("Load Error", false)
+    end
+end)
+
+PasteBtn.MouseButton1Click:Connect(function()
+    if getclipboard then
+        LoadBox.Text = tostring(getclipboard())
+        ShowNotify("Pasted from clipboard", true)
+    else
+        ShowNotify("Executor not supported", false)
+    end
+end)
 
 local KillFrame = Instance.new("Frame", ContentScroll)
 KillFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -1199,7 +1364,10 @@ KillBtn.TextColor3 = Color3.new(1,1,1)
 KillBtn.Font = TARGET_FONT
 KillBtn.TextSize = 16
 Instance.new("UICorner", KillBtn)
-KillBtn.MouseButton1Click:Connect(function() for _, c in pairs(Connections) do c:Disconnect() end GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy() end)
+KillBtn.MouseButton1Click:Connect(function() 
+    for _, c in pairs(Connections) do c:Disconnect() end 
+    GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy()
+    if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
+end)
 
--- Переключаем на начальную категорию после создания всех модулей
 SwitchCategory("Combat")
