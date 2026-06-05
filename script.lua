@@ -26,11 +26,21 @@ local Connections = {}
 local ChamsFolder = Instance.new("Folder", CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
 
--- Папка для 3D Чамсов должна быть в workspace, иначе они не рендерятся движком
 local Chams3DFolder = Instance.new("Folder", workspace)
 Chams3DFolder.Name = "Gemini_3D_Chams"
 
 local FriendsList = {}
+
+-- // ТАБЛИЦЫ ДЛЯ ОПТИМИЗАЦИИ ФПС (Кэширование)
+local OrigPartData = setmetatable({}, {__mode = "k"})
+local PlayerPartsCache = setmetatable({}, {__mode = "k"})
+local LowerNameCache = setmetatable({}, {
+    __index = function(t, k)
+        local v = string.lower(k)
+        t[k] = v
+        return v
+    end
+})
 
 -- // ПОЛНАЯ КОНФИГУРАЦИЯ (Дефолтная)
 _G.Cfg = {
@@ -48,6 +58,7 @@ _G.Cfg = {
     
     KillAuraEnabled = false,
     KillStrafeEnabled = false,
+    KillStrafeSpeed = 20, 
     KillAuraRange = 25,
     KillAuraClickRange = 15,
     KillAuraSpeed = 1, 
@@ -83,6 +94,11 @@ _G.Cfg = {
     TargetESPRotationSpeed = 1,
     TargetESPSquareEnabledBind = "None",
     TargetESPOnlyKillaura = false,
+
+    Esp2DBoxEnabled = false,
+    Esp2DBoxSize = 1,
+    Esp2DBoxColor = Color3.fromRGB(0, 255, 200),
+    Esp2DBoxEnabledBind = "None",
     
     TargetStrafeOrbitEnabled = false,
     TargetStrafeOrbitRadius = 5,
@@ -211,6 +227,10 @@ GeminiGui.Name = "Gemini_V60_Final"
 GeminiGui.IgnoreGuiInset = true
 GeminiGui.ResetOnSpawn = false 
 
+-- ПАПКА ДЛЯ 2D ESP БОКСОВ
+local Esp2DFolder = Instance.new("Folder", GeminiGui)
+Esp2DFolder.Name = "ESP2D_Storage"
+
 local TARGET_FONT = Enum.Font.GothamBlack
 
 local function ShowNotify(text, isEnabled)
@@ -275,7 +295,7 @@ local function StartFriendProcess(isDelete)
                 local char = res.Instance:FindFirstAncestorOfClass("Model")
                 local p = Players:GetPlayerFromCharacter(char)
                 if p and p ~= LocalPlayer then
-                    local lowerName = string.lower(p.Name)
+                    local lowerName = LowerNameCache[p.Name]
                     if isDelete and not FriendsList[lowerName] then return end
                     ClickData[p.Name] = (ClickData[p.Name] or 0) + 1
                     if ClickData[p.Name] >= 3 then
@@ -574,8 +594,14 @@ local function CreateModule(name, key, category)
         end
     end)
     
-    local Inner = Instance.new("Frame", ModFrame)
-    Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1
+    local Inner = Instance.new("ScrollingFrame", ModFrame)
+    Inner.Size = UDim2.new(1, -10, 1, -40); 
+    Inner.Position = UDim2.new(0, 5, 0, 35); 
+    Inner.BackgroundTransparency = 1
+    Inner.ScrollBarThickness = 2
+    Inner.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Inner.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    
     local l = Instance.new("UIListLayout", Inner); l.Padding = UDim.new(0, 2)
     
     local bindKey = key .. "Bind"
@@ -584,9 +610,7 @@ local function CreateModule(name, key, category)
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
     bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
     
-    -- МАКСИМАЛЬНО НАДЕЖНЫЙ ОБРАБОТЧИК БИНДОВ
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
-        -- Игнорируем нажатия, если ты печатаешь в чат или интерфейс
         if gpe and UserInputService:GetFocusedTextBox() ~= nil then return end 
         
         if _G.Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then
@@ -625,9 +649,13 @@ end
 
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
-    for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and not FriendsList[string.lower(v.Name)] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
-            local dist = (LocalPlayer.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and not FriendsList[LowerNameCache[v.Name]] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+            local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
     end
@@ -648,8 +676,8 @@ local function GetKillauraTarget()
     end
 
     local t, d = nil, _G.Cfg.KillAuraRange
-    for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and not FriendsList[string.lower(v.Name)] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and not FriendsList[LowerNameCache[v.Name]] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
@@ -811,16 +839,18 @@ local corners = {CreateCorner("TL", UDim2.new(0,0,0,0)), CreateCorner("TR", UDim
 local lastAttackTime = 0
 local lastStrafeJumpTime = 0
 local nextStrafeJumpDelay = math.random(1, 8) / 10 
+local currentKaStrafeDir = 1
+local nextKaStrafeDirChange = 0
 
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
             if part:IsA("BasePart") and part.CanCollide then
                 part.CanCollide = false
             end
         end
     elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
             if part:IsA("BasePart") and not part.CanCollide then
                 if part.Name ~= "HumanoidRootPart" then 
                     part.CanCollide = true
@@ -881,7 +911,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- SPIDER ФУНКЦИЯ (Максимально безопасный Raycast)
     if _G.Cfg.SpiderEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             local hrp = char.HumanoidRootPart
@@ -902,7 +931,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 local ray2 = workspace:Raycast(hrp.Position + Vector3.new(0, 1, 0), dir * 2.5, rayParams)
                 local ray3 = workspace:Raycast(hrp.Position - Vector3.new(0, 1, 0), dir * 2.5, rayParams)
                 
-                -- Бронебойная проверка. Убивает шанс ошибки "Attempt to index nil with CanCollide"
                 local function checkRay(r)
                     return r and r.Instance and r.Instance:IsA("BasePart") and r.Instance.CanCollide
                 end
@@ -932,47 +960,70 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         Lighting.ExposureCompensation = -dark
     end
 
-    for _, player in pairs(Players:GetPlayers()) do
+    -- ОЧИСТКА ВЫШЕДШИХ ИГРОКОВ ДЛЯ 2D ESP БОКСОВ
+    for _, child in ipairs(Esp2DFolder:GetChildren()) do
+        local pName = child.Name:gsub("_2DBox", "")
+        if not Players:FindFirstChild(pName) then
+            child:Destroy()
+        end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local plChar = player.Character
+            local lowerName = LowerNameCache[player.Name]
+            local isFriend = FriendsList[lowerName]
             local boxESP = Chams3DFolder:FindFirstChild(player.Name .. "_3DBox")
+            local esp2DBox = Esp2DFolder:FindFirstChild(player.Name .. "_2DBox")
             
-            -- HITBOX LOGIC (Bridge Duel Fix - Увеличение всех частей тела, т.к. HRP часто игнорируется античитами/мечами)
+            -- HITBOX LOGIC (OPTIMIZED CACHE SYSTEM)
             if plChar then
                 local isHitboxActive = false
                 local mult = 1
                 
-                if _G.Cfg.HitboxEnabled and not FriendsList[string.lower(player.Name)] then
+                if _G.Cfg.HitboxEnabled and not isFriend then
                     if not _G.Cfg.HitboxOnlyKillaura or player == currentKaTarget then
                         isHitboxActive = true
                         mult = tonumber(_G.Cfg.HitboxSize) or 1
                     end
                 end
                 
-                for _, part in pairs(plChar:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        -- Сохраняем оригинальный размер каждой части
-                        if not part:FindFirstChild("Gemini_OrigSize") then
-                            local ov = Instance.new("Vector3Value", part)
-                            ov.Name = "Gemini_OrigSize"
-                            ov.Value = part.Size
-                        end
-                        
-                        local orig = part.Gemini_OrigSize.Value
-                        local targetSize = isHitboxActive and (orig * mult) or orig
-                        
-                        if part.Size ~= targetSize then
-                            part.Size = targetSize
-                            if isHitboxActive then
-                                part.CanCollide = false
-                                part.Massless = true
-                            end
+                local partsList = PlayerPartsCache[plChar]
+                if not partsList then
+                    partsList = {}
+                    for _, p in ipairs(plChar:GetChildren()) do
+                        if p:IsA("BasePart") then table.insert(partsList, p) end
+                    end
+                    PlayerPartsCache[plChar] = partsList
+                end
+                
+                for _, part in ipairs(partsList) do
+                    if not OrigPartData[part] then
+                        OrigPartData[part] = {
+                            Size = part.Size,
+                            CanCollide = part.CanCollide,
+                            Massless = part.Massless
+                        }
+                    end
+                    
+                    local origData = OrigPartData[part]
+                    local targetSize = isHitboxActive and (origData.Size * mult) or origData.Size
+                    
+                    if part.Size ~= targetSize then
+                        part.Size = targetSize
+                        if isHitboxActive then
+                            part.CanCollide = false
+                            part.Massless = true
+                        else
+                            part.CanCollide = origData.CanCollide
+                            part.Massless = origData.Massless
                         end
                     end
                 end
             end
 
-            if FriendsList[string.lower(player.Name)] then
+            -- CHAMS & FRIENDS HIGHLIGHT
+            if isFriend then
                 if boxESP then boxESP:Destroy() end
                 local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
                 if not friendHighlight and plChar then
@@ -1010,6 +1061,83 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             else 
                 if boxESP then boxESP:Destroy() end
                 if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
+            end
+
+            -- // 2D BOX ESP LOGIC
+            if _G.Cfg.Esp2DBoxEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") and not isFriend then
+                local hrp = plChar.HumanoidRootPart
+                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                
+                if onScreen then
+                    if not esp2DBox then
+                        esp2DBox = Instance.new("Frame", Esp2DFolder)
+                        esp2DBox.Name = player.Name .. "_2DBox"
+                        esp2DBox.BackgroundTransparency = 1
+                        Instance.new("UICorner", esp2DBox).CornerRadius = UDim.new(0, 4)
+                        
+                        local mainStroke = Instance.new("UIStroke", esp2DBox)
+                        mainStroke.Name = "MainStroke"
+                        mainStroke.Thickness = 1.5
+                        mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        
+                        local grad = Instance.new("UIGradient", mainStroke)
+                        grad.Name = "StrokeGradient"
+                        grad.Rotation = 45
+                        
+                        local glowFrame = Instance.new("Frame", esp2DBox)
+                        glowFrame.Size = UDim2.new(1, 0, 1, 0)
+                        glowFrame.BackgroundTransparency = 1
+                        Instance.new("UICorner", glowFrame).CornerRadius = UDim.new(0, 4)
+                        
+                        local outerGlow = Instance.new("UIStroke", glowFrame)
+                        outerGlow.Name = "OuterGlow"
+                        outerGlow.Thickness = 5
+                        outerGlow.Transparency = 0.7
+                        outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    end
+                    
+                    local head = plChar:FindFirstChild("Head")
+                    local topPos = head and head.Position + Vector3.new(0, 1, 0) or hrp.Position + Vector3.new(0, 3, 0)
+                    local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
+                    
+                    local topScreen = Camera:WorldToViewportPoint(topPos)
+                    local bottomScreen = Camera:WorldToViewportPoint(bottomPos)
+                    
+                    local height = math.abs(bottomScreen.Y - topScreen.Y)
+                    
+                    -- ДЕЛАЕМ ПРЯМОУГОЛЬНИК ВЕРТИКАЛЬНЫМ (ВДОЛЬ ТЕЛА)
+                    local baseMultiplier = tonumber(_G.Cfg.Esp2DBoxSize) or 1
+                    local finalHeight = height * baseMultiplier
+                    local width = (height / 1.5) * baseMultiplier 
+                    
+                    esp2DBox.Size = UDim2.new(0, width, 0, finalHeight)
+                    esp2DBox.Position = UDim2.new(0, pos.X - width/2, 0, pos.Y - finalHeight/2)
+                    
+                    local mainStroke = esp2DBox:FindFirstChild("MainStroke")
+                    if mainStroke then 
+                        mainStroke.Color = _G.Cfg.Esp2DBoxColor 
+                        local grad = mainStroke:FindFirstChild("StrokeGradient")
+                        if grad then
+                            grad.Color = ColorSequence.new({
+                                ColorSequenceKeypoint.new(0, _G.Cfg.Esp2DBoxColor),
+                                ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(_G.Cfg.Esp2DBoxColor, 0.5))
+                            })
+                            grad.Rotation = (tick() * 50) % 360 
+                        end
+                    end
+                    
+                    local glowFrame = esp2DBox:FindFirstChildOfClass("Frame")
+                    if glowFrame then
+                        local outerGlow = glowFrame:FindFirstChild("OuterGlow")
+                        if outerGlow then outerGlow.Color = _G.Cfg.Esp2DBoxColor end
+                    end
+                    
+                    esp2DBox.Visible = true
+                else
+                    if esp2DBox then esp2DBox.Visible = false end
+                end
+            else
+                if esp2DBox then esp2DBox.Visible = false end
             end
         end
     end
@@ -1101,12 +1229,23 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                     local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
                     local distFlat = flatToTarget.Magnitude
                     if distFlat > 0.1 then
+                        if tick() > nextKaStrafeDirChange then
+                            -- ПРИНУДИТЕЛЬНО МЕНЯЕМ СТОРОНУ (Больше никаких зависаний в одну сторону)
+                            currentKaStrafeDir = -currentKaStrafeDir
+                            -- ЗАДЕРЖКА ОТ 0.4 ДО 0.9 СЕКУНД
+                            nextKaStrafeDirChange = tick() + (math.random(40, 90) / 100)
+                        end
+                        
                         local dirToTarget = flatToTarget.Unit
-                        local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit
+                        local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit * currentKaStrafeDir
                         local noise = math.sin(tick() * 4) * 0.3
                         local distanceError = distFlat - (3 + noise)
                         local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
+                        
                         char.Humanoid:Move(moveDir, false)
+                        
+                        local kStrafeSpeed = tonumber(_G.Cfg.KillStrafeSpeed) or 20
+                        char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, char.HumanoidRootPart.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
                         
                         if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
                             if char.Humanoid.FloorMaterial ~= Enum.Material.Air then
@@ -1206,13 +1345,13 @@ local function UpdateKeybindList()
     local activeCount = 0
     local modules = {
         "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
-        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
+        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
-    for _, key in pairs(modules) do
+    for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
             activeCount = activeCount + 1
@@ -1254,7 +1393,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         if res and res.Instance then
             local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
             local p = Players:GetPlayerFromCharacter(hitChar)
-            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[string.lower(hitChar.Name)] then 
+            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[LowerNameCache[hitChar.Name]] then 
                 if _G.Cfg.DamageParticlesEnabled then
                     local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
                     for i = 1, pAmt do CreateStar(res.Position) end 
@@ -1274,6 +1413,7 @@ local mAim = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(mAim, 
 
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); 
 AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); 
+AddSlider(mKilla, "Strafe Speed", "KillStrafeSpeed"); 
 AddSlider(mKilla, "Range", "KillAuraRange"); 
 AddSlider(mKilla, "Click Range", "KillAuraClickRange"); 
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
@@ -1296,6 +1436,12 @@ AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor")
 AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
+
+-- НОВЫЙ МОДУЛЬ 2D BOX ESP
+local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); 
+AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); 
+AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor")
+
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
 local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
@@ -1409,7 +1555,7 @@ local function RefreshFriendsList()
         
         dBtn.MouseButton1Click:Connect(function()
             FriendsList[fname] = nil
-            for _, targetPlayer in pairs(Players:GetPlayers()) do
+            for _, targetPlayer in ipairs(Players:GetPlayers()) do
                 if string.lower(targetPlayer.Name) == fname then
                     if targetPlayer.Character and targetPlayer.Character:FindFirstChild("FriendHighlight") then
                         targetPlayer.Character.FriendHighlight:Destroy()
@@ -1427,7 +1573,7 @@ end
 FAddBtn.MouseButton1Click:Connect(function()
     local txt = FInput.Text:gsub("%s+", "")
     if txt ~= "" and txt ~= "Username" then
-        local lowerTxt = string.lower(txt)
+        local lowerTxt = LowerNameCache[txt]
         FriendsList[lowerTxt] = true
         FInput.Text = "Username"
         SaveConfig()
@@ -1590,6 +1736,7 @@ KillBtn.MouseButton1Click:Connect(function()
     for _, c in pairs(Connections) do c:Disconnect() end 
     GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy()
     if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
+    if Esp2DFolder then Esp2DFolder:Destroy() end
 end)
 
 SwitchCategory("Combat")
