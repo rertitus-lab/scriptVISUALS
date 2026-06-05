@@ -52,6 +52,11 @@ _G.Cfg = {
     KillAuraClickRange = 15,
     KillAuraSpeed = 1, 
     KillAuraEnabledBind = "None",
+
+    HitboxEnabled = false,
+    HitboxSize = 1,
+    HitboxOnlyKillaura = false,
+    HitboxEnabledBind = "None",
     
     SpeedEnabled = false,
     WalkSpeedValue = 16,
@@ -164,7 +169,10 @@ local function LoadConfig()
         end)
         if success and type(data) == "table" then
             if type(data.SavedFriends) == "table" then
-                FriendsList = data.SavedFriends 
+                FriendsList = {}
+                for k, v in pairs(data.SavedFriends) do
+                    FriendsList[string.lower(k)] = v
+                end
             end
             for k, v in pairs(data) do
                 if k ~= "SavedFriends" then
@@ -267,16 +275,17 @@ local function StartFriendProcess(isDelete)
                 local char = res.Instance:FindFirstAncestorOfClass("Model")
                 local p = Players:GetPlayerFromCharacter(char)
                 if p and p ~= LocalPlayer then
-                    if isDelete and not FriendsList[p.Name] then return end
+                    local lowerName = string.lower(p.Name)
+                    if isDelete and not FriendsList[lowerName] then return end
                     ClickData[p.Name] = (ClickData[p.Name] or 0) + 1
                     if ClickData[p.Name] >= 3 then
                         if isDelete then
-                            FriendsList[p.Name] = nil
+                            FriendsList[lowerName] = nil
                             if char:FindFirstChild("FriendHighlight") then char.FriendHighlight:Destroy() end
                             ShowNotify("Friend Removed: " .. p.DisplayName, false)
                             _G.Cfg.DeleteFriendEnabled = false
                         else
-                            FriendsList[p.Name] = true
+                            FriendsList[lowerName] = true
                             ShowNotify("Friend Added: " .. p.DisplayName, true)
                             _G.Cfg.ClickFriendEnabled = false
                         end
@@ -617,7 +626,7 @@ end
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and not FriendsList[v.Name] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+        if v ~= LocalPlayer and not FriendsList[string.lower(v.Name)] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (LocalPlayer.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
@@ -640,7 +649,7 @@ local function GetKillauraTarget()
 
     local t, d = nil, _G.Cfg.KillAuraRange
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and not FriendsList[v.Name] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+        if v ~= LocalPlayer and not FriendsList[string.lower(v.Name)] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
             if dist < d then d = dist; t = v end
         end
@@ -928,7 +937,42 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             local plChar = player.Character
             local boxESP = Chams3DFolder:FindFirstChild(player.Name .. "_3DBox")
             
-            if FriendsList[player.Name] then
+            -- HITBOX LOGIC (Bridge Duel Fix - Увеличение всех частей тела, т.к. HRP часто игнорируется античитами/мечами)
+            if plChar then
+                local isHitboxActive = false
+                local mult = 1
+                
+                if _G.Cfg.HitboxEnabled and not FriendsList[string.lower(player.Name)] then
+                    if not _G.Cfg.HitboxOnlyKillaura or player == currentKaTarget then
+                        isHitboxActive = true
+                        mult = tonumber(_G.Cfg.HitboxSize) or 1
+                    end
+                end
+                
+                for _, part in pairs(plChar:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        -- Сохраняем оригинальный размер каждой части
+                        if not part:FindFirstChild("Gemini_OrigSize") then
+                            local ov = Instance.new("Vector3Value", part)
+                            ov.Name = "Gemini_OrigSize"
+                            ov.Value = part.Size
+                        end
+                        
+                        local orig = part.Gemini_OrigSize.Value
+                        local targetSize = isHitboxActive and (orig * mult) or orig
+                        
+                        if part.Size ~= targetSize then
+                            part.Size = targetSize
+                            if isHitboxActive then
+                                part.CanCollide = false
+                                part.Massless = true
+                            end
+                        end
+                    end
+                end
+            end
+
+            if FriendsList[string.lower(player.Name)] then
                 if boxESP then boxESP:Destroy() end
                 local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
                 if not friendHighlight and plChar then
@@ -1161,7 +1205,7 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", 
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled",
@@ -1210,7 +1254,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         if res and res.Instance then
             local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
             local p = Players:GetPlayerFromCharacter(hitChar)
-            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[hitChar.Name] then 
+            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[string.lower(hitChar.Name)] then 
                 if _G.Cfg.DamageParticlesEnabled then
                     local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
                     for i = 1, pAmt do CreateStar(res.Position) end 
@@ -1233,6 +1277,11 @@ AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled");
 AddSlider(mKilla, "Range", "KillAuraRange"); 
 AddSlider(mKilla, "Click Range", "KillAuraClickRange"); 
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
+
+local mHitbox = CreateModule("HITBOX", "HitboxEnabled", "Combat");
+AddSlider(mHitbox, "Size Multiplier", "HitboxSize");
+AddToggle(mHitbox, "Only Killaura", "HitboxOnlyKillaura");
+
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
@@ -1311,6 +1360,92 @@ local function formatKey(str)
     end
     return table.concat(res, "-")
 end
+
+-- // ИНТЕРФЕЙС FRIEND LIST MANAGER
+local FriendsFrame = Instance.new("Frame", ContentScroll)
+FriendsFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", FriendsFrame)
+Instance.new("UIStroke", FriendsFrame).Color = Color3.fromRGB(45, 45, 45)
+table.insert(moduleFrames, {frame = FriendsFrame, category = "Misc"})
+
+local FTitle = Instance.new("TextLabel", FriendsFrame)
+FTitle.Size = UDim2.new(1, -10, 0, 20); FTitle.Position = UDim2.new(0, 5, 0, 5)
+FTitle.Text = "FRIENDS MANAGER"; FTitle.TextColor3 = Color3.new(1,1,1); FTitle.Font = TARGET_FONT; FTitle.TextSize = 14; FTitle.BackgroundTransparency = 1; FTitle.TextXAlignment = "Left"
+
+local FInput = Instance.new("TextBox", FriendsFrame)
+FInput.Size = UDim2.new(1, -40, 0, 24); FInput.Position = UDim2.new(0, 5, 0, 25)
+FInput.BackgroundColor3 = Color3.fromRGB(15, 15, 15); FInput.TextColor3 = Color3.new(1,1,1); FInput.Font = TARGET_FONT; FInput.TextSize = 12; FInput.Text = "Username"
+FInput.ClearTextOnFocus = true
+Instance.new("UICorner", FInput).CornerRadius = UDim.new(0,4)
+
+local FAddBtn = Instance.new("TextButton", FriendsFrame)
+FAddBtn.Size = UDim2.new(0, 24, 0, 24); FAddBtn.Position = UDim2.new(1, -30, 0, 25)
+FAddBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); FAddBtn.TextColor3 = Color3.new(0, 1, 0); FAddBtn.Text = "+"; FAddBtn.Font = TARGET_FONT; FAddBtn.TextSize = 16
+Instance.new("UICorner", FAddBtn).CornerRadius = UDim.new(0,4)
+
+local FListScroll = Instance.new("ScrollingFrame", FriendsFrame)
+FListScroll.Size = UDim2.new(1, -10, 1, -60); FListScroll.Position = UDim2.new(0, 5, 0, 55)
+FListScroll.BackgroundTransparency = 1; FListScroll.ScrollBarThickness = 2
+FListScroll.CanvasSize = UDim2.new(0, 0, 0, 0); FListScroll.AutomaticCanvasSize = "Y"
+local FListLayout = Instance.new("UIListLayout", FListScroll)
+FListLayout.Padding = UDim.new(0, 2)
+
+local function RefreshFriendsList()
+    for _, child in pairs(FListScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    for fname, _ in pairs(FriendsList) do
+        local itm = Instance.new("Frame", FListScroll)
+        itm.Size = UDim2.new(1, 0, 0, 20); itm.BackgroundTransparency = 1
+        
+        local dBtn = Instance.new("TextButton", itm)
+        dBtn.Size = UDim2.new(0, 20, 0, 20); dBtn.Position = UDim2.new(0, 0, 0, 0)
+        dBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 15); dBtn.TextColor3 = Color3.new(1, 0.2, 0.2); dBtn.Text = "-"; dBtn.Font = TARGET_FONT; dBtn.TextSize = 14
+        Instance.new("UICorner", dBtn).CornerRadius = UDim.new(0,4)
+        
+        local nLbl = Instance.new("TextLabel", itm)
+        nLbl.Size = UDim2.new(1, -25, 1, 0); nLbl.Position = UDim2.new(0, 25, 0, 0)
+        nLbl.BackgroundTransparency = 1; nLbl.Text = fname; nLbl.TextColor3 = Color3.new(0.8, 0.8, 0.8); nLbl.Font = TARGET_FONT; nLbl.TextSize = 12; nLbl.TextXAlignment = "Left"
+        
+        dBtn.MouseButton1Click:Connect(function()
+            FriendsList[fname] = nil
+            for _, targetPlayer in pairs(Players:GetPlayers()) do
+                if string.lower(targetPlayer.Name) == fname then
+                    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("FriendHighlight") then
+                        targetPlayer.Character.FriendHighlight:Destroy()
+                    end
+                    break
+                end
+            end
+            SaveConfig()
+            RefreshFriendsList()
+            ShowNotify("Friend Removed: " .. fname, false)
+        end)
+    end
+end
+
+FAddBtn.MouseButton1Click:Connect(function()
+    local txt = FInput.Text:gsub("%s+", "")
+    if txt ~= "" and txt ~= "Username" then
+        local lowerTxt = string.lower(txt)
+        FriendsList[lowerTxt] = true
+        FInput.Text = "Username"
+        SaveConfig()
+        RefreshFriendsList()
+        ShowNotify("Friend Added: " .. lowerTxt, true)
+    end
+end)
+
+local lastFriendsStr = ""
+task.spawn(function()
+    while task.wait(0.2) do
+        local currentStr = HttpService:JSONEncode(FriendsList)
+        if currentStr ~= lastFriendsStr then
+            lastFriendsStr = currentStr
+            RefreshFriendsList()
+        end
+    end
+end)
 
 -- // ИНТЕРФЕЙС GENERATE CONFIG KEY
 local GenConfigFrame = Instance.new("Frame", ContentScroll)
@@ -1404,7 +1539,10 @@ LoadBtn.MouseButton1Click:Connect(function()
     local success2, data = pcall(function() return HttpService:JSONDecode(decoded) end)
     if success2 and type(data) == "table" then
         if type(data.SavedFriends) == "table" then
-            FriendsList = data.SavedFriends 
+            FriendsList = {}
+            for k, v in pairs(data.SavedFriends) do
+                FriendsList[string.lower(k)] = v
+            end
         end
         for k, v in pairs(data) do
             if k ~= "SavedFriends" then
