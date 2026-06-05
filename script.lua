@@ -49,6 +49,7 @@ _G.Cfg = {
     KillAuraEnabled = false,
     KillStrafeEnabled = false,
     KillAuraRange = 25,
+    KillAuraClickRange = 15,
     KillAuraSpeed = 1, 
     KillAuraEnabledBind = "None",
     
@@ -1074,21 +1075,24 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 end
 
                 Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-                local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
-                if tick() - lastAttackTime > attackDelay then
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); 
-                    lastAttackTime = tick()
-                    
-                    if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
-                    
-                    if _G.Cfg.HitSoundEnabled then
-                        local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
-                        local s = Instance.new("Sound", game:GetService("SoundService"))
-                        s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
-                    end
-                    if _G.Cfg.DamageParticlesEnabled then
-                        local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
-                        for i = 1, pAmt do CreateStar(targetPart.Position) end 
+                
+                if dist <= (_G.Cfg.KillAuraClickRange or 15) then
+                    local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
+                    if tick() - lastAttackTime > attackDelay then
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); 
+                        lastAttackTime = tick()
+                        
+                        if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
+                        
+                        if _G.Cfg.HitSoundEnabled then
+                            local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
+                            local s = Instance.new("Sound", game:GetService("SoundService"))
+                            s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
+                        end
+                        if _G.Cfg.DamageParticlesEnabled then
+                            local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8
+                            for i = 1, pAmt do CreateStar(targetPart.Position) end 
+                        end
                     end
                 end
             end
@@ -1227,6 +1231,7 @@ local mAim = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(mAim, 
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); 
 AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); 
 AddSlider(mKilla, "Range", "KillAuraRange"); 
+AddSlider(mKilla, "Click Range", "KillAuraClickRange"); 
 AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
