@@ -64,7 +64,8 @@ _G.Cfg = {
     
     SpiderEnabled = false,
     SpiderEnabledBind = "None",
-
+    SpiderSpeed = 45,
+    
     HitSoundEnabled = false,
     HitSoundMode = 1, 
     HitSoundEnabledBind = "None",
@@ -149,6 +150,7 @@ local function SaveConfig()
             copy[k] = v
         end
     end
+    copy.SavedFriends = FriendsList 
     pcall(function()
         writefile(ConfigFileName, HttpService:JSONEncode(copy))
     end)
@@ -160,13 +162,18 @@ local function LoadConfig()
             return HttpService:JSONDecode(readfile(ConfigFileName))
         end)
         if success and type(data) == "table" then
+            if type(data.SavedFriends) == "table" then
+                FriendsList = data.SavedFriends 
+            end
             for k, v in pairs(data) do
-                if type(v) == "table" and v.isColor then
-                    _G.Cfg[k] = Color3.new(v.R, v.G, v.B)
-                elseif type(v) == "table" and v.isUDim2 then
-                    _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
-                else
-                    _G.Cfg[k] = v
+                if k ~= "SavedFriends" then
+                    if type(v) == "table" and v.isColor then
+                        _G.Cfg[k] = Color3.new(v.R, v.G, v.B)
+                    elseif type(v) == "table" and v.isUDim2 then
+                        _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
+                    else
+                        _G.Cfg[k] = v
+                    end
                 end
             end
         end
@@ -376,7 +383,7 @@ ContentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 ContentScroll.AutomaticCanvasSize = "Y"
 
 local UIGrid = Instance.new("UIGridLayout", ContentScroll)
-UIGrid.CellSize = UDim2.new(0, 275, 0, 145) -- Сделали карточки чуть выше чтобы все влезло
+UIGrid.CellSize = UDim2.new(0, 275, 0, 145)
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 
 local function SwitchCategory(catName)
@@ -567,8 +574,16 @@ local function CreateModule(name, key, category)
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
     bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
     
+    -- МАКСИМАЛЬНО НАДЕЖНЫЙ ОБРАБОТЧИК БИНДОВ
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
-        if not gpe and _G.Cfg[bindKey] ~= "None" and input.KeyCode.Name:lower() == _G.Cfg[bindKey]:lower() then RunToggle() end
+        -- Игнорируем нажатия, если ты печатаешь в чат или интерфейс
+        if gpe and UserInputService:GetFocusedTextBox() ~= nil then return end 
+        
+        if _G.Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then
+            if input.KeyCode.Name:lower() == tostring(_G.Cfg[bindKey]):lower() then
+                RunToggle() 
+            end
+        end
     end))
 
     return Inner
@@ -816,7 +831,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         KillauraLockedTarget = nil
     end
     
-    -- Жесткий фикс для Only Killaura
     local hudTarget = target
     if _G.Cfg.TargetHudOnlyKillaura then hudTarget = currentKaTarget end
     
@@ -857,7 +871,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- SPIDER ФУНКЦИЯ (Теперь чекает все 4 стороны)
+    -- SPIDER ФУНКЦИЯ (Максимально безопасный Raycast)
     if _G.Cfg.SpiderEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             local hrp = char.HumanoidRootPart
@@ -877,14 +891,20 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 local ray1 = workspace:Raycast(hrp.Position, dir * 2.5, rayParams)
                 local ray2 = workspace:Raycast(hrp.Position + Vector3.new(0, 1, 0), dir * 2.5, rayParams)
                 local ray3 = workspace:Raycast(hrp.Position - Vector3.new(0, 1, 0), dir * 2.5, rayParams)
-                if (ray1 and ray1.Instance.CanCollide) or (ray2 and ray2.Instance.CanCollide) or (ray3 and ray3.Instance.CanCollide) then
+                
+                -- Бронебойная проверка. Убивает шанс ошибки "Attempt to index nil with CanCollide"
+                local function checkRay(r)
+                    return r and r.Instance and r.Instance:IsA("BasePart") and r.Instance.CanCollide
+                end
+                
+                if checkRay(ray1) or checkRay(ray2) or checkRay(ray3) then
                     touching = true
                     break
                 end
             end
             
             if touching then
-                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 45, hrp.AssemblyLinearVelocity.Z)
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(_G.Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z)
             end
         end
     end
@@ -1213,7 +1233,7 @@ local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat")
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
 local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
-local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement")
+local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(mSpider, "Speed", "SpiderSpeed")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals")
 AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor") 
@@ -1325,6 +1345,7 @@ GenBtn.MouseButton1Click:Connect(function()
             copy[k] = v
         end
     end
+    copy.SavedFriends = FriendsList 
     local jsonStr = HttpService:JSONEncode(copy)
     local encoded = encB64(jsonStr)
     GenBox.Text = formatKey(encoded)
@@ -1377,13 +1398,18 @@ LoadBtn.MouseButton1Click:Connect(function()
     
     local success2, data = pcall(function() return HttpService:JSONDecode(decoded) end)
     if success2 and type(data) == "table" then
+        if type(data.SavedFriends) == "table" then
+            FriendsList = data.SavedFriends 
+        end
         for k, v in pairs(data) do
-            if type(v) == "table" and v.isColor then
-                if _G.Cfg[k] ~= nil then _G.Cfg[k] = Color3.new(v.R, v.G, v.B) end
-            elseif type(v) == "table" and v.isUDim2 then
-                if _G.Cfg[k] ~= nil then _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset) end
-            else
-                if _G.Cfg[k] ~= nil then _G.Cfg[k] = v end
+            if k ~= "SavedFriends" then
+                if type(v) == "table" and v.isColor then
+                    if _G.Cfg[k] ~= nil then _G.Cfg[k] = Color3.new(v.R, v.G, v.B) end
+                elseif type(v) == "table" and v.isUDim2 then
+                    if _G.Cfg[k] ~= nil then _G.Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset) end
+                else
+                    if _G.Cfg[k] ~= nil then _G.Cfg[k] = v end
+                end
             end
         end
         SaveConfig()
