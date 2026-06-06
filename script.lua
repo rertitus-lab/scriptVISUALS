@@ -23,6 +23,9 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local Connections = {}
+_G.ToggleFuncs = {} 
+local isMobile = UserInputService.TouchEnabled
+
 local ChamsFolder = Instance.new("Folder", CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
 
@@ -53,8 +56,9 @@ _G.Cfg = {
     NoClipEnabled = false, NoClipEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
     HitSoundEnabled = false, HitSoundMode = 1, HitSoundEnabledBind = "None",
-    TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
+    TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPDamageColorEnabled = false, TargetESPDamageColor = Color3.fromRGB(255, 0, 0), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
     Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxEnabledBind = "None",
+    Esp2DBoxNametagsEnabled = false, Esp2DBoxNametagsScale = 14, Esp2DBoxHealthBarEnabled = false, Esp2DBoxHealthBarBorder = 1,
     TargetStrafeOrbitEnabled = false, TargetStrafeOrbitRadius = 5, TargetStrafeOrbitSpeed = 15, TargetStrafeOrbitEnabledBind = "None",
     ChinaHatAccessoryEnabled = false, ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0), ChinaHatHeightOffset = 0.8, ChinaHatWidthScale = 3, ChinaHatHeightScale = 2, ChinaHatTransparency = 0, ChinaHatAccessoryEnabledBind = "None",
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
@@ -81,8 +85,8 @@ local ConfigLayout = {
     "NoClipEnabled", "NoClipEnabledBind",
     "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed",
     "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind",
-    "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura",
-    "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind",
+    "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura",
+    "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder",
     "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind",
     "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind",
     "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind",
@@ -144,13 +148,11 @@ GeminiGui.ResetOnSpawn = false
 local Esp2DFolder = Instance.new("Folder", GeminiGui)
 Esp2DFolder.Name = "ESP2D_Storage"
 
--- // СУПЕР-ОПТИМИЗИРОВАННЫЕ WORLD STARS (TEXTLABEL + FRUSTUM CULLING)
--- Используем Frame, а не Folder, чтобы 100% отображалось в ScreenGui
 local WorldStarsContainer = Instance.new("Frame", GeminiGui)
 WorldStarsContainer.Name = "WorldStars_Storage"
 WorldStarsContainer.Size = UDim2.new(1, 0, 1, 0)
 WorldStarsContainer.BackgroundTransparency = 1
-WorldStarsContainer.ZIndex = 1 -- Поднял ZIndex, чтобы точно не прятались за игрой
+WorldStarsContainer.ZIndex = 1 
 
 local StarsData = {}
 local MAX_STARS = 300
@@ -158,7 +160,7 @@ local STAR_RANGE = 120
 
 for i = 1, MAX_STARS do
     local img = Instance.new("TextLabel", WorldStarsContainer)
-    img.Text = "★" -- Тот самый 100% залитый символ звезды, без всяких айдишников
+    img.Text = "★" 
     img.Font = Enum.Font.GothamBlack
     img.TextScaled = true
     img.BackgroundTransparency = 1
@@ -278,6 +280,13 @@ Island.Text = ""
 Island.AutoButtonColor = false
 Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 6)
 
+if isMobile then
+    local islScale = Instance.new("UIScale", Island)
+    islScale.Scale = 0.7
+    Island.AnchorPoint = Vector2.new(0.5, 0)
+    Island.Position = UDim2.new(0.5, 0, 0, 10)
+end
+
 local Island_Glow = Instance.new("Frame", Island)
 Island_Glow.Size = UDim2.new(1, 4, 1, 4)
 Island_Glow.Position = UDim2.new(0, -2, 0, -2)
@@ -317,6 +326,13 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Visible = false 
 MainFrame.BackgroundTransparency = 1 
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+if isMobile then
+    local uiScale = Instance.new("UIScale", MainFrame)
+    uiScale.Scale = 0.65
+    MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    MainFrame.Position = UDim2.new(0.5, 0, 0.5, 50) 
+end
 
 local MainFrame_Glow = Instance.new("Frame", MainFrame)
 MainFrame_Glow.Size = UDim2.new(1, 4, 1, 4)
@@ -384,11 +400,21 @@ local function ToggleMenu()
     MenuOpen = not MenuOpen
     if MenuOpen then
         MainFrame.Visible = true
-        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -375, 0.5, -225)}):Play()
+        if isMobile then
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+        else
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -375, 0.5, -225)}):Play()
+        end
     else
-        local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -375, 0.5, -180)})
-        t:Play()
-        t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
+        if isMobile then
+            local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0.5, 50)})
+            t:Play()
+            t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
+        else
+            local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -375, 0.5, -180)})
+            t:Play()
+            t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
+        end
     end
 end
 Island.MouseButton1Click:Connect(ToggleMenu)
@@ -406,6 +432,13 @@ local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 CPFrame.Visible = false; CPFrame.Active = true; CPFrame.ZIndex = 20
 Instance.new("UIStroke", CPFrame).Color = Color3.fromRGB(50, 50, 50)
+
+if isMobile then
+    local cpScale = Instance.new("UIScale", CPFrame)
+    cpScale.Scale = 0.7
+    CPFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    CPFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+end
 
 local SatValBox = Instance.new("Frame", CPFrame)
 SatValBox.Size = UDim2.new(0, 200, 0, 150); SatValBox.Position = UDim2.new(0, 10, 0, 10); SatValBox.ZIndex = 21
@@ -479,6 +512,8 @@ local function CreateModule(name, key, category)
         if key == "FullBrightEnabled" and not _G.Cfg[key] then Lighting.Brightness = 1 end
         SaveConfig() 
     end
+    _G.ToggleFuncs[key] = RunToggle
+    
     Toggle.MouseButton1Click:Connect(RunToggle)
     task.spawn(function() while task.wait(0.1) do Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0) end end)
     
@@ -688,6 +723,10 @@ local nextStrafeJumpDelay = math.random(1, 8) / 10
 local currentKaStrafeDir = 1
 local nextKaStrafeDirChange = 0
 
+local lastEspTargetUserId = nil
+local lastEspTargetHealth = nil
+local isEspDamageFlashing = false
+
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
         for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
@@ -718,11 +757,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     if glowGradient then glowGradient.Rotation = rotationSpeed end
     if glowGradientBack then glowGradientBack.Rotation = rotationSpeed end
     
-    -- // ОТРИСОВКА WORLD STARS 2D-ПРОЕКЦИЕЙ (ПОЛНЫЙ ФИКС РЕНДЕРА)
     if _G.Cfg.WorldParticlesEnabled then
         WorldStarsContainer.Visible = true
         local camPos = Camera.CFrame.Position
-        local dtSafe = dt or 0.016 -- Страховка на случай если экзекутор не передает dt
+        local dtSafe = dt or 0.016 
         
         for _, star in ipairs(StarsData) do
             star.pos = star.pos + star.drift * dtSafe
@@ -874,6 +912,37 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                         glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1; Instance.new("UICorner", glowFrame).CornerRadius = UDim.new(0, 4)
                         local outerGlow = Instance.new("UIStroke", glowFrame)
                         outerGlow.Name = "OuterGlow"; outerGlow.Thickness = 5; outerGlow.Transparency = 0.7; outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        
+                        local nameTag = Instance.new("TextLabel", esp2DBox)
+                        nameTag.Name = "Nametag"
+                        nameTag.BackgroundTransparency = 1
+                        nameTag.Font = TARGET_FONT
+                        nameTag.TextColor3 = Color3.new(1, 1, 1)
+                        nameTag.TextStrokeTransparency = 0
+                        
+                        local hbBack = Instance.new("Frame", esp2DBox)
+                        hbBack.Name = "HealthBarBack"
+                        hbBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                        hbBack.BorderColor3 = Color3.new(0, 0, 0)
+                        
+                        local hbFill = Instance.new("Frame", hbBack)
+                        hbFill.Name = "HealthBarFill"
+                        hbFill.BorderSizePixel = 0
+                        hbFill.BackgroundColor3 = Color3.new(1, 1, 1)
+                        hbFill.ClipsDescendants = true
+                        
+                        local hbGradientFrame = Instance.new("Frame", hbFill)
+                        hbGradientFrame.Name = "GradientFrame"
+                        hbGradientFrame.BorderSizePixel = 0
+                        hbGradientFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+                        
+                        local hbGrad = Instance.new("UIGradient", hbGradientFrame)
+                        hbGrad.Name = "HealthBarGradient"
+                        hbGrad.Rotation = 90
+                        hbGrad.Color = ColorSequence.new({
+                            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 0)),
+                            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
+                        })
                     end
                     
                     local head = plChar:FindFirstChild("Head")
@@ -898,7 +967,47 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                         end
                     end
                     local glowFrame = esp2DBox:FindFirstChildOfClass("Frame")
-                    if glowFrame then local outerGlow = glowFrame:FindFirstChild("OuterGlow"); if outerGlow then outerGlow.Color = _G.Cfg.Esp2DBoxColor end end
+                    if glowFrame and glowFrame.Name ~= "HealthBarBack" then 
+                        local outerGlow = glowFrame:FindFirstChild("OuterGlow"); 
+                        if outerGlow then outerGlow.Color = _G.Cfg.Esp2DBoxColor end 
+                    end
+                    
+                    local nameTag = esp2DBox:FindFirstChild("Nametag")
+                    if nameTag then
+                        nameTag.Visible = _G.Cfg.Esp2DBoxNametagsEnabled == true
+                        if _G.Cfg.Esp2DBoxNametagsEnabled then
+                            nameTag.TextSize = tonumber(_G.Cfg.Esp2DBoxNametagsScale) or 14
+                            nameTag.Size = UDim2.new(1, 0, 0, nameTag.TextSize)
+                            nameTag.Position = UDim2.new(0, 0, 0, -nameTag.TextSize - 5)
+                            nameTag.Text = player.DisplayName
+                        end
+                    end
+                    
+                    local hbBack = esp2DBox:FindFirstChild("HealthBarBack")
+                    if hbBack then
+                        hbBack.Visible = _G.Cfg.Esp2DBoxHealthBarEnabled == true
+                        if _G.Cfg.Esp2DBoxHealthBarEnabled then
+                            local border = tonumber(_G.Cfg.Esp2DBoxHealthBarBorder) or 1
+                            hbBack.BorderSizePixel = border
+                            hbBack.Size = UDim2.new(0, 4, 1, 0)
+                            hbBack.Position = UDim2.new(0, -(6 + border), 0, 0)
+                            
+                            local hbFill = hbBack:FindFirstChild("HealthBarFill")
+                            local hum = plChar:FindFirstChild("Humanoid")
+                            if hbFill and hum then
+                                local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0.01, 1)
+                                hbFill.Size = UDim2.new(1, 0, hpPercent, 0)
+                                hbFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0)
+                                
+                                local gradFrame = hbFill:FindFirstChild("GradientFrame")
+                                if gradFrame then
+                                    gradFrame.Size = UDim2.new(1, 0, 1 / hpPercent, 0)
+                                    gradFrame.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0)
+                                end
+                            end
+                        end
+                    end
+                    
                     esp2DBox.Visible = true
                 else
                     if esp2DBox then esp2DBox.Visible = false end
@@ -940,16 +1049,36 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     end
 
     if _G.Cfg.TargetESPSquareEnabled and espTarget and espTarget.Character:FindFirstChild("HumanoidRootPart") then
+        local espHum = espTarget.Character:FindFirstChild("Humanoid")
+        if espHum then
+            if lastEspTargetUserId ~= espTarget.UserId then
+                lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; isEspDamageFlashing = false
+            end
+            if lastEspTargetHealth and espHum.Health < lastEspTargetHealth then
+                isEspDamageFlashing = true; task.delay(0.3, function() isEspDamageFlashing = false end)
+            end
+            lastEspTargetHealth = espHum.Health
+        end
+
+        local currentEspColor = _G.Cfg.TargetESPSquareColor
+        if _G.Cfg.TargetESPDamageColorEnabled and isEspDamageFlashing then
+            currentEspColor = _G.Cfg.TargetESPDamageColor
+        end
+
         local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
         if onScreen then
             ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 
             for _, c in pairs(corners) do 
-                c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = _G.Cfg.TargetESPSquareColor; c[4].Color = _G.Cfg.TargetESPSquareColor 
-                c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[5].Color = _G.Cfg.TargetESPSquareColor; c[6].Color = _G.Cfg.TargetESPSquareColor
-                c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[7].Color = _G.Cfg.TargetESPSquareColor; c[8].Color = _G.Cfg.TargetESPSquareColor
+                c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = currentEspColor; c[4].Color = currentEspColor 
+                c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[5].Color = currentEspColor; c[6].Color = currentEspColor
+                c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[7].Color = currentEspColor; c[8].Color = currentEspColor
             end
         else ESPMain.Visible = false end
-    else ESPMain.Visible = false end
+    else 
+        ESPMain.Visible = false 
+        lastEspTargetUserId = nil
+        lastEspTargetHealth = nil
+    end
 
     if _G.Cfg.TargetStrafeOrbitEnabled and target and target.Character:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") then
         local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius; char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
@@ -1078,7 +1207,124 @@ local function UpdateKeybindList()
     if activeCount > 0 then BindListFrame.Size = UDim2.new(0, 180, 0, 30 + (activeCount * 20)) end
 end
 
-task.spawn(function() while task.wait(0.5) do UpdateKeybindList() end end)
+local MobileButtonsFrame = Instance.new("Frame", GeminiGui)
+MobileButtonsFrame.Size = UDim2.new(1, 0, 1, 0)
+MobileButtonsFrame.BackgroundTransparency = 1
+MobileButtonsFrame.Visible = isMobile
+MobileButtonsFrame.ZIndex = 50
+
+local globalMobileDragging = false
+
+local function UpdateMobileBinds()
+    if not isMobile then return end
+    
+    local modulesList = {
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
+        "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
+        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
+        "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
+    }
+    
+    local activeModules = {}
+    for _, key in ipairs(modulesList) do
+        local bindKey = key .. "Bind"
+        if _G.Cfg[bindKey] and tostring(_G.Cfg[bindKey]) ~= "None" then
+            activeModules[key] = tostring(_G.Cfg[bindKey]):upper()
+        end
+    end
+    
+    for _, child in pairs(MobileButtonsFrame:GetChildren()) do
+        if not activeModules[child.Name] then
+            child:Destroy()
+        end
+    end
+    
+    for key, bindLetter in pairs(activeModules) do
+        local btn = MobileButtonsFrame:FindFirstChild(key)
+        if not btn then
+            btn = Instance.new("TextButton", MobileButtonsFrame)
+            btn.Name = key
+            btn.Size = UDim2.new(0, 50, 0, 50)
+            
+            local savedPos = _G.Cfg["MobilePos_"..key]
+            if savedPos then
+                btn.Position = UDim2.new(savedPos.XScale, savedPos.XOffset, savedPos.YScale, savedPos.YOffset)
+            else
+                btn.Position = UDim2.new(0.8, math.random(-50, 50), 0.5, math.random(-50, 50))
+            end
+            
+            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(35, 35, 35)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Font = TARGET_FONT
+            btn.TextSize = 22
+            btn.Text = bindLetter
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+            
+            local str = Instance.new("UIStroke", btn)
+            str.Color = Color3.fromRGB(0, 255, 255)
+            str.Thickness = 2
+            
+            local mDragging = false
+            local dragStartPos = nil
+            local btnStartPos = nil
+            local mDragInput = nil
+            local isTap = true
+            
+            btn.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if not globalMobileDragging then
+                        globalMobileDragging = true
+                        mDragging = true
+                        isTap = true
+                        dragStartPos = input.Position
+                        btnStartPos = btn.Position
+                        btn.ZIndex = 100
+                    end
+                end
+            end)
+            
+            btn.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+                    mDragInput = input
+                end
+            end)
+            
+            UserInputService.InputChanged:Connect(function(input)
+                if input == mDragInput and mDragging then
+                    local delta = input.Position - dragStartPos
+                    if delta.Magnitude > 8 then
+                        isTap = false
+                    end
+                    btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + delta.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + delta.Y)
+                end
+            end)
+            
+            UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if mDragging then
+                        mDragging = false
+                        globalMobileDragging = false
+                        btn.ZIndex = 1
+                        if isTap then
+                            if _G.ToggleFuncs[key] then
+                                _G.ToggleFuncs[key]()
+                            end
+                        else
+                            _G.Cfg["MobilePos_"..key] = {XScale = btn.Position.X.Scale, XOffset = btn.Position.X.Offset, YScale = btn.Position.Y.Scale, YOffset = btn.Position.Y.Offset, isUDim2 = true}
+                            SaveConfig()
+                        end
+                    end
+                end
+            end)
+        else
+            btn.Text = bindLetter
+            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(35, 35, 35)
+        end
+    end
+end
+
+task.spawn(function() while task.wait(0.5) do UpdateKeybindList(); UpdateMobileBinds() end end)
 
 local function ConnectJump(char)
     local hum = char:WaitForChild("Humanoid")
@@ -1120,8 +1366,8 @@ local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
 local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(mSpider, "Speed", "SpiderSpeed")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
-local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
-local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor")
+local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
+local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(mEsp2D, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(mEsp2D, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(mEsp2D, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(mEsp2D, "Bar Border", "Esp2DBoxHealthBarBorder")
 
 local mStars = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(mStars, "[COLOR] Stars Color", "WorldParticlesColor")
 
