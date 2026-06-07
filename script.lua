@@ -422,10 +422,24 @@ end
 Island.MouseButton1Click:Connect(ToggleMenu)
 
 task.spawn(function()
+    local renderFrames = 0
+    local lastTick = tick()
+    
+    local conn = RunService.RenderStepped:Connect(function()
+        renderFrames = renderFrames + 1
+    end)
+    
     while task.wait(0.5) do
-        local fps = math.floor(workspace:GetRealPhysicsFPS())
-        local ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
-        StatsLabel.Text = "FPS: "..fps.." | PING: "..ping.."ms"
+        local currentTick = tick()
+        local timePassed = currentTick - lastTick
+        local currentFPS = math.floor(renderFrames / timePassed)
+        renderFrames = 0
+        lastTick = currentTick
+        
+        local ping = 0
+        pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+        
+        StatsLabel.Text = "FPS: "..currentFPS.." | PING: "..ping.."ms"
         IslandTitle.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
     end
 end)
@@ -588,7 +602,6 @@ local function GetKillauraTarget()
     if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
     local myPos = myChar.HumanoidRootPart.Position
 
-    -- Жесткий лок на живую цель
     if KillauraLockedTarget then
         local eChar = KillauraLockedTarget.Character
         if eChar and eChar:FindFirstChild("HumanoidRootPart") and eChar:FindFirstChild("Humanoid") and eChar.Humanoid.Health > 0 then
@@ -598,7 +611,6 @@ local function GetKillauraTarget()
         end
     end
 
-    -- Поиск новой ближайшей цели (сфера = Magnitude)
     local t, d = nil, _G.Cfg.KillAuraRange
     for _, v in ipairs(Players:GetPlayers()) do
         if v ~= LocalPlayer and not FriendsList[LowerNameCache[v.Name]] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
@@ -767,6 +779,7 @@ local nextKaStrafeDirChange = 0
 local lastEspTargetUserId = nil
 local lastEspTargetHealth = nil
 local lastDamageTimeESP = 0
+local lastRenderedEspThickness = nil
 
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
@@ -782,7 +795,6 @@ table.insert(Connections, RunService.Stepped:Connect(function()
     end
 end))
 
--- // ГЛОБАЛЬНАЯ ОПТИМИЗАЦИЯ ХИТБОКСОВ (Вынесено из RenderStepped)
 task.spawn(function()
     while task.wait(0.2) do
         for _, player in ipairs(Players:GetPlayers()) do
@@ -823,7 +835,6 @@ task.spawn(function()
     end
 end)
 
--- // ГЛОБАЛЬНАЯ ОПТИМИЗАЦИЯ ПАМЯТИ ESP
 Players.PlayerRemoving:Connect(function(plr)
     local esp2D = Esp2DFolder:FindFirstChild(plr.Name .. "_2DBox")
     if esp2D then esp2D:Destroy() end
@@ -1141,10 +1152,22 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
         if onScreen then
             ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 
+            
+            local updateThickness = false
+            if lastRenderedEspThickness ~= _G.Cfg.TargetESPBorderThickness then
+                updateThickness = true
+                lastRenderedEspThickness = _G.Cfg.TargetESPBorderThickness
+            end
+
             for _, c in pairs(corners) do 
-                c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[3].Color = currentEspColor; c[4].Color = currentEspColor 
-                c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[5].Color = currentEspColor; c[6].Color = currentEspColor
-                c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[7].Color = currentEspColor; c[8].Color = currentEspColor
+                if updateThickness then
+                    c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness;
+                    c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5;
+                    c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11;
+                end
+                c[3].Color = currentEspColor; c[4].Color = currentEspColor 
+                c[5].Color = currentEspColor; c[6].Color = currentEspColor
+                c[7].Color = currentEspColor; c[8].Color = currentEspColor
             end
         else ESPMain.Visible = false end
     else 
