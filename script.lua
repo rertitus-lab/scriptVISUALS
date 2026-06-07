@@ -34,7 +34,7 @@ Chams3DFolder.Name = "Gemini_3D_Chams"
 
 local FriendsList = {}
 
--- // КЭШ ДЛЯ ОПТИМИЗАЦИИ
+-- // КЭШ
 local OrigPartData = setmetatable({}, {__mode = "k"})
 local PlayerPartsCache = setmetatable({}, {__mode = "k"})
 local LowerNameCache = setmetatable({}, {
@@ -44,6 +44,8 @@ local LowerNameCache = setmetatable({}, {
         return v
     end
 })
+
+local SharedKaTarget = nil -- Для связи хитбоксов и киллауры
 
 -- // КОНФИГ
 _G.Cfg = {
@@ -553,6 +555,18 @@ local function AddColorBtn(parent, text, key)
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
 end
 
+local function IsVisible(targetPart)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {char, targetPart.Parent, GeminiGui, ChamsFolder}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    return result == nil 
+end
+
 local function GetTarget()
     local t, d = nil, _G.Cfg.AimbotMaxDistance
     local myChar = LocalPlayer.Character
@@ -574,34 +588,29 @@ local function GetKillauraTarget()
     if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
     local myPos = myChar.HumanoidRootPart.Position
 
-    if KillauraLockedTarget and KillauraLockedTarget.Character and KillauraLockedTarget.Character:FindFirstChild("HumanoidRootPart") and KillauraLockedTarget.Character:FindFirstChild("Humanoid") and KillauraLockedTarget.Character.Humanoid.Health > 0 then
-        local dist = (myPos - KillauraLockedTarget.Character.HumanoidRootPart.Position).Magnitude
-        if dist <= _G.Cfg.KillAuraRange then
+    -- Жесткий лок на живую цель
+    if KillauraLockedTarget then
+        local eChar = KillauraLockedTarget.Character
+        if eChar and eChar:FindFirstChild("HumanoidRootPart") and eChar:FindFirstChild("Humanoid") and eChar.Humanoid.Health > 0 then
             return KillauraLockedTarget
+        else
+            KillauraLockedTarget = nil
         end
     end
 
+    -- Поиск новой ближайшей цели (сфера = Magnitude)
     local t, d = nil, _G.Cfg.KillAuraRange
     for _, v in ipairs(Players:GetPlayers()) do
         if v ~= LocalPlayer and not FriendsList[LowerNameCache[v.Name]] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
             local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
-            if dist < d then d = dist; t = v end
+            if dist <= d and IsVisible(v.Character.HumanoidRootPart) then 
+                d = dist
+                t = v 
+            end
         end
     end
     KillauraLockedTarget = t
     return t
-end
-
-local function IsVisible(targetPart)
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
-    local origin = Camera.CFrame.Position
-    local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterDescendantsInstances = {char, targetPart.Parent, GeminiGui, ChamsFolder}
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    local result = workspace:Raycast(origin, direction, raycastParams)
-    return result == nil 
 end
 
 local function CreateStar(position)
@@ -638,10 +647,10 @@ local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
 local TargetHUD = Instance.new("Frame", GeminiGui)
-TargetHUD.Size = UDim2.new(0, 250, 0, 90) 
+TargetHUD.Size = UDim2.new(0, 220, 0, 70) 
 TargetHUD.Position = _G.Cfg.TargetHudPosition
 TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15) 
-TargetHUD.BackgroundTransparency = 0.2 
+TargetHUD.BackgroundTransparency = 0.05 
 TargetHUD.Visible = false
 TargetHUD.Active = true
 TargetHUD.Draggable = true 
@@ -665,34 +674,66 @@ local cornerHUD = Instance.new("UICorner", TargetHUD)
 cornerHUD.CornerRadius = UDim.new(0, 12)
 
 local strokeHUD = Instance.new("UIStroke", TargetHUD)
-strokeHUD.Color = Color3.fromRGB(0, 255, 255)
+strokeHUD.Color = Color3.new(0, 0, 0)
 strokeHUD.Thickness = 2
-local glowGradient = Instance.new("UIGradient", strokeHUD)
-glowGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))})
-glowGradient.Rotation = 45 
+strokeHUD.Transparency = 0
+
 local glowGradientBack = Instance.new("UIGradient", TargetHUD_Glow)
 glowGradientBack.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))})
 glowGradientBack.Rotation = 45
 
-local TargetIcon = Instance.new("ImageLabel", TargetHUD)
-TargetIcon.Size = UDim2.new(0, 60, 0, 60); TargetIcon.Position = UDim2.new(0, 15, 0, 15); TargetIcon.BackgroundTransparency = 1; Instance.new("UICorner", TargetIcon).CornerRadius = UDim.new(1,0) 
+local TargetIconContainer = Instance.new("Frame", TargetHUD)
+TargetIconContainer.Size = UDim2.new(0, 54, 0, 54)
+TargetIconContainer.Position = UDim2.new(0, 8, 0, 8)
+TargetIconContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+TargetIconContainer.ClipsDescendants = true
+Instance.new("UICorner", TargetIconContainer).CornerRadius = UDim.new(0, 6)
+
+local TargetIcon = Instance.new("ImageLabel", TargetIconContainer)
+TargetIcon.Size = UDim2.new(1.2, 0, 1.2, 0) 
+TargetIcon.Position = UDim2.new(-0.1, 0, -0.1, 0)
+TargetIcon.BackgroundTransparency = 1
+TargetIcon.ScaleType = Enum.ScaleType.Crop
 
 local TargetName = Instance.new("TextLabel", TargetHUD)
-TargetName.Size = UDim2.new(1, -95, 0, 25); TargetName.Position = UDim2.new(0, 90, 0, 15); TargetName.BackgroundTransparency = 1; TargetName.TextColor3 = Color3.new(1, 1, 1); TargetName.Text = "No Target"; TargetName.Font = TARGET_FONT; TargetName.TextSize = 20; TargetName.TextXAlignment = Enum.TextXAlignment.Left
+TargetName.Size = UDim2.new(1, -75, 0, 20)
+TargetName.Position = UDim2.new(0, 70, 0, 8)
+TargetName.BackgroundTransparency = 1
+TargetName.TextColor3 = Color3.new(1, 1, 1)
+TargetName.Text = "No Target"
+TargetName.Font = Enum.Font.GothamBold
+TargetName.TextSize = 16
+TargetName.TextXAlignment = Enum.TextXAlignment.Left
+
+local HealthText = Instance.new("TextLabel", TargetHUD)
+HealthText.Size = UDim2.new(1, -75, 0, 16)
+HealthText.Position = UDim2.new(0, 70, 0, 28)
+HealthText.BackgroundTransparency = 1
+HealthText.TextColor3 = Color3.new(1, 1, 1)
+HealthText.Text = "HP: 100.0"
+HealthText.TextSize = 14
+HealthText.Font = Enum.Font.GothamBold
+HealthText.TextXAlignment = Enum.TextXAlignment.Left
 
 local HealthBack = Instance.new("Frame", TargetHUD)
-HealthBack.Size = UDim2.new(1, -95, 0, 20); HealthBack.Position = UDim2.new(0, 90, 0, 45); HealthBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Instance.new("UICorner", HealthBack).CornerRadius = UDim.new(0, 5)
+HealthBack.Size = UDim2.new(1, -78, 0, 10)
+HealthBack.Position = UDim2.new(0, 70, 0, 50)
+HealthBack.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Instance.new("UICorner", HealthBack).CornerRadius = UDim.new(0, 5)
+local strokeHB = Instance.new("UIStroke", HealthBack)
+strokeHB.Color = Color3.fromRGB(60, 60, 60)
+strokeHB.Thickness = 1
 
 local HealthBar = Instance.new("Frame", HealthBack)
-HealthBar.Size = UDim2.new(1, 0, 1, 0); HealthBar.BackgroundColor3 = Color3.new(1, 1, 1); HealthBar.BorderSizePixel = 0; Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 5)
+HealthBar.Size = UDim2.new(1, 0, 1, 0)
+HealthBar.BackgroundColor3 = Color3.new(1, 1, 1)
+HealthBar.BorderSizePixel = 0
+Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 5)
 local barGradient = Instance.new("UIGradient", HealthBar)
-
-local HealthText = Instance.new("TextLabel", HealthBack)
-HealthText.Size = UDim2.new(1, 0, 1, 0); HealthText.BackgroundTransparency = 1; HealthText.TextColor3 = Color3.new(1, 1, 1); HealthText.TextSize = 14; HealthText.Font = TARGET_FONT; HealthText.TextXAlignment = Enum.TextXAlignment.Center
 
 local lastTargetUserId = nil
 local lastTargetHealth = nil
-local isDamageFlashing = false
+local lastDamageTimeHUD = 0
 local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local currentTween = nil
 
@@ -725,7 +766,7 @@ local nextKaStrafeDirChange = 0
 
 local lastEspTargetUserId = nil
 local lastEspTargetHealth = nil
-local isEspDamageFlashing = false
+local lastDamageTimeESP = 0
 
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
@@ -741,11 +782,62 @@ table.insert(Connections, RunService.Stepped:Connect(function()
     end
 end))
 
+-- // ГЛОБАЛЬНАЯ ОПТИМИЗАЦИЯ ХИТБОКСОВ (Вынесено из RenderStepped)
+task.spawn(function()
+    while task.wait(0.2) do
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local plChar = player.Character
+                if plChar then
+                    local isFriend = FriendsList[LowerNameCache[player.Name]]
+                    local isHitboxActive = false
+                    local mult = 1
+                    
+                    if _G.Cfg.HitboxEnabled and not isFriend then
+                        if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then
+                            isHitboxActive = true
+                            mult = tonumber(_G.Cfg.HitboxSize) or 1
+                        end
+                    end
+                    
+                    local partsList = PlayerPartsCache[plChar]
+                    if not partsList then
+                        partsList = {}
+                        for _, p in ipairs(plChar:GetChildren()) do if p:IsA("BasePart") then table.insert(partsList, p) end end
+                        PlayerPartsCache[plChar] = partsList
+                    end
+                    
+                    for _, part in ipairs(partsList) do
+                        if not OrigPartData[part] then OrigPartData[part] = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless} end
+                        local origData = OrigPartData[part]
+                        local targetSize = isHitboxActive and (origData.Size * mult) or origData.Size
+                        
+                        if part.Size ~= targetSize then
+                            part.Size = targetSize
+                            if isHitboxActive then part.CanCollide = false; part.Massless = true else part.CanCollide = origData.CanCollide; part.Massless = origData.Massless end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // ГЛОБАЛЬНАЯ ОПТИМИЗАЦИЯ ПАМЯТИ ESP
+Players.PlayerRemoving:Connect(function(plr)
+    local esp2D = Esp2DFolder:FindFirstChild(plr.Name .. "_2DBox")
+    if esp2D then esp2D:Destroy() end
+    local esp3D = Chams3DFolder:FindFirstChild(plr.Name .. "_3DBox")
+    if esp3D then esp3D:Destroy() end
+end)
+
 table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     local target = GetTarget() 
     local char = LocalPlayer.Character
     local currentKaTarget = nil
     if _G.Cfg.KillAuraEnabled then currentKaTarget = GetKillauraTarget() else KillauraLockedTarget = nil end
+    SharedKaTarget = currentKaTarget 
+
     local hudTarget = target; if _G.Cfg.TargetHudOnlyKillaura then hudTarget = currentKaTarget end
     local espTarget = target; if _G.Cfg.TargetESPOnlyKillaura then espTarget = currentKaTarget end
 
@@ -754,7 +846,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     if _G.Cfg.FullBrightEnabled then Lighting.Brightness = math.clamp(_G.Cfg.FullBrightBrightness, 0, 10) end
     
     local rotationSpeed = (tick() * 35) % 360
-    if glowGradient then glowGradient.Rotation = rotationSpeed end
     if glowGradientBack then glowGradientBack.Rotation = rotationSpeed end
     
     if _G.Cfg.WorldParticlesEnabled then
@@ -833,11 +924,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
     end
 
-    for _, child in ipairs(Esp2DFolder:GetChildren()) do
-        local pName = child.Name:gsub("_2DBox", "")
-        if not Players:FindFirstChild(pName) then child:Destroy() end
-    end
-
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local plChar = player.Character
@@ -845,33 +931,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             local isFriend = FriendsList[lowerName]
             local boxESP = Chams3DFolder:FindFirstChild(player.Name .. "_3DBox")
             local esp2DBox = Esp2DFolder:FindFirstChild(player.Name .. "_2DBox")
-            
-            if plChar then
-                local isHitboxActive = false; local mult = 1
-                if _G.Cfg.HitboxEnabled and not isFriend then
-                    if not _G.Cfg.HitboxOnlyKillaura or player == currentKaTarget then
-                        isHitboxActive = true; mult = tonumber(_G.Cfg.HitboxSize) or 1
-                    end
-                end
-                
-                local partsList = PlayerPartsCache[plChar]
-                if not partsList then
-                    partsList = {}
-                    for _, p in ipairs(plChar:GetChildren()) do if p:IsA("BasePart") then table.insert(partsList, p) end end
-                    PlayerPartsCache[plChar] = partsList
-                end
-                
-                for _, part in ipairs(partsList) do
-                    if not OrigPartData[part] then OrigPartData[part] = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless} end
-                    local origData = OrigPartData[part]
-                    local targetSize = isHitboxActive and (origData.Size * mult) or origData.Size
-                    
-                    if part.Size ~= targetSize then
-                        part.Size = targetSize
-                        if isHitboxActive then part.CanCollide = false; part.Massless = true else part.CanCollide = origData.CanCollide; part.Massless = origData.Massless end
-                    end
-                end
-            end
 
             if isFriend then
                 if boxESP then boxESP:Destroy() end
@@ -1029,20 +1088,31 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         if lastTargetUserId ~= hudTarget.UserId then
             lastTargetUserId = hudTarget.UserId; TargetName.Text = hudTarget.DisplayName; TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. hudTarget.UserId .. "&w=150&h=150"; lastTargetHealth = hum.Health 
             local initialHealthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-            HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0); isDamageFlashing = false
+            HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0); lastDamageTimeHUD = 0
+            TargetIcon.ImageColor3 = Color3.new(1, 1, 1)
         end
 
         local healthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-        if lastTargetHealth and hum.Health < lastTargetHealth then isDamageFlashing = true; task.delay(0.3, function() isDamageFlashing = false end) end
+        if lastTargetHealth and hum.Health < lastTargetHealth then 
+            lastDamageTimeHUD = tick()
+            TargetIcon.ImageColor3 = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
+            TweenService:Create(TargetIcon, TweenInfo.new(1, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {ImageColor3 = Color3.new(1, 1, 1)}):Play()
+        end
         
         lastTargetHealth = hum.Health
         local normColor = _G.Cfg.TargetHudNormalColor or Color3.fromRGB(0, 255, 100); local dmgColor = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
         
-        if isDamageFlashing then barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, dmgColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, dmgColor)}) else barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, normColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, normColor)}) end
+        local currentBarColor = normColor
+        local timeSinceDmgHud = tick() - lastDamageTimeHUD
+        if timeSinceDmgHud < 0.3 then
+            currentBarColor = dmgColor:Lerp(normColor, timeSinceDmgHud / 0.3)
+        end
+        
+        barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, currentBarColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, currentBarColor)})
         
         if currentTween then currentTween:Cancel() end 
         currentTween = TweenService:Create(HealthBar, tweenInfo, {Size = UDim2.new(healthPercent, 0, 1, 0)}); currentTween:Play()
-        HealthText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+        HealthText.Text = string.format("HP: %.1f", hum.Health)
     else
         TargetHUD.Visible = false; lastTargetUserId = nil; lastTargetHealth = nil
         if currentTween then currentTween:Cancel() end 
@@ -1052,17 +1122,20 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         local espHum = espTarget.Character:FindFirstChild("Humanoid")
         if espHum then
             if lastEspTargetUserId ~= espTarget.UserId then
-                lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; isEspDamageFlashing = false
+                lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; lastDamageTimeESP = 0
             end
             if lastEspTargetHealth and espHum.Health < lastEspTargetHealth then
-                isEspDamageFlashing = true; task.delay(0.3, function() isEspDamageFlashing = false end)
+                lastDamageTimeESP = tick()
             end
             lastEspTargetHealth = espHum.Health
         end
 
         local currentEspColor = _G.Cfg.TargetESPSquareColor
-        if _G.Cfg.TargetESPDamageColorEnabled and isEspDamageFlashing then
-            currentEspColor = _G.Cfg.TargetESPDamageColor
+        if _G.Cfg.TargetESPDamageColorEnabled then
+            local timeSinceDmgEsp = tick() - lastDamageTimeESP
+            if timeSinceDmgEsp < 0.6 then
+                currentEspColor = _G.Cfg.TargetESPDamageColor:Lerp(_G.Cfg.TargetESPSquareColor, timeSinceDmgEsp / 0.6)
+            end
         end
 
         local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
