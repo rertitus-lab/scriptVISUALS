@@ -37,6 +37,7 @@ local FriendsList = {}
 -- // КЭШ
 local OrigPartData = setmetatable({}, {__mode = "k"})
 local PlayerPartsCache = setmetatable({}, {__mode = "k"})
+local OrigNoClipStates = setmetatable({}, {__mode = "k"})
 local LowerNameCache = setmetatable({}, {
     __index = function(t, k)
         local v = string.lower(k)
@@ -784,13 +785,21 @@ local lastRenderedEspThickness = nil
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
         for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+            if part:IsA("BasePart") then
+                if OrigNoClipStates[part] == nil then
+                    OrigNoClipStates[part] = part.CanCollide
+                end
+                part.CanCollide = false
+            end
         end
     elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and not part.CanCollide then
-                if part.Name ~= "HumanoidRootPart" then part.CanCollide = true end
+        if next(OrigNoClipStates) ~= nil then
+            for part, state in pairs(OrigNoClipStates) do
+                if part and part.Parent then
+                    part.CanCollide = state
+                end
             end
+            table.clear(OrigNoClipStates)
         end
     end
 end))
