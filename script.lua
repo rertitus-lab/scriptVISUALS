@@ -12,6 +12,12 @@ if workspace:FindFirstChild("Gemini_3D_Chams") then
     workspace.Gemini_3D_Chams:Destroy()
 end
 
+-- Удаление любых старых биндов ViewModel
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_ViewModel_Override") end)
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_ViewModel_Master") end)
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_VM_Restore") end)
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_VM_Apply") end)
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -46,15 +52,18 @@ local LowerNameCache = setmetatable({}, {
     end
 })
 
-local SharedKaTarget = nil -- Для связи хитбоксов и киллауры
+local SharedKaTarget = nil 
+local lastRealJumpTime = 0
 
 -- // КОНФИГ
 _G.Cfg = {
+    UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
     TargetHudEnabled = false, TargetHudEnabledBind = "None", TargetHudNormalColor = Color3.fromRGB(0, 255, 100), TargetHudDamageColor = Color3.fromRGB(255, 0, 0), TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50), TargetHudOnlyKillaura = false,
     KillAuraEnabled = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
     HitboxEnabled = false, HitboxSize = 1, HitboxOnlyKillaura = false, HitboxEnabledBind = "None",
     SpeedEnabled = false, WalkSpeedValue = 16, SpeedEnabledBind = "None",
+    VelocityEnabled = false, VelocityHorizontal = 0, VelocityVertical = 0, VelocityEnabledBind = "None",
     StrafeEnabled = false, StrafeEnabledBind = "None",
     NoClipEnabled = false, NoClipEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
@@ -65,6 +74,7 @@ _G.Cfg = {
     TargetStrafeOrbitEnabled = false, TargetStrafeOrbitRadius = 5, TargetStrafeOrbitSpeed = 15, TargetStrafeOrbitEnabledBind = "None",
     ChinaHatAccessoryEnabled = false, ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0), ChinaHatHeightOffset = 0.8, ChinaHatWidthScale = 3, ChinaHatHeightScale = 2, ChinaHatTransparency = 0, ChinaHatAccessoryEnabledBind = "None",
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
+    ViewModelEnabled = false, ViewModelX = 0, ViewModelY = 0, ViewModelZ = 0, ViewModelPitch = 0, ViewModelYaw = 0, ViewModelRoll = 0, ViewModelEnabledBind = "None",
     ChamsEnabled = false, ChamsColor = Color3.new(1, 0, 0), ChamsOutlineColor = Color3.new(1, 1, 1), ChamsFillTransparency = 0.5, ChamsEnabledBind = "None",
     DamageParticlesEnabled = false, ParticleColor = Color3.fromRGB(255, 255, 255), ParticleSize = 4, ParticleAmount = 8, DamageParticlesEnabledBind = "None",
     WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesEnabledBind = "None",
@@ -79,11 +89,13 @@ _G.Cfg = {
 }
 
 local ConfigLayout = {
+    "UITheme",
     "AimbotEnabled", "AimbotMaxDistance", "AimbotSmoothness", "AimbotEnabledBind",
     "TargetHudEnabled", "TargetHudEnabledBind", "TargetHudNormalColor", "TargetHudDamageColor", "TargetHudPosition", "TargetHudOnlyKillaura",
     "KillAuraEnabled", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind",
     "HitboxEnabled", "HitboxSize", "HitboxOnlyKillaura", "HitboxEnabledBind",
     "SpeedEnabled", "WalkSpeedValue", "SpeedEnabledBind",
+    "VelocityEnabled", "VelocityHorizontal", "VelocityVertical", "VelocityEnabledBind",
     "StrafeEnabled", "StrafeEnabledBind",
     "NoClipEnabled", "NoClipEnabledBind",
     "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed",
@@ -93,6 +105,7 @@ local ConfigLayout = {
     "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind",
     "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind",
     "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind",
+    "ViewModelEnabled", "ViewModelX", "ViewModelY", "ViewModelZ", "ViewModelPitch", "ViewModelYaw", "ViewModelRoll", "ViewModelEnabledBind",
     "ChamsEnabled", "ChamsColor", "ChamsOutlineColor", "ChamsFillTransparency", "ChamsEnabledBind",
     "DamageParticlesEnabled", "ParticleColor", "ParticleSize", "ParticleAmount", "DamageParticlesEnabledBind",
     "WorldParticlesEnabled", "WorldParticlesColor", "WorldParticlesEnabledBind",
@@ -104,6 +117,14 @@ local ConfigLayout = {
     "BindListPosition",
     "TimeChangerEnabled", "TimeChangerHours", "TimeChangerEnabledBind",
     "FullBrightEnabled", "FullBrightBrightness", "FullBrightEnabledBind"
+}
+
+local ThemeObjects = { Backgrounds = {}, Strokes = {}, Texts = {}, SecondaryTexts = {}, Inputs = {}, InputBackgrounds = {} }
+local Themes = {
+    Dark = { name = "Dark", bg = Color3.fromRGB(20, 20, 20), trans = 0.1, stroke = Color3.fromRGB(45, 45, 45), text = Color3.new(1,1,1), textSec = Color3.fromRGB(180,180,180), inputBg = Color3.fromRGB(35,35,35), accent = Color3.fromRGB(40,40,40) },
+    Light = { name = "Light", bg = Color3.fromRGB(235, 235, 235), trans = 0.15, stroke = Color3.fromRGB(180, 180, 180), text = Color3.new(0,0,0), textSec = Color3.fromRGB(60,60,60), inputBg = Color3.fromRGB(200,200,200), accent = Color3.fromRGB(180,180,180) },
+    Gray = { name = "Gray", bg = Color3.fromRGB(50, 50, 50), trans = 0.2, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(200,200,200), inputBg = Color3.fromRGB(70,70,70), accent = Color3.fromRGB(80,80,80) },
+    Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
 local ConfigFileName = "Gemini_V60_Config.json"
@@ -132,6 +153,7 @@ local function LoadConfig()
             end
         end
     end
+    if not _G.Cfg.UITheme then _G.Cfg.UITheme = "Dark" end
 end
 LoadConfig()
 
@@ -181,6 +203,7 @@ end
 local TARGET_FONT = Enum.Font.GothamBlack
 
 local function ShowNotify(text, isEnabled)
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     local sound = Instance.new("Sound", game:GetService("SoundService"))
     sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://129384639546095"
     sound.Volume = 0.5
@@ -191,8 +214,8 @@ local function ShowNotify(text, isEnabled)
     local nF = Instance.new("TextLabel", GeminiGui)
     nF.Size = UDim2.new(0, 280, 0, 40)
     nF.Position = UDim2.new(0.5, -140, 0.4, 0)
-    nF.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    nF.TextColor3 = Color3.fromRGB(180, 180, 180) 
+    nF.BackgroundColor3 = t.bg
+    nF.TextColor3 = t.text 
     nF.Text = text .. statusIcon
     nF.Font = TARGET_FONT 
     nF.TextSize = 16
@@ -206,8 +229,9 @@ local function ShowNotify(text, isEnabled)
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
     Instance.new("UICorner", nF).CornerRadius = UDim.new(0, 5)
 
+    local targetTrans = t.trans
     local tI = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    TweenService:Create(nF, tI, {Position = UDim2.new(0.5, -140, 0.45, 0), BackgroundTransparency = 0, TextTransparency = 0}):Play()
+    TweenService:Create(nF, tI, {Position = UDim2.new(0.5, -140, 0.45, 0), BackgroundTransparency = targetTrans, TextTransparency = 0}):Play()
     TweenService:Create(s, tI, {Transparency = 0}):Play()
     
     task.delay(1, function()
@@ -282,6 +306,7 @@ Island.BackgroundTransparency = 0
 Island.Text = ""
 Island.AutoButtonColor = false
 Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 6)
+table.insert(ThemeObjects.Backgrounds, Island)
 
 if isMobile then
     local islScale = Instance.new("UIScale", Island)
@@ -301,6 +326,7 @@ Instance.new("UICorner", Island_Glow).CornerRadius = UDim.new(0, 8)
 local IslandStroke = Instance.new("UIStroke", Island)
 IslandStroke.Thickness = 1
 IslandStroke.Color = Color3.fromRGB(45, 45, 45)
+table.insert(ThemeObjects.Strokes, IslandStroke)
 
 local IslandTitle = Instance.new("TextLabel", Island)
 IslandTitle.Size = UDim2.new(0.5, 0, 1, 0)
@@ -311,6 +337,7 @@ IslandTitle.Font = TARGET_FONT
 IslandTitle.TextSize = 14
 IslandTitle.TextColor3 = Color3.new(1, 1, 1)
 IslandTitle.TextXAlignment = "Left"
+table.insert(ThemeObjects.Texts, IslandTitle)
 
 local StatsLabel = Instance.new("TextLabel", Island)
 StatsLabel.Size = UDim2.new(0.5, 0, 1, 0)
@@ -321,6 +348,7 @@ StatsLabel.Font = TARGET_FONT
 StatsLabel.TextSize = 12
 StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 StatsLabel.TextXAlignment = "Right"
+table.insert(ThemeObjects.SecondaryTexts, StatsLabel)
 
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 750, 0, 450)
@@ -329,6 +357,7 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Visible = false 
 MainFrame.BackgroundTransparency = 1 
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+table.insert(ThemeObjects.Backgrounds, MainFrame)
 
 if isMobile then
     local uiScale = Instance.new("UIScale", MainFrame)
@@ -348,6 +377,7 @@ Instance.new("UICorner", MainFrame_Glow).CornerRadius = UDim.new(0, 10)
 local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Thickness = 1
 MainStroke.Color = Color3.fromRGB(45, 45, 45)
+table.insert(ThemeObjects.Strokes, MainStroke)
 
 local Sidebar = Instance.new("Frame", MainFrame)
 Sidebar.Size = UDim2.new(0, 150, 1, -20)
@@ -364,6 +394,7 @@ local categories = {"Combat", "Movement", "Visuals", "Misc"}
 local catIcons = {Combat = "🤺", Movement = "🏃", Visuals = "👁️", Misc = "⚙️"}
 local catButtons = {}
 local moduleFrames = {}
+local currentCat = "Combat"
 
 local ContentScroll = Instance.new("ScrollingFrame", MainFrame)
 ContentScroll.Size = UDim2.new(1, -180, 1, -20)
@@ -378,12 +409,22 @@ UIGrid.CellSize = UDim2.new(0, 275, 0, 145)
 UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 
 local function SwitchCategory(catName)
+    currentCat = catName
     local targetBtn = catButtons[catName]
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
+    
     if targetBtn then
         TweenService:Create(CategoryHighlight, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = targetBtn.Position}):Play()
         
         for name, btn in pairs(catButtons) do
-            if name == catName then btn.TextColor3 = Color3.fromRGB(0, 0, 0) else btn.TextColor3 = Color3.fromRGB(255, 255, 255) end
+            local isActive = (name == catName)
+            if t.name == "Light" then
+                btn.TextColor3 = isActive and Color3.new(1,1,1) or Color3.new(0,0,0)
+                CategoryHighlight.BackgroundColor3 = Color3.fromRGB(40,40,40)
+            else
+                btn.TextColor3 = isActive and Color3.new(0,0,0) or Color3.new(1,1,1)
+                CategoryHighlight.BackgroundColor3 = Color3.fromRGB(255,255,255)
+            end
         end
     end
     for _, mod in pairs(moduleFrames) do mod.frame.Visible = (mod.category == catName) end
@@ -401,22 +442,23 @@ end
 local MenuOpen = false 
 local function ToggleMenu()
     MenuOpen = not MenuOpen
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     if MenuOpen then
         MainFrame.Visible = true
         if isMobile then
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = t.trans, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
         else
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0, Position = UDim2.new(0.5, -375, 0.5, -225)}):Play()
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = t.trans, Position = UDim2.new(0.5, -375, 0.5, -225)}):Play()
         end
     else
         if isMobile then
-            local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0.5, 50)})
-            t:Play()
-            t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
+            local tw = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0.5, 50)})
+            tw:Play()
+            tw.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
         else
-            local t = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -375, 0.5, -180)})
-            t:Play()
-            t.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
+            local tw = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = UDim2.new(0.5, -375, 0.5, -180)})
+            tw:Play()
+            tw.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end)
         end
     end
 end
@@ -448,7 +490,9 @@ end)
 local CPFrame = Instance.new("Frame", GeminiGui)
 CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 CPFrame.Visible = false; CPFrame.Active = true; CPFrame.ZIndex = 20
-Instance.new("UIStroke", CPFrame).Color = Color3.fromRGB(50, 50, 50)
+table.insert(ThemeObjects.Backgrounds, CPFrame)
+local cpStroke = Instance.new("UIStroke", CPFrame); cpStroke.Color = Color3.fromRGB(50, 50, 50)
+table.insert(ThemeObjects.Strokes, cpStroke)
 
 if isMobile then
     local cpScale = Instance.new("UIScale", CPFrame)
@@ -509,14 +553,51 @@ SVTrigger.MouseButton1Down:Connect(function()
 end)
 
 local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25; ApplyBtn.Font = TARGET_FONT
+table.insert(ThemeObjects.InputBackgrounds, ApplyBtn)
+table.insert(ThemeObjects.Texts, ApplyBtn)
 ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveConfig() end)
+
+local function IsKeyMatch(inputKeyCode, bindStr)
+    local keyName = inputKeyCode.Name:lower()
+    local bStr = tostring(bindStr)
+    
+    local RuToEn = {
+        ["й"]="q",["ц"]="w",["у"]="e",["к"]="r",["е"]="t",["н"]="y",["г"]="u",["ш"]="i",["щ"]="o",["з"]="p",["х"]="leftbracket",["ъ"]="rightbracket",
+        ["ф"]="a",["ы"]="s",["в"]="d",["а"]="f",["п"]="g",["р"]="h",["о"]="j",["л"]="k",["д"]="l",["ж"]="semicolon",["э"]="quote",
+        ["я"]="z",["ч"]="x",["с"]="c",["м"]="v",["и"]="b",["т"]="n",["ь"]="m",["б"]="comma",["ю"]="period",
+        ["Й"]="q",["Ц"]="w",["У"]="e",["К"]="r",["Е"]="t",["Н"]="y",["Г"]="u",["Ш"]="i",["Щ"]="o",["З"]="p",["Х"]="leftbracket",["Ъ"]="rightbracket",
+        ["Ф"]="a",["Ы"]="s",["В"]="d",["А"]="f",["П"]="g",["Р"]="h",["О"]="j",["Л"]="k",["Д"]="l",["Ж"]="semicolon",["Э"]="quote",
+        ["Я"]="z",["Ч"]="x",["С"]="c",["М"]="v",["И"]="b",["Т"]="n",["Ь"]="m",["Б"]="comma",["Ю"]="period"
+    }
+    
+    if RuToEn[bStr] then 
+        bStr = RuToEn[bStr] 
+    else
+        bStr = bStr:lower()
+    end
+    
+    if bStr == "ctrl" or bStr == "control" then
+        return keyName == "leftcontrol" or keyName == "rightcontrol"
+    elseif bStr == "shift" then
+        return keyName == "leftshift" or keyName == "rightshift"
+    elseif bStr == "alt" then
+        return keyName == "leftalt" or keyName == "rightalt"
+    end
+    
+    return keyName == bStr
+end
 
 local function CreateModule(name, key, category)
     local ModFrame = Instance.new("Frame", ContentScroll); ModFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", ModFrame)
     local s = Instance.new("UIStroke", ModFrame); s.Color = Color3.fromRGB(45,45,45); s.Thickness = 1
+    table.insert(ThemeObjects.Backgrounds, ModFrame)
+    table.insert(ThemeObjects.Strokes, s)
+    
     table.insert(moduleFrames, {frame = ModFrame, category = category or "Misc"})
     local Title = Instance.new("TextLabel", ModFrame); Title.Size = UDim2.new(1, -50, 0, 35); Title.Position = UDim2.new(0, 10, 0, 0)
     Title.Text = name; Title.TextColor3 = Color3.new(1,1,1); Title.Font = TARGET_FONT; Title.TextSize = 14; Title.TextXAlignment = "Left"; Title.BackgroundTransparency = 1
+    table.insert(ThemeObjects.Texts, Title)
+    
     local Toggle = Instance.new("TextButton", ModFrame); Toggle.Size = UDim2.new(0, 45, 0, 22); Toggle.Position = UDim2.new(1, -55, 0, 7)
     Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); Toggle.Text = ""; Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1,0)
     
@@ -540,12 +621,16 @@ local function CreateModule(name, key, category)
     local bindKey = key .. "Bind"
     local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
     local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT
+    table.insert(ThemeObjects.SecondaryTexts, bL)
+    
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT
+    table.insert(ThemeObjects.Inputs, bI)
+    
     bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then _G.Cfg[bindKey] = "None" else _G.Cfg[bindKey] = inputStr end; bI.Text = _G.Cfg[bindKey]; SaveConfig() end)
     
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe and UserInputService:GetFocusedTextBox() ~= nil then return end 
-        if _G.Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then if input.KeyCode.Name:lower() == tostring(_G.Cfg[bindKey]):lower() then RunToggle() end end
+        if _G.Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then if IsKeyMatch(input.KeyCode, _G.Cfg[bindKey]) then RunToggle() end end
     end))
     return Inner
 end
@@ -553,6 +638,8 @@ end
 local function AddToggle(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT
+    table.insert(ThemeObjects.SecondaryTexts, l)
+    
     local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
     btn.MouseButton1Click:Connect(function() _G.Cfg[key] = not _G.Cfg[key]; btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); SaveConfig() end)
@@ -561,12 +648,119 @@ end
 local function AddSlider(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT
+    table.insert(ThemeObjects.SecondaryTexts, l)
+    
     local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 10; i.Font = TARGET_FONT
+    table.insert(ThemeObjects.Inputs, i)
+    
     i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v; SaveConfig() end end)
+end
+
+local function AddVisualSlider(parent, text, key, min, max)
+    local f = Instance.new("Frame", parent)
+    f.Size = UDim2.new(1, 0, 0, 35) 
+    f.BackgroundTransparency = 1
+    
+    local l = Instance.new("TextLabel", f)
+    l.Size = UDim2.new(0.6, 0, 0, 15)
+    l.Position = UDim2.new(0, 5, 0, 2)
+    l.Text = "  " .. text
+    l.TextColor3 = Color3.new(0.6,0.6,0.6)
+    l.BackgroundTransparency = 1
+    l.TextXAlignment = "Left"
+    l.TextSize = 12
+    l.Font = TARGET_FONT
+    table.insert(ThemeObjects.SecondaryTexts, l)
+    
+    local valBox = Instance.new("TextBox", f)
+    valBox.Size = UDim2.new(0, 35, 0, 15)
+    valBox.Position = UDim2.new(1, -45, 0, 2)
+    valBox.Text = string.format("%.1f", _G.Cfg[key])
+    valBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    valBox.TextColor3 = Color3.new(1,1,1)
+    valBox.TextSize = 10
+    valBox.Font = TARGET_FONT
+    Instance.new("UICorner", valBox).CornerRadius = UDim.new(0,3)
+    table.insert(ThemeObjects.Inputs, valBox)
+    
+    local barBg = Instance.new("Frame", f)
+    barBg.Size = UDim2.new(1, -15, 0, 6)
+    barBg.Position = UDim2.new(0, 5, 0, 22)
+    barBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    Instance.new("UICorner", barBg).CornerRadius = UDim.new(1,0)
+    table.insert(ThemeObjects.InputBackgrounds, barBg)
+    
+    local barFill = Instance.new("Frame", barBg)
+    barFill.Size = UDim2.new(0, 0, 1, 0)
+    barFill.BackgroundColor3 = Color3.fromRGB(0, 200, 200) 
+    Instance.new("UICorner", barFill).CornerRadius = UDim.new(1,0)
+    
+    local knob = Instance.new("Frame", barBg)
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(0, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
+    
+    local function UpdateVisuals(value)
+        local pct = math.clamp((value - min) / (max - min), 0, 1)
+        barFill.Size = UDim2.new(pct, 0, 1, 0)
+        knob.Position = UDim2.new(pct, 0, 0.5, 0)
+        valBox.Text = string.format("%.1f", value)
+    end
+    
+    UpdateVisuals(tonumber(_G.Cfg[key]) or 0)
+    
+    local dragging = false
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    barBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            local pct = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
+            local val = min + (max - min) * pct
+            val = math.floor(val * 10) / 10
+            _G.Cfg[key] = val
+            UpdateVisuals(val)
+            SaveConfig()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local pct = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
+            local val = min + (max - min) * pct
+            val = math.floor(val * 10) / 10
+            _G.Cfg[key] = val
+            UpdateVisuals(val)
+            SaveConfig()
+        end
+    end)
+    
+    valBox.FocusLost:Connect(function()
+        local v = tonumber(valBox.Text)
+        if v then
+            v = math.clamp(v, min, max)
+            _G.Cfg[key] = v
+            UpdateVisuals(v)
+            SaveConfig()
+        else
+            valBox.Text = string.format("%.1f", _G.Cfg[key])
+        end
+    end)
 end
 
 local function AddColorBtn(parent, text, key)
     local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 18); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"; b.TextSize = 12; b.Font = TARGET_FONT
+    table.insert(ThemeObjects.InputBackgrounds, b)
+    table.insert(ThemeObjects.Texts, b)
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
 end
 
@@ -663,10 +857,10 @@ local TargetHUD = Instance.new("Frame", GeminiGui)
 TargetHUD.Size = UDim2.new(0, 220, 0, 70) 
 TargetHUD.Position = _G.Cfg.TargetHudPosition
 TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15) 
-TargetHUD.BackgroundTransparency = 0.05 
 TargetHUD.Visible = false
 TargetHUD.Active = true
 TargetHUD.Draggable = true 
+table.insert(ThemeObjects.Backgrounds, TargetHUD)
 
 TargetHUD.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -690,6 +884,7 @@ local strokeHUD = Instance.new("UIStroke", TargetHUD)
 strokeHUD.Color = Color3.new(0, 0, 0)
 strokeHUD.Thickness = 2
 strokeHUD.Transparency = 0
+table.insert(ThemeObjects.Strokes, strokeHUD)
 
 local glowGradientBack = Instance.new("UIGradient", TargetHUD_Glow)
 glowGradientBack.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))})
@@ -701,6 +896,7 @@ TargetIconContainer.Position = UDim2.new(0, 8, 0, 8)
 TargetIconContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 TargetIconContainer.ClipsDescendants = true
 Instance.new("UICorner", TargetIconContainer).CornerRadius = UDim.new(0, 6)
+table.insert(ThemeObjects.InputBackgrounds, TargetIconContainer)
 
 local TargetIcon = Instance.new("ImageLabel", TargetIconContainer)
 TargetIcon.Size = UDim2.new(1.2, 0, 1.2, 0) 
@@ -717,6 +913,7 @@ TargetName.Text = "No Target"
 TargetName.Font = Enum.Font.GothamBold
 TargetName.TextSize = 16
 TargetName.TextXAlignment = Enum.TextXAlignment.Left
+table.insert(ThemeObjects.Texts, TargetName)
 
 local HealthText = Instance.new("TextLabel", TargetHUD)
 HealthText.Size = UDim2.new(1, -75, 0, 16)
@@ -727,15 +924,19 @@ HealthText.Text = "HP: 100.0"
 HealthText.TextSize = 14
 HealthText.Font = Enum.Font.GothamBold
 HealthText.TextXAlignment = Enum.TextXAlignment.Left
+table.insert(ThemeObjects.Texts, HealthText)
 
 local HealthBack = Instance.new("Frame", TargetHUD)
 HealthBack.Size = UDim2.new(1, -78, 0, 10)
 HealthBack.Position = UDim2.new(0, 70, 0, 50)
 HealthBack.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Instance.new("UICorner", HealthBack).CornerRadius = UDim.new(0, 5)
+table.insert(ThemeObjects.InputBackgrounds, HealthBack)
+
 local strokeHB = Instance.new("UIStroke", HealthBack)
 strokeHB.Color = Color3.fromRGB(60, 60, 60)
 strokeHB.Thickness = 1
+table.insert(ThemeObjects.Strokes, strokeHB)
 
 local HealthBar = Instance.new("Frame", HealthBack)
 HealthBar.Size = UDim2.new(1, 0, 1, 0)
@@ -800,6 +1001,17 @@ table.insert(Connections, RunService.Stepped:Connect(function()
                 end
             end
             table.clear(OrigNoClipStates)
+        end
+    end
+    
+    if _G.Cfg.VelocityEnabled and LocalPlayer.Character then
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            for _, v in ipairs(hrp:GetChildren()) do
+                if v:IsA("BodyVelocity") or v:IsA("BodyThrust") or v:IsA("BodyForce") or v:IsA("LinearVelocity") or v:IsA("VectorForce") then
+                    v:Destroy()
+                end
+            end
         end
     end
 end))
@@ -905,6 +1117,29 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     end
 
     if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue end
+
+    if _G.Cfg.VelocityEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+        local hrp = char.HumanoidRootPart
+        local hum = char.Humanoid
+        local hMult = tonumber(_G.Cfg.VelocityHorizontal) or 0
+        local vMult = tonumber(_G.Cfg.VelocityVertical) or 0
+        
+        if hMult == 0 then
+            if hum.MoveDirection.Magnitude == 0 then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
+            elseif not _G.Cfg.StrafeEnabled then
+                local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed
+                local targetVel = hum.MoveDirection.Unit * currentSpeed
+                hrp.AssemblyLinearVelocity = Vector3.new(targetVel.X, hrp.AssemblyLinearVelocity.Y, targetVel.Z)
+            end
+        end
+        
+        if vMult == 0 then
+            if hrp.AssemblyLinearVelocity.Y > 0 and (tick() - lastRealJumpTime > 0.3) and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
+            end
+        end
+    end
 
     if _G.Cfg.StrafeEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid
@@ -1257,13 +1492,133 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     end
 end))
 
+-- // ===================================================================================
+-- // TITAN VIEWMODEL HOOK (Двойной хук, обходит Bridge Duel и всё остальное)
+-- // ===================================================================================
+local characterLimbs = {
+    ["head"]=true, ["torso"]=true, ["upper torso"]=true, ["lower torso"]=true, ["humanoidrootpart"]=true,
+    ["left arm"]=true, ["right arm"]=true, ["left leg"]=true, ["right leg"]=true,
+    ["lefthand"]=true, ["righthand"]=true, ["leftlowerarm"]=true, ["rightlowerarm"]=true, ["leftupperarm"]=true, ["rightupperarm"]=true,
+    ["leftfoot"]=true, ["rightfoot"]=true, ["leftlowerleg"]=true, ["rightlowerleg"]=true, ["leftupperleg"]=true, ["rightupperleg"]=true
+}
+
+local TrackedJoints = {}
+local TrackedTools = {}
+local VM_ActiveC0s = {}
+local VM_ActiveC1s = {}
+local VM_ActiveGrips = {}
+
+local function CheckAndTrack(obj)
+    if obj:IsA("JointInstance") then
+        local p0, p1 = obj.Part0, obj.Part1
+        if not p0 or not p1 then return end
+        
+        if obj:IsDescendantOf(Camera) then
+            TrackedJoints[obj] = "Cam"
+        elseif LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character) then
+            local n0, n1 = p0.Name:lower(), p1.Name:lower()
+            if characterLimbs[n0] and not characterLimbs[n1] then
+                TrackedJoints[obj] = "CharNormal"
+            elseif characterLimbs[n1] and not characterLimbs[n0] then
+                TrackedJoints[obj] = "CharInverted"
+            end
+        end
+    elseif obj:IsA("Tool") then
+        if LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character) then
+            TrackedTools[obj] = true
+        end
+    end
+end
+
+local function UnTrack(obj)
+    if TrackedJoints[obj] then TrackedJoints[obj] = nil end
+    if TrackedTools[obj] then TrackedTools[obj] = nil end
+end
+
+-- Динамический кэш (собирает всё на лету)
+table.insert(Connections, Camera.DescendantAdded:Connect(CheckAndTrack))
+table.insert(Connections, Camera.DescendantRemoving:Connect(UnTrack))
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char.DescendantAdded:Connect(CheckAndTrack)
+    char.DescendantRemoving:Connect(UnTrack)
+    for _, obj in ipairs(char:GetDescendants()) do CheckAndTrack(obj) end
+end)
+if LocalPlayer.Character then
+    LocalPlayer.Character.DescendantAdded:Connect(CheckAndTrack)
+    LocalPlayer.Character.DescendantRemoving:Connect(UnTrack)
+    for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do CheckAndTrack(obj) end
+end
+for _, obj in ipairs(Camera:GetDescendants()) do CheckAndTrack(obj) end
+
+-- [ЭТАП 1] RESTORE (Приоритет 1 - самый первый)
+-- Отдает игре чистые координаты, чтобы она могла делать свои анимации без багов и улетов за карту
+RunService:BindToRenderStep("Gemini_VM_Restore", 1, function()
+    for joint, c0 in pairs(VM_ActiveC0s) do
+        if joint.Parent then joint.C0 = c0 else VM_ActiveC0s[joint] = nil end
+    end
+    for joint, c1 in pairs(VM_ActiveC1s) do
+        if joint.Parent then joint.C1 = c1 else VM_ActiveC1s[joint] = nil end
+    end
+    for tool, grip in pairs(VM_ActiveGrips) do
+        if tool.Parent then tool.Grip = grip else VM_ActiveGrips[tool] = nil end
+    end
+end)
+
+-- [ЭТАП 2] APPLY (Приоритет 9999 - самый последний, перебивает античиты и всё остальное)
+-- Забирает то, что посчитала игра, и накладывает твои слайдеры
+RunService:BindToRenderStep("Gemini_VM_Apply", 9999, function()
+    if not _G.Cfg.ViewModelEnabled then
+        table.clear(VM_ActiveC0s)
+        table.clear(VM_ActiveC1s)
+        table.clear(VM_ActiveGrips)
+        return
+    end
+
+    local ox = tonumber(_G.Cfg.ViewModelX) or 0
+    local oy = tonumber(_G.Cfg.ViewModelY) or 0
+    local oz = tonumber(_G.Cfg.ViewModelZ) or 0
+    local p = tonumber(_G.Cfg.ViewModelPitch) or 0
+    local y = tonumber(_G.Cfg.ViewModelYaw) or 0
+    local r = tonumber(_G.Cfg.ViewModelRoll) or 0
+    
+    local offset = CFrame.new(ox, oy, oz) * CFrame.Angles(math.rad(p), math.rad(y), math.rad(r))
+    local invOffset = offset:Inverse()
+    
+    -- Офсет Джоинтов
+    for joint, typeStr in pairs(TrackedJoints) do
+        if joint.Parent and joint.Part0 and joint.Part1 then
+            if typeStr == "Cam" or typeStr == "CharNormal" then
+                VM_ActiveC0s[joint] = joint.C0
+                joint.C0 = joint.C0 * offset
+            elseif typeStr == "CharInverted" then
+                VM_ActiveC1s[joint] = joint.C1
+                joint.C1 = joint.C1 * invOffset
+            end
+        end
+    end
+    
+    -- Офсет классических Тулзов
+    for tool in pairs(TrackedTools) do
+        if tool.Parent then
+            VM_ActiveGrips[tool] = tool.Grip
+            tool.Grip = tool.Grip * invOffset
+        end
+    end
+end)
+-- // ===================================================================================
+
+
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30); BindListFrame.Position = _G.Cfg.BindListPosition; BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); BindListFrame.Visible = false
 Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 6)
+table.insert(ThemeObjects.Backgrounds, BindListFrame)
+
 local BLStroke = Instance.new("UIStroke", BindListFrame); BLStroke.Color = Color3.fromRGB(60, 60, 60); BLStroke.Thickness = 1.5
+table.insert(ThemeObjects.Strokes, BLStroke)
 
 local BLTitle = Instance.new("TextLabel", BindListFrame)
 BLTitle.Size = UDim2.new(1, 0, 0, 25); BLTitle.Text = "Keybind List"; BLTitle.TextColor3 = Color3.new(1, 1, 1); BLTitle.Font = TARGET_FONT; BLTitle.TextSize = 14; BLTitle.BackgroundTransparency = 1
+table.insert(ThemeObjects.Texts, BLTitle)
 
 local BLContainer = Instance.new("Frame", BindListFrame)
 BLContainer.Size = UDim2.new(1, -10, 1, -30); BLContainer.Position = UDim2.new(0, 5, 0, 25); BLContainer.BackgroundTransparency = 1
@@ -1289,16 +1644,17 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 local function UpdateKeybindList()
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
     end
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
-        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
+        "JumpVisualCirclesEnabled", "ViewModelEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
@@ -1308,7 +1664,7 @@ local function UpdateKeybindList()
             activeCount = activeCount + 1
             local label = Instance.new("TextLabel", BLContainer)
             label.Size = UDim2.new(1, 0, 0, 18); label.BackgroundTransparency = 1; label.Text = " " .. key:gsub("Enabled", ""):upper() .. " [" .. tostring(_G.Cfg[bindKey]):upper() .. "]"
-            label.TextColor3 = Color3.fromRGB(200, 200, 200); label.TextSize = 13; label.Font = TARGET_FONT; label.TextXAlignment = Enum.TextXAlignment.Left
+            label.TextColor3 = t.textSec; label.TextSize = 13; label.Font = TARGET_FONT; label.TextXAlignment = Enum.TextXAlignment.Left
         end
     end
     
@@ -1326,12 +1682,13 @@ local globalMobileDragging = false
 
 local function UpdateMobileBinds()
     if not isMobile then return end
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     
     local modulesList = {
-        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
-        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
+        "JumpVisualCirclesEnabled", "ViewModelEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
@@ -1363,8 +1720,8 @@ local function UpdateMobileBinds()
                 btn.Position = UDim2.new(0.8, math.random(-50, 50), 0.5, math.random(-50, 50))
             end
             
-            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(35, 35, 35)
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg
+            btn.TextColor3 = t.text
             btn.Font = TARGET_FONT
             btn.TextSize = 22
             btn.Text = bindLetter
@@ -1428,7 +1785,8 @@ local function UpdateMobileBinds()
             end)
         else
             btn.Text = bindLetter
-            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(35, 35, 35)
+            btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg
+            btn.TextColor3 = t.text
         end
     end
 end
@@ -1437,7 +1795,10 @@ task.spawn(function() while task.wait(0.5) do UpdateKeybindList(); UpdateMobileB
 
 local function ConnectJump(char)
     local hum = char:WaitForChild("Humanoid")
-    hum.Jumping:Connect(function() if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end end)
+    hum.Jumping:Connect(function() 
+        lastRealJumpTime = tick()
+        if _G.Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end 
+    end)
 end
 LocalPlayer.CharacterAdded:Connect(ConnectJump); if LocalPlayer.Character then ConnectJump(LocalPlayer.Character) end
 
@@ -1470,6 +1831,7 @@ local mHitbox = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(mHi
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
 local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
+local mVel = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(mVel, "Horizontal %", "VelocityHorizontal"); AddSlider(mVel, "Vertical %", "VelocityVertical")
 local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
 local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(mSpider, "Speed", "SpiderSpeed")
@@ -1477,9 +1839,10 @@ local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
 local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(mEsp2D, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(mEsp2D, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(mEsp2D, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(mEsp2D, "Bar Border", "Esp2DBoxHealthBarBorder")
+AddVisualSlider(mVm, "Pos X (Left/Right)", "ViewModelX", -10, 10); AddVisualSlider(mVm, "Pos Y (Up/Down)", "ViewModelY", -10, 10); AddVisualSlider(mVm, "Pos Z (Forw/Back)", "ViewModelZ", -10, 10); 
+AddVisualSlider(mVm, "Pitch (Up/Down)", "ViewModelPitch", -180, 180); AddVisualSlider(mVm, "Yaw (Left/Right)", "ViewModelYaw", -180, 180); AddVisualSlider(mVm, "Roll (Tilt)", "ViewModelRoll", -180, 180)
 
 local mStars = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(mStars, "[COLOR] Stars Color", "WorldParticlesColor")
-
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
 local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
 local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
@@ -1538,26 +1901,38 @@ local function UnpackConfigString(b64)
         elseif type(v) == "number" then _G.Cfg[k] = tonumber(d) or v
         elseif typeof(v) == "Color3" then local rgb = string.split(d, ","); if #rgb == 3 then _G.Cfg[k] = Color3.fromRGB(tonumber(rgb[1]) or 255, tonumber(rgb[2]) or 255, tonumber(rgb[3]) or 255) end
         elseif typeof(v) == "UDim2" then local u = string.split(d, ","); if #u == 4 then _G.Cfg[k] = UDim2.new(tonumber(u[1]) or 0, tonumber(u[2]) or 0, tonumber(u[3]) or 0, tonumber(u[4]) or 0) end
-        else _G.Cfg[k] = d end
+        else _G.Cfg[k] = d or v end
     end
     FriendsList = {}
     if p[#ConfigLayout+1] and p[#ConfigLayout+1] ~= "" then for _, f in ipairs(string.split(p[#ConfigLayout+1], ",")) do if f ~= "" then FriendsList[string.lower(f)] = true end end end
     SaveConfig(); return true
 end
 
-local FriendsFrame = Instance.new("Frame", ContentScroll); FriendsFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", FriendsFrame); Instance.new("UIStroke", FriendsFrame).Color = Color3.fromRGB(45, 45, 45); table.insert(moduleFrames, {frame = FriendsFrame, category = "Misc"})
+local FriendsFrame = Instance.new("Frame", ContentScroll); FriendsFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", FriendsFrame); 
+local FFStroke = Instance.new("UIStroke", FriendsFrame); FFStroke.Color = Color3.fromRGB(45, 45, 45); 
+table.insert(moduleFrames, {frame = FriendsFrame, category = "Misc"})
+table.insert(ThemeObjects.Backgrounds, FriendsFrame)
+table.insert(ThemeObjects.Strokes, FFStroke)
+
 local FTitle = Instance.new("TextLabel", FriendsFrame); FTitle.Size = UDim2.new(1, -10, 0, 20); FTitle.Position = UDim2.new(0, 5, 0, 5); FTitle.Text = "FRIENDS MANAGER"; FTitle.TextColor3 = Color3.new(1,1,1); FTitle.Font = TARGET_FONT; FTitle.TextSize = 14; FTitle.BackgroundTransparency = 1; FTitle.TextXAlignment = "Left"
+table.insert(ThemeObjects.Texts, FTitle)
+
 local FInput = Instance.new("TextBox", FriendsFrame); FInput.Size = UDim2.new(1, -40, 0, 24); FInput.Position = UDim2.new(0, 5, 0, 25); FInput.BackgroundColor3 = Color3.fromRGB(15, 15, 15); FInput.TextColor3 = Color3.new(1,1,1); FInput.Font = TARGET_FONT; FInput.TextSize = 12; FInput.Text = "Username"; FInput.ClearTextOnFocus = true; Instance.new("UICorner", FInput).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.Inputs, FInput)
+
 local FAddBtn = Instance.new("TextButton", FriendsFrame); FAddBtn.Size = UDim2.new(0, 24, 0, 24); FAddBtn.Position = UDim2.new(1, -30, 0, 25); FAddBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); FAddBtn.TextColor3 = Color3.new(0, 1, 0); FAddBtn.Text = "+"; FAddBtn.Font = TARGET_FONT; FAddBtn.TextSize = 16; Instance.new("UICorner", FAddBtn).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, FAddBtn)
+
 local FListScroll = Instance.new("ScrollingFrame", FriendsFrame); FListScroll.Size = UDim2.new(1, -10, 1, -60); FListScroll.Position = UDim2.new(0, 5, 0, 55); FListScroll.BackgroundTransparency = 1; FListScroll.ScrollBarThickness = 2; FListScroll.CanvasSize = UDim2.new(0, 0, 0, 0); FListScroll.AutomaticCanvasSize = "Y"
 local FListLayout = Instance.new("UIListLayout", FListScroll); FListLayout.Padding = UDim.new(0, 2)
 
 local function RefreshFriendsList()
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(FListScroll:GetChildren()) do if child:IsA("Frame") then child:Destroy() end end
     for fname, _ in pairs(FriendsList) do
         local itm = Instance.new("Frame", FListScroll); itm.Size = UDim2.new(1, 0, 0, 20); itm.BackgroundTransparency = 1
-        local dBtn = Instance.new("TextButton", itm); dBtn.Size = UDim2.new(0, 20, 0, 20); dBtn.Position = UDim2.new(0, 0, 0, 0); dBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 15); dBtn.TextColor3 = Color3.new(1, 0.2, 0.2); dBtn.Text = "-"; dBtn.Font = TARGET_FONT; dBtn.TextSize = 14; Instance.new("UICorner", dBtn).CornerRadius = UDim.new(0,4)
-        local nLbl = Instance.new("TextLabel", itm); nLbl.Size = UDim2.new(1, -25, 1, 0); nLbl.Position = UDim2.new(0, 25, 0, 0); nLbl.BackgroundTransparency = 1; nLbl.Text = fname; nLbl.TextColor3 = Color3.new(0.8, 0.8, 0.8); nLbl.Font = TARGET_FONT; nLbl.TextSize = 12; nLbl.TextXAlignment = "Left"
+        local dBtn = Instance.new("TextButton", itm); dBtn.Size = UDim2.new(0, 20, 0, 20); dBtn.Position = UDim2.new(0, 0, 0, 0); dBtn.BackgroundColor3 = t.accent; dBtn.TextColor3 = Color3.new(1, 0.2, 0.2); dBtn.Text = "-"; dBtn.Font = TARGET_FONT; dBtn.TextSize = 14; Instance.new("UICorner", dBtn).CornerRadius = UDim.new(0,4)
+        local nLbl = Instance.new("TextLabel", itm); nLbl.Size = UDim2.new(1, -25, 1, 0); nLbl.Position = UDim2.new(0, 25, 0, 0); nLbl.BackgroundTransparency = 1; nLbl.Text = fname; nLbl.TextColor3 = t.textSec; nLbl.Font = TARGET_FONT; nLbl.TextSize = 12; nLbl.TextXAlignment = "Left"
         dBtn.MouseButton1Click:Connect(function()
             FriendsList[fname] = nil
             for _, targetPlayer in ipairs(Players:GetPlayers()) do if string.lower(targetPlayer.Name) == fname then if targetPlayer.Character and targetPlayer.Character:FindFirstChild("FriendHighlight") then targetPlayer.Character.FriendHighlight:Destroy() end break end end
@@ -1568,28 +1943,147 @@ end
 FAddBtn.MouseButton1Click:Connect(function() local txt = FInput.Text:gsub("%s+", ""); if txt ~= "" and txt ~= "Username" then local lowerTxt = LowerNameCache[txt]; FriendsList[lowerTxt] = true; FInput.Text = "Username"; SaveConfig(); RefreshFriendsList(); ShowNotify("Friend Added: " .. lowerTxt, true) end end)
 local lastFriendsStr = ""; task.spawn(function() while task.wait(0.2) do local currentStr = HttpService:JSONEncode(FriendsList); if currentStr ~= lastFriendsStr then lastFriendsStr = currentStr; RefreshFriendsList() end end end)
 
-local GenConfigFrame = Instance.new("Frame", ContentScroll); GenConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", GenConfigFrame); Instance.new("UIStroke", GenConfigFrame).Color = Color3.fromRGB(45, 45, 45); table.insert(moduleFrames, {frame = GenConfigFrame, category = "Misc"})
+local GenConfigFrame = Instance.new("Frame", ContentScroll); GenConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", GenConfigFrame); 
+local GCStroke = Instance.new("UIStroke", GenConfigFrame); GCStroke.Color = Color3.fromRGB(45, 45, 45); 
+table.insert(moduleFrames, {frame = GenConfigFrame, category = "Misc"})
+table.insert(ThemeObjects.Backgrounds, GenConfigFrame)
+table.insert(ThemeObjects.Strokes, GCStroke)
+
 local GenTitle = Instance.new("TextLabel", GenConfigFrame); GenTitle.Size = UDim2.new(1, -10, 0, 25); GenTitle.Position = UDim2.new(0, 5, 0, 5); GenTitle.Text = "GENERATE CONFIG KEY"; GenTitle.TextColor3 = Color3.new(1,1,1); GenTitle.Font = TARGET_FONT; GenTitle.TextSize = 14; GenTitle.BackgroundTransparency = 1; GenTitle.TextXAlignment = "Left"
+table.insert(ThemeObjects.Texts, GenTitle)
+
 local GenBox = Instance.new("TextBox", GenConfigFrame); GenBox.Size = UDim2.new(1, -20, 0, 40); GenBox.Position = UDim2.new(0, 10, 0, 35); GenBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); GenBox.TextColor3 = Color3.fromRGB(150, 150, 150); GenBox.Font = Enum.Font.Code; GenBox.TextSize = 10; GenBox.TextWrapped = true; GenBox.Text = "Your key will appear here"; GenBox.ClearTextOnFocus = false; GenBox.TextEditable = false; Instance.new("UICorner", GenBox).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.Inputs, GenBox)
+
 local GenBtn = Instance.new("TextButton", GenConfigFrame); GenBtn.Size = UDim2.new(1, -20, 0, 24); GenBtn.Position = UDim2.new(0, 10, 0, 80); GenBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); GenBtn.TextColor3 = Color3.new(1,1,1); GenBtn.Text = "GENERATE"; GenBtn.Font = TARGET_FONT; GenBtn.TextSize = 14; Instance.new("UICorner", GenBtn).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, GenBtn)
+table.insert(ThemeObjects.Texts, GenBtn)
+
 local CopyBtn = Instance.new("TextButton", GenConfigFrame); CopyBtn.Size = UDim2.new(1, -20, 0, 16); CopyBtn.Position = UDim2.new(0, 10, 0, 108); CopyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); CopyBtn.TextColor3 = Color3.fromRGB(200, 200, 200); CopyBtn.Text = "COPY"; CopyBtn.Font = TARGET_FONT; CopyBtn.TextSize = 10; Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, CopyBtn)
+table.insert(ThemeObjects.SecondaryTexts, CopyBtn)
+
 GenBtn.MouseButton1Click:Connect(function() GenBox.Text = PackConfigString(); ShowNotify("Config Key Generated", true) end)
 CopyBtn.MouseButton1Click:Connect(function() if setclipboard then setclipboard(GenBox.Text); ShowNotify("Copied to clipboard", true) else ShowNotify("Executor not supported", false) end end)
 
-local LoadConfigFrame = Instance.new("Frame", ContentScroll); LoadConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", LoadConfigFrame); Instance.new("UIStroke", LoadConfigFrame).Color = Color3.fromRGB(45, 45, 45); table.insert(moduleFrames, {frame = LoadConfigFrame, category = "Misc"})
+local LoadConfigFrame = Instance.new("Frame", ContentScroll); LoadConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", LoadConfigFrame); 
+local LCStroke = Instance.new("UIStroke", LoadConfigFrame); LCStroke.Color = Color3.fromRGB(45, 45, 45); 
+table.insert(moduleFrames, {frame = LoadConfigFrame, category = "Misc"})
+table.insert(ThemeObjects.Backgrounds, LoadConfigFrame)
+table.insert(ThemeObjects.Strokes, LCStroke)
+
 local LoadTitle = Instance.new("TextLabel", LoadConfigFrame); LoadTitle.Size = UDim2.new(1, -10, 0, 25); LoadTitle.Position = UDim2.new(0, 5, 0, 5); LoadTitle.Text = "LOAD CONFIG KEY"; LoadTitle.TextColor3 = Color3.new(1,1,1); LoadTitle.Font = TARGET_FONT; LoadTitle.TextSize = 14; LoadTitle.BackgroundTransparency = 1; LoadTitle.TextXAlignment = "Left"
+table.insert(ThemeObjects.Texts, LoadTitle)
+
 local LoadBox = Instance.new("TextBox", LoadConfigFrame); LoadBox.Size = UDim2.new(1, -20, 0, 40); LoadBox.Position = UDim2.new(0, 10, 0, 35); LoadBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); LoadBox.TextColor3 = Color3.new(1,1,1); LoadBox.Font = Enum.Font.Code; LoadBox.TextSize = 10; LoadBox.TextWrapped = true; LoadBox.Text = "Paste key here"; LoadBox.ClearTextOnFocus = true; Instance.new("UICorner", LoadBox).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.Inputs, LoadBox)
+
 local LoadBtn = Instance.new("TextButton", LoadConfigFrame); LoadBtn.Size = UDim2.new(1, -20, 0, 24); LoadBtn.Position = UDim2.new(0, 10, 0, 80); LoadBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); LoadBtn.TextColor3 = Color3.new(1,1,1); LoadBtn.Text = "LOAD"; LoadBtn.Font = TARGET_FONT; LoadBtn.TextSize = 14; Instance.new("UICorner", LoadBtn).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, LoadBtn)
+table.insert(ThemeObjects.Texts, LoadBtn)
+
 local PasteBtn = Instance.new("TextButton", LoadConfigFrame); PasteBtn.Size = UDim2.new(1, -20, 0, 16); PasteBtn.Position = UDim2.new(0, 10, 0, 108); PasteBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); PasteBtn.TextColor3 = Color3.fromRGB(200, 200, 200); PasteBtn.Text = "PASTE"; PasteBtn.Font = TARGET_FONT; PasteBtn.TextSize = 10; Instance.new("UICorner", PasteBtn).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, PasteBtn)
+table.insert(ThemeObjects.SecondaryTexts, PasteBtn)
+
 LoadBtn.MouseButton1Click:Connect(function() local txt = LoadBox.Text; if txt == "" or txt:find("Paste key") then return end; local cleanTxt = txt:gsub("%s+", ""); local success = UnpackConfigString(cleanTxt); if success then ShowNotify("Config Loaded", true) else ShowNotify("Invalid Key", false) end end)
 PasteBtn.MouseButton1Click:Connect(function() if getclipboard then LoadBox.Text = tostring(getclipboard()); ShowNotify("Pasted from clipboard", true) else ShowNotify("Executor not supported", false) end end)
 
-local KillFrame = Instance.new("Frame", ContentScroll); KillFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", KillFrame); Instance.new("UIStroke", KillFrame).Color = Color3.fromRGB(45, 45, 45); table.insert(moduleFrames, {frame = KillFrame, category = "Misc"})
+local KillFrame = Instance.new("Frame", ContentScroll); KillFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", KillFrame); 
+local KStroke = Instance.new("UIStroke", KillFrame); KStroke.Color = Color3.fromRGB(45, 45, 45); 
+table.insert(moduleFrames, {frame = KillFrame, category = "Misc"})
+table.insert(ThemeObjects.Backgrounds, KillFrame)
+table.insert(ThemeObjects.Strokes, KStroke)
+
 local KillBtn = Instance.new("TextButton", KillFrame); KillBtn.Size = UDim2.new(1, -20, 0, 40); KillBtn.Position = UDim2.new(0, 10, 0.5, -20); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = TARGET_FONT; KillBtn.TextSize = 16; Instance.new("UICorner", KillBtn)
 KillBtn.MouseButton1Click:Connect(function() 
     for _, c in pairs(Connections) do c:Disconnect() end 
+    pcall(function() RunService:UnbindFromRenderStep("Gemini_VM_Restore") end)
+    pcall(function() RunService:UnbindFromRenderStep("Gemini_VM_Apply") end)
+    
+    -- Восстанавливаем оригинальные значения при Kill Script
+    for joint, c0 in pairs(VM_ActiveC0s) do if joint.Parent then joint.C0 = c0 end end
+    for joint, c1 in pairs(VM_ActiveC1s) do if joint.Parent then joint.C1 = c1 end end
+    for tool, grip in pairs(VM_ActiveGrips) do if tool.Parent then tool.Grip = grip end end
+    
+    table.clear(VM_ActiveC0s)
+    table.clear(VM_ActiveC1s)
+    table.clear(VM_ActiveGrips)
+    table.clear(TrackedJoints)
+    table.clear(TrackedTools)
+    
     GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy()
     if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
 end)
 
+local ThemeFrame = Instance.new("Frame", ContentScroll); ThemeFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", ThemeFrame); 
+local tfs = Instance.new("UIStroke", ThemeFrame); tfs.Color = Color3.fromRGB(45, 45, 45); 
+table.insert(moduleFrames, {frame = ThemeFrame, category = "Misc"})
+table.insert(ThemeObjects.Backgrounds, ThemeFrame)
+table.insert(ThemeObjects.Strokes, tfs)
+
+local TTitle = Instance.new("TextLabel", ThemeFrame); TTitle.Size = UDim2.new(1, -10, 0, 25); TTitle.Position = UDim2.new(0, 5, 0, 5); TTitle.Text = "UI THEME (CYCLE)"; TTitle.TextColor3 = Color3.new(1,1,1); TTitle.Font = TARGET_FONT; TTitle.TextSize = 14; TTitle.BackgroundTransparency = 1; TTitle.TextXAlignment = "Left"
+table.insert(ThemeObjects.Texts, TTitle)
+
+local TCyc = Instance.new("TextButton", ThemeFrame); TCyc.Size = UDim2.new(1, -20, 0, 40); TCyc.Position = UDim2.new(0, 10, 0, 35); TCyc.BackgroundColor3 = Color3.fromRGB(40, 40, 40); TCyc.TextColor3 = Color3.new(1,1,1); TCyc.Text = "Theme: " .. tostring(_G.Cfg.UITheme); TCyc.Font = TARGET_FONT; TCyc.TextSize = 14; Instance.new("UICorner", TCyc).CornerRadius = UDim.new(0,4)
+table.insert(ThemeObjects.InputBackgrounds, TCyc)
+table.insert(ThemeObjects.Texts, TCyc)
+
+local function ApplyTheme()
+    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
+    
+    for _, obj in ipairs(ThemeObjects.Backgrounds) do
+        if obj and obj.Parent then
+            obj.BackgroundColor3 = t.bg
+            if obj.Name == "TargetHUD" then
+                obj.BackgroundTransparency = t.trans
+            else
+                obj.BackgroundTransparency = t.trans
+            end
+        end
+    end
+    for _, obj in ipairs(ThemeObjects.Strokes) do
+        if obj and obj.Parent then
+            obj.Color = t.stroke
+        end
+    end
+    for _, obj in ipairs(ThemeObjects.Texts) do
+        if obj and obj.Parent then
+            obj.TextColor3 = t.text
+        end
+    end
+    for _, obj in ipairs(ThemeObjects.SecondaryTexts) do
+        if obj and obj.Parent then
+            obj.TextColor3 = t.textSec
+        end
+    end
+    for _, obj in ipairs(ThemeObjects.Inputs) do
+        if obj and obj.Parent then
+            obj.BackgroundColor3 = t.inputBg
+            obj.TextColor3 = t.text
+        end
+    end
+    for _, obj in ipairs(ThemeObjects.InputBackgrounds) do
+        if obj and obj.Parent then
+            obj.BackgroundColor3 = t.accent
+        end
+    end
+    
+    UpdateKeybindList()
+    RefreshFriendsList()
+    SwitchCategory(currentCat)
+end
+
+local ThemesList = {"Dark", "Light", "Gray", "Glass"}
+TCyc.MouseButton1Click:Connect(function()
+    local idx = table.find(ThemesList, _G.Cfg.UITheme) or 1
+    idx = idx + 1
+    if idx > #ThemesList then idx = 1 end
+    _G.Cfg.UITheme = ThemesList[idx]
+    TCyc.Text = "Theme: " .. _G.Cfg.UITheme
+    SaveConfig()
+    ApplyTheme()
+end)
+
+ApplyTheme()
 SwitchCategory("Combat")
