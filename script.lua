@@ -1230,8 +1230,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                 if dist <= (_G.Cfg.KillAuraClickRange or 15) then
                     local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
                     if tick() - lastAttackTime > attackDelay then
-                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1); 
                         lastAttackTime = tick()
+                        task.spawn(function()
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                            task.wait(0.01)
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                        end)
                         if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
                         if _G.Cfg.HitSoundEnabled then
                             local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
