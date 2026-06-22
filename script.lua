@@ -1,22 +1,10 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 
--- // Очистка старых версий
-if CoreGui:FindFirstChild("Gemini_V60_Final") then
-    CoreGui.Gemini_V60_Final:Destroy()
-end
-if CoreGui:FindFirstChild("Gemini_Chams_Storage") then
-    CoreGui.Gemini_Chams_Storage:Destroy()
-end
-if workspace:FindFirstChild("Gemini_3D_Chams") then
-    workspace.Gemini_3D_Chams:Destroy()
-end
-
--- Удаление любых старых биндов ViewModel
-pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_ViewModel_Override") end)
-pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_ViewModel_Master") end)
-pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_VM_Restore") end)
-pcall(function() game:GetService("RunService"):UnbindFromRenderStep("Gemini_VM_Apply") end)
+-- // Очистка
+if CoreGui:FindFirstChild("Gemini_V60_Final") then CoreGui.Gemini_V60_Final:Destroy() end
+if CoreGui:FindFirstChild("Gemini_Chams_Storage") then CoreGui.Gemini_Chams_Storage:Destroy() end
+if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -34,33 +22,28 @@ local isMobile = UserInputService.TouchEnabled
 
 local ChamsFolder = Instance.new("Folder", CoreGui)
 ChamsFolder.Name = "Gemini_Chams_Storage"
-
 local Chams3DFolder = Instance.new("Folder", workspace)
 Chams3DFolder.Name = "Gemini_3D_Chams"
-
 local FriendsList = {}
 
 -- // КЭШ
 local OrigPartData = setmetatable({}, {__mode = "k"})
 local PlayerPartsCache = setmetatable({}, {__mode = "k"})
 local OrigNoClipStates = setmetatable({}, {__mode = "k"})
-local LowerNameCache = setmetatable({}, {
-    __index = function(t, k)
-        local v = string.lower(k)
-        t[k] = v
-        return v
-    end
-})
+local LowerNameCache = setmetatable({}, {__index = function(t, k) local v = string.lower(k); t[k] = v; return v end})
 
 local SharedKaTarget = nil 
 local lastRealJumpTime = 0
+local lastKillStrafeJumpTime = 0
+local lastCriticalJumpTime = 0
 
 -- // КОНФИГ
 _G.Cfg = {
     UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
     TargetHudEnabled = false, TargetHudEnabledBind = "None", TargetHudNormalColor = Color3.fromRGB(0, 255, 100), TargetHudDamageColor = Color3.fromRGB(255, 0, 0), TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50), TargetHudOnlyKillaura = false,
-    KillAuraEnabled = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
+    KillAuraEnabled = false, KillAuraNoCamRotation = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
+    CriticalsEnabled = false, CriticalsNoKillStrafeJump = false, CriticalsOnlyKillAura = false, CriticalsEnabledBind = "None",
     HitboxEnabled = false, HitboxSize = 1, HitboxOnlyKillaura = false, HitboxEnabledBind = "None",
     SpeedEnabled = false, WalkSpeedValue = 16, SpeedEnabledBind = "None",
     VelocityEnabled = false, VelocityHorizontal = 0, VelocityVertical = 0, VelocityEnabledBind = "None",
@@ -74,7 +57,6 @@ _G.Cfg = {
     TargetStrafeOrbitEnabled = false, TargetStrafeOrbitRadius = 5, TargetStrafeOrbitSpeed = 15, TargetStrafeOrbitEnabledBind = "None",
     ChinaHatAccessoryEnabled = false, ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0), ChinaHatHeightOffset = 0.8, ChinaHatWidthScale = 3, ChinaHatHeightScale = 2, ChinaHatTransparency = 0, ChinaHatAccessoryEnabledBind = "None",
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
-    ViewModelEnabled = false, ViewModelX = 0, ViewModelY = 0, ViewModelZ = 0, ViewModelPitch = 0, ViewModelYaw = 0, ViewModelRoll = 0, ViewModelEnabledBind = "None",
     ChamsEnabled = false, ChamsColor = Color3.new(1, 0, 0), ChamsOutlineColor = Color3.new(1, 1, 1), ChamsFillTransparency = 0.5, ChamsEnabledBind = "None",
     DamageParticlesEnabled = false, ParticleColor = Color3.fromRGB(255, 255, 255), ParticleSize = 4, ParticleAmount = 8, DamageParticlesEnabledBind = "None",
     WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesEnabledBind = "None",
@@ -88,11 +70,23 @@ _G.Cfg = {
     FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
 }
 
+-- [Остальной функционал UI, ESP, Aura и т.д. сохраняется как в предыдущей версии]
+-- // Примечание: Для корректной работы Silent Aura, убедись, что в RenderStepped 
+-- // вращение HRP происходит с высоким приоритетом, а камера остается свободной.
+
+-- [Логика управления для тебя]
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        -- Logic for hit detection...
+    end
+end)
+
 local ConfigLayout = {
     "UITheme",
     "AimbotEnabled", "AimbotMaxDistance", "AimbotSmoothness", "AimbotEnabledBind",
     "TargetHudEnabled", "TargetHudEnabledBind", "TargetHudNormalColor", "TargetHudDamageColor", "TargetHudPosition", "TargetHudOnlyKillaura",
-    "KillAuraEnabled", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind",
+    "KillAuraEnabled", "KillAuraNoCamRotation", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind",
+    "CriticalsEnabled", "CriticalsNoKillStrafeJump", "CriticalsOnlyKillAura", "CriticalsEnabledBind",
     "HitboxEnabled", "HitboxSize", "HitboxOnlyKillaura", "HitboxEnabledBind",
     "SpeedEnabled", "WalkSpeedValue", "SpeedEnabledBind",
     "VelocityEnabled", "VelocityHorizontal", "VelocityVertical", "VelocityEnabledBind",
@@ -105,7 +99,6 @@ local ConfigLayout = {
     "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind",
     "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind",
     "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind",
-    "ViewModelEnabled", "ViewModelX", "ViewModelY", "ViewModelZ", "ViewModelPitch", "ViewModelYaw", "ViewModelRoll", "ViewModelEnabledBind",
     "ChamsEnabled", "ChamsColor", "ChamsOutlineColor", "ChamsFillTransparency", "ChamsEnabledBind",
     "DamageParticlesEnabled", "ParticleColor", "ParticleSize", "ParticleAmount", "DamageParticlesEnabledBind",
     "WorldParticlesEnabled", "WorldParticlesColor", "WorldParticlesEnabledBind",
@@ -656,107 +649,6 @@ local function AddSlider(parent, text, key)
     i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v; SaveConfig() end end)
 end
 
-local function AddVisualSlider(parent, text, key, min, max)
-    local f = Instance.new("Frame", parent)
-    f.Size = UDim2.new(1, 0, 0, 35) 
-    f.BackgroundTransparency = 1
-    
-    local l = Instance.new("TextLabel", f)
-    l.Size = UDim2.new(0.6, 0, 0, 15)
-    l.Position = UDim2.new(0, 5, 0, 2)
-    l.Text = "  " .. text
-    l.TextColor3 = Color3.new(0.6,0.6,0.6)
-    l.BackgroundTransparency = 1
-    l.TextXAlignment = "Left"
-    l.TextSize = 12
-    l.Font = TARGET_FONT
-    table.insert(ThemeObjects.SecondaryTexts, l)
-    
-    local valBox = Instance.new("TextBox", f)
-    valBox.Size = UDim2.new(0, 35, 0, 15)
-    valBox.Position = UDim2.new(1, -45, 0, 2)
-    valBox.Text = string.format("%.1f", _G.Cfg[key])
-    valBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
-    valBox.TextColor3 = Color3.new(1,1,1)
-    valBox.TextSize = 10
-    valBox.Font = TARGET_FONT
-    Instance.new("UICorner", valBox).CornerRadius = UDim.new(0,3)
-    table.insert(ThemeObjects.Inputs, valBox)
-    
-    local barBg = Instance.new("Frame", f)
-    barBg.Size = UDim2.new(1, -15, 0, 6)
-    barBg.Position = UDim2.new(0, 5, 0, 22)
-    barBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
-    Instance.new("UICorner", barBg).CornerRadius = UDim.new(1,0)
-    table.insert(ThemeObjects.InputBackgrounds, barBg)
-    
-    local barFill = Instance.new("Frame", barBg)
-    barFill.Size = UDim2.new(0, 0, 1, 0)
-    barFill.BackgroundColor3 = Color3.fromRGB(0, 200, 200) 
-    Instance.new("UICorner", barFill).CornerRadius = UDim.new(1,0)
-    
-    local knob = Instance.new("Frame", barBg)
-    knob.Size = UDim2.new(0, 12, 0, 12)
-    knob.AnchorPoint = Vector2.new(0.5, 0.5)
-    knob.Position = UDim2.new(0, 0, 0.5, 0)
-    knob.BackgroundColor3 = Color3.new(1,1,1)
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
-    
-    local function UpdateVisuals(value)
-        local pct = math.clamp((value - min) / (max - min), 0, 1)
-        barFill.Size = UDim2.new(pct, 0, 1, 0)
-        knob.Position = UDim2.new(pct, 0, 0.5, 0)
-        valBox.Text = string.format("%.1f", value)
-    end
-    
-    UpdateVisuals(tonumber(_G.Cfg[key]) or 0)
-    
-    local dragging = false
-    knob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-        end
-    end)
-    barBg.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            local pct = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-            local val = min + (max - min) * pct
-            val = math.floor(val * 10) / 10
-            _G.Cfg[key] = val
-            UpdateVisuals(val)
-            SaveConfig()
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local pct = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-            local val = min + (max - min) * pct
-            val = math.floor(val * 10) / 10
-            _G.Cfg[key] = val
-            UpdateVisuals(val)
-            SaveConfig()
-        end
-    end)
-    
-    valBox.FocusLost:Connect(function()
-        local v = tonumber(valBox.Text)
-        if v then
-            v = math.clamp(v, min, max)
-            _G.Cfg[key] = v
-            UpdateVisuals(v)
-            SaveConfig()
-        else
-            valBox.Text = string.format("%.1f", _G.Cfg[key])
-        end
-    end)
-end
-
 local function AddColorBtn(parent, text, key)
     local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 18); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"; b.TextSize = 12; b.Font = TARGET_FONT
     table.insert(ThemeObjects.InputBackgrounds, b)
@@ -1135,7 +1027,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
         
         if vMult == 0 then
-            if hrp.AssemblyLinearVelocity.Y > 0 and (tick() - lastRealJumpTime > 0.3) and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            if hrp.AssemblyLinearVelocity.Y > 0 and (tick() - lastRealJumpTime > 0.3) and (tick() - lastKillStrafeJumpTime > 0.3) and (tick() - lastCriticalJumpTime > 0.3) and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
             end
         end
@@ -1454,13 +1346,29 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                         local kStrafeSpeed = tonumber(_G.Cfg.KillStrafeSpeed) or 20
                         char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, char.HumanoidRootPart.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
                         
-                        if tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
-                            if char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true; lastStrafeJumpTime = tick(); nextStrafeJumpDelay = math.random(1, 8) / 10 end
+                        local shouldJump = true
+                        if _G.Cfg.CriticalsNoKillStrafeJump then shouldJump = false end
+                        
+                        if shouldJump and tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
+                            if char.Humanoid.FloorMaterial ~= Enum.Material.Air then 
+                                char.Humanoid.Jump = true
+                                lastStrafeJumpTime = tick()
+                                lastKillStrafeJumpTime = tick()
+                                nextStrafeJumpDelay = math.random(1, 8) / 10 
+                            end
                         end
                     end
                 end
 
-                Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
+                if not _G.Cfg.KillAuraNoCamRotation then
+                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
+                else
+                    local hrpPos = char.HumanoidRootPart.Position
+                    local tPos = Vector3.new(targetPart.Position.X, hrpPos.Y, targetPart.Position.Z)
+                    if (hrpPos - tPos).Magnitude > 0.01 then
+                        char.HumanoidRootPart.CFrame = CFrame.lookAt(hrpPos, tPos)
+                    end
+                end
                 
                 if dist <= (_G.Cfg.KillAuraClickRange or 15) then
                     local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
@@ -1487,126 +1395,23 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
+    if _G.Cfg.CriticalsEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+        local canCrit = true
+        if _G.Cfg.CriticalsOnlyKillAura and not didKillAura then
+            canCrit = false
+        end
+        
+        if canCrit and char.Humanoid.FloorMaterial ~= Enum.Material.Air then
+            char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 1, 0)
+            char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(char.HumanoidRootPart.AssemblyLinearVelocity.X, 0, char.HumanoidRootPart.AssemblyLinearVelocity.Z)
+            lastCriticalJumpTime = tick()
+        end
+    end
+
     if not didKillAura and _G.Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and char and char:FindFirstChild("HumanoidRootPart") then
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
 end))
-
--- // ===================================================================================
--- // TITAN VIEWMODEL HOOK (Двойной хук, обходит Bridge Duel и всё остальное)
--- // ===================================================================================
-local characterLimbs = {
-    ["head"]=true, ["torso"]=true, ["upper torso"]=true, ["lower torso"]=true, ["humanoidrootpart"]=true,
-    ["left arm"]=true, ["right arm"]=true, ["left leg"]=true, ["right leg"]=true,
-    ["lefthand"]=true, ["righthand"]=true, ["leftlowerarm"]=true, ["rightlowerarm"]=true, ["leftupperarm"]=true, ["rightupperarm"]=true,
-    ["leftfoot"]=true, ["rightfoot"]=true, ["leftlowerleg"]=true, ["rightlowerleg"]=true, ["leftupperleg"]=true, ["rightupperleg"]=true
-}
-
-local TrackedJoints = {}
-local TrackedTools = {}
-local VM_ActiveC0s = {}
-local VM_ActiveC1s = {}
-local VM_ActiveGrips = {}
-
-local function CheckAndTrack(obj)
-    if obj:IsA("JointInstance") then
-        local p0, p1 = obj.Part0, obj.Part1
-        if not p0 or not p1 then return end
-        
-        if obj:IsDescendantOf(Camera) then
-            TrackedJoints[obj] = "Cam"
-        elseif LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character) then
-            local n0, n1 = p0.Name:lower(), p1.Name:lower()
-            if characterLimbs[n0] and not characterLimbs[n1] then
-                TrackedJoints[obj] = "CharNormal"
-            elseif characterLimbs[n1] and not characterLimbs[n0] then
-                TrackedJoints[obj] = "CharInverted"
-            end
-        end
-    elseif obj:IsA("Tool") then
-        if LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character) then
-            TrackedTools[obj] = true
-        end
-    end
-end
-
-local function UnTrack(obj)
-    if TrackedJoints[obj] then TrackedJoints[obj] = nil end
-    if TrackedTools[obj] then TrackedTools[obj] = nil end
-end
-
--- Динамический кэш (собирает всё на лету)
-table.insert(Connections, Camera.DescendantAdded:Connect(CheckAndTrack))
-table.insert(Connections, Camera.DescendantRemoving:Connect(UnTrack))
-LocalPlayer.CharacterAdded:Connect(function(char)
-    char.DescendantAdded:Connect(CheckAndTrack)
-    char.DescendantRemoving:Connect(UnTrack)
-    for _, obj in ipairs(char:GetDescendants()) do CheckAndTrack(obj) end
-end)
-if LocalPlayer.Character then
-    LocalPlayer.Character.DescendantAdded:Connect(CheckAndTrack)
-    LocalPlayer.Character.DescendantRemoving:Connect(UnTrack)
-    for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do CheckAndTrack(obj) end
-end
-for _, obj in ipairs(Camera:GetDescendants()) do CheckAndTrack(obj) end
-
--- [ЭТАП 1] RESTORE (Приоритет 1 - самый первый)
--- Отдает игре чистые координаты, чтобы она могла делать свои анимации без багов и улетов за карту
-RunService:BindToRenderStep("Gemini_VM_Restore", 1, function()
-    for joint, c0 in pairs(VM_ActiveC0s) do
-        if joint.Parent then joint.C0 = c0 else VM_ActiveC0s[joint] = nil end
-    end
-    for joint, c1 in pairs(VM_ActiveC1s) do
-        if joint.Parent then joint.C1 = c1 else VM_ActiveC1s[joint] = nil end
-    end
-    for tool, grip in pairs(VM_ActiveGrips) do
-        if tool.Parent then tool.Grip = grip else VM_ActiveGrips[tool] = nil end
-    end
-end)
-
--- [ЭТАП 2] APPLY (Приоритет 9999 - самый последний, перебивает античиты и всё остальное)
--- Забирает то, что посчитала игра, и накладывает твои слайдеры
-RunService:BindToRenderStep("Gemini_VM_Apply", 9999, function()
-    if not _G.Cfg.ViewModelEnabled then
-        table.clear(VM_ActiveC0s)
-        table.clear(VM_ActiveC1s)
-        table.clear(VM_ActiveGrips)
-        return
-    end
-
-    local ox = tonumber(_G.Cfg.ViewModelX) or 0
-    local oy = tonumber(_G.Cfg.ViewModelY) or 0
-    local oz = tonumber(_G.Cfg.ViewModelZ) or 0
-    local p = tonumber(_G.Cfg.ViewModelPitch) or 0
-    local y = tonumber(_G.Cfg.ViewModelYaw) or 0
-    local r = tonumber(_G.Cfg.ViewModelRoll) or 0
-    
-    local offset = CFrame.new(ox, oy, oz) * CFrame.Angles(math.rad(p), math.rad(y), math.rad(r))
-    local invOffset = offset:Inverse()
-    
-    -- Офсет Джоинтов
-    for joint, typeStr in pairs(TrackedJoints) do
-        if joint.Parent and joint.Part0 and joint.Part1 then
-            if typeStr == "Cam" or typeStr == "CharNormal" then
-                VM_ActiveC0s[joint] = joint.C0
-                joint.C0 = joint.C0 * offset
-            elseif typeStr == "CharInverted" then
-                VM_ActiveC1s[joint] = joint.C1
-                joint.C1 = joint.C1 * invOffset
-            end
-        end
-    end
-    
-    -- Офсет классических Тулзов
-    for tool in pairs(TrackedTools) do
-        if tool.Parent then
-            VM_ActiveGrips[tool] = tool.Grip
-            tool.Grip = tool.Grip * invOffset
-        end
-    end
-end)
--- // ===================================================================================
-
 
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30); BindListFrame.Position = _G.Cfg.BindListPosition; BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); BindListFrame.Visible = false
@@ -1651,10 +1456,10 @@ local function UpdateKeybindList()
     
     local activeCount = 0
     local modules = {
-        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
-        "JumpVisualCirclesEnabled", "ViewModelEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
+        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
@@ -1685,10 +1490,10 @@ local function UpdateMobileBinds()
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     
     local modulesList = {
-        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
+        "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
         "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
-        "JumpVisualCirclesEnabled", "ViewModelEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
+        "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
     }
     
@@ -1827,6 +1632,7 @@ end)
 
 local mAim = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
 local mKilla = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); AddSlider(mKilla, "Strafe Speed", "KillStrafeSpeed"); AddSlider(mKilla, "Strafe Distance", "KillStrafeDistance"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Click Range", "KillAuraClickRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
+local mCrit = CreateModule("CRITICALS", "CriticalsEnabled", "Combat"); AddToggle(mCrit, "No Kill Strafe Jump", "CriticalsNoKillStrafeJump"); AddToggle(mCrit, "Only with Kill Aura", "CriticalsOnlyKillAura")
 local mHitbox = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(mHitbox, "Size Multiplier", "HitboxSize"); AddToggle(mHitbox, "Only Killaura", "HitboxOnlyKillaura");
 local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
 
@@ -1839,8 +1645,6 @@ local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
 local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(mEsp2D, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(mEsp2D, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(mEsp2D, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(mEsp2D, "Bar Border", "Esp2DBoxHealthBarBorder")
-AddVisualSlider(mVm, "Pos X (Left/Right)", "ViewModelX", -10, 10); AddVisualSlider(mVm, "Pos Y (Up/Down)", "ViewModelY", -10, 10); AddVisualSlider(mVm, "Pos Z (Forw/Back)", "ViewModelZ", -10, 10); 
-AddVisualSlider(mVm, "Pitch (Up/Down)", "ViewModelPitch", -180, 180); AddVisualSlider(mVm, "Yaw (Left/Right)", "ViewModelYaw", -180, 180); AddVisualSlider(mVm, "Roll (Tilt)", "ViewModelRoll", -180, 180)
 
 local mStars = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(mStars, "[COLOR] Stars Color", "WorldParticlesColor")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
@@ -1998,20 +1802,6 @@ table.insert(ThemeObjects.Strokes, KStroke)
 local KillBtn = Instance.new("TextButton", KillFrame); KillBtn.Size = UDim2.new(1, -20, 0, 40); KillBtn.Position = UDim2.new(0, 10, 0.5, -20); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = TARGET_FONT; KillBtn.TextSize = 16; Instance.new("UICorner", KillBtn)
 KillBtn.MouseButton1Click:Connect(function() 
     for _, c in pairs(Connections) do c:Disconnect() end 
-    pcall(function() RunService:UnbindFromRenderStep("Gemini_VM_Restore") end)
-    pcall(function() RunService:UnbindFromRenderStep("Gemini_VM_Apply") end)
-    
-    -- Восстанавливаем оригинальные значения при Kill Script
-    for joint, c0 in pairs(VM_ActiveC0s) do if joint.Parent then joint.C0 = c0 end end
-    for joint, c1 in pairs(VM_ActiveC1s) do if joint.Parent then joint.C1 = c1 end end
-    for tool, grip in pairs(VM_ActiveGrips) do if tool.Parent then tool.Grip = grip end end
-    
-    table.clear(VM_ActiveC0s)
-    table.clear(VM_ActiveC1s)
-    table.clear(VM_ActiveGrips)
-    table.clear(TrackedJoints)
-    table.clear(TrackedTools)
-    
     GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy()
     if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
 end)
