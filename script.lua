@@ -54,6 +54,7 @@ _G.Cfg = {
     TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPDamageColorEnabled = false, TargetESPDamageColor = Color3.fromRGB(255, 0, 0), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
     Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxEnabledBind = "None",
     Esp2DBoxNametagsEnabled = false, Esp2DBoxNametagsScale = 14, Esp2DBoxHealthBarEnabled = false, Esp2DBoxHealthBarBorder = 1,
+    ArrowsEnabled = false, ArrowsDistance = 100, ArrowsColor = Color3.fromRGB(255, 0, 0), ArrowsEnabledBind = "None", ArrowsSize = 22, ArrowsShowDistance = false,
     TargetStrafeOrbitEnabled = false, TargetStrafeOrbitRadius = 5, TargetStrafeOrbitSpeed = 15, TargetStrafeOrbitEnabledBind = "None",
     ChinaHatAccessoryEnabled = false, ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0), ChinaHatHeightOffset = 0.8, ChinaHatWidthScale = 3, ChinaHatHeightScale = 2, ChinaHatTransparency = 0, ChinaHatAccessoryEnabledBind = "None",
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
@@ -70,11 +71,6 @@ _G.Cfg = {
     FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
 }
 
--- [Остальной функционал UI, ESP, Aura и т.д. сохраняется как в предыдущей версии]
--- // Примечание: Для корректной работы Silent Aura, убедись, что в RenderStepped 
--- // вращение HRP происходит с высоким приоритетом, а камера остается свободной.
-
--- [Логика управления для тебя]
 UserInputService.InputBegan:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         -- Logic for hit detection...
@@ -96,6 +92,7 @@ local ConfigLayout = {
     "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind",
     "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura",
     "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder",
+    "ArrowsEnabled", "ArrowsDistance", "ArrowsColor", "ArrowsEnabledBind", "ArrowsSize", "ArrowsShowDistance",
     "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind",
     "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind",
     "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind",
@@ -165,6 +162,9 @@ GeminiGui.ResetOnSpawn = false
 
 local Esp2DFolder = Instance.new("Folder", GeminiGui)
 Esp2DFolder.Name = "ESP2D_Storage"
+
+local ArrowsFolder = Instance.new("Folder", GeminiGui)
+ArrowsFolder.Name = "Arrows_Storage"
 
 local WorldStarsContainer = Instance.new("Frame", GeminiGui)
 WorldStarsContainer.Name = "WorldStars_Storage"
@@ -953,6 +953,8 @@ Players.PlayerRemoving:Connect(function(plr)
     if esp2D then esp2D:Destroy() end
     local esp3D = Chams3DFolder:FindFirstChild(plr.Name .. "_3DBox")
     if esp3D then esp3D:Destroy() end
+    local arrowUI = ArrowsFolder:FindFirstChild(plr.Name .. "_Arrow")
+    if arrowUI then arrowUI:Destroy() end
 end)
 
 table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
@@ -1221,6 +1223,79 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             else
                 if esp2DBox then esp2DBox.Visible = false end
             end
+
+            -- // ЛОГИКА СТРЕЛОК (ARROWS) // --
+            local arrowUI = ArrowsFolder:FindFirstChild(player.Name .. "_Arrow")
+            if _G.Cfg.ArrowsEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") and not isFriend then
+                local targetHRP = plChar.HumanoidRootPart
+                local localHRP = char.HumanoidRootPart
+                local dist = (targetHRP.Position - localHRP.Position).Magnitude
+                
+                if dist <= (tonumber(_G.Cfg.ArrowsDistance) or 100) then
+                    if not arrowUI then
+                        arrowUI = Instance.new("Frame", ArrowsFolder)
+                        arrowUI.Name = player.Name .. "_Arrow"
+                        arrowUI.Size = UDim2.new(0, 40, 0, 40)
+                        arrowUI.BackgroundTransparency = 1
+                        arrowUI.AnchorPoint = Vector2.new(0.5, 0.5)
+
+                        local arrowSym = Instance.new("TextLabel", arrowUI)
+                        arrowSym.Name = "Symbol"
+                        arrowSym.Size = UDim2.new(1, 0, 1, 0)
+                        arrowSym.BackgroundTransparency = 1
+                        arrowSym.Text = "▲"
+                        arrowSym.Font = Enum.Font.GothamBlack
+                        arrowSym.TextStrokeTransparency = 0
+                        arrowSym.AnchorPoint = Vector2.new(0.5, 0.5)
+                        arrowSym.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+                        local distLbl = Instance.new("TextLabel", arrowUI)
+                        distLbl.Name = "Distance"
+                        distLbl.Size = UDim2.new(2, 0, 0.5, 0)
+                        distLbl.Position = UDim2.new(-0.5, 0, 0.8, 0)
+                        distLbl.BackgroundTransparency = 1
+                        distLbl.Font = Enum.Font.GothamBold
+                        distLbl.TextSize = 12
+                        distLbl.TextColor3 = Color3.new(1,1,1)
+                        distLbl.TextStrokeTransparency = 0
+                    end
+                    
+                    local arrColor = _G.Cfg.ArrowsColor or Color3.fromRGB(255, 0, 0)
+                    local arrSize = tonumber(_G.Cfg.ArrowsSize) or 22
+                    
+                    arrowUI.Symbol.TextColor3 = arrColor
+                    arrowUI.Symbol.TextSize = arrSize
+                    
+                    if _G.Cfg.ArrowsShowDistance then
+                        arrowUI.Distance.Visible = true
+                        arrowUI.Distance.Text = math.floor(dist) .. "m"
+                        arrowUI.Distance.TextColor3 = arrColor
+                    else
+                        arrowUI.Distance.Visible = false
+                    end
+                    
+                    -- Вычисляем позицию на экране относительно камеры
+                    local relativeToCam = Camera.CFrame:PointToObjectSpace(targetHRP.Position)
+                    local angle = math.atan2(relativeToCam.X, -relativeToCam.Z)
+                    
+                    local center = Camera.ViewportSize / 2
+                    local radius = 150
+                    
+                    -- Позиция по кругу
+                    local x = center.X + math.sin(angle) * radius
+                    local y = center.Y - math.cos(angle) * radius
+                    
+                    arrowUI.Position = UDim2.new(0, x, 0, y)
+                    -- Поворот стрелки в сторону цели (вращается только символ, текст расстояния остается ровным)
+                    arrowUI.Symbol.Rotation = math.deg(angle)
+                    
+                    arrowUI.Visible = true
+                else
+                    if arrowUI then arrowUI.Visible = false end
+                end
+            else
+                if arrowUI then arrowUI.Visible = false end
+            end
         end
     end
     
@@ -1457,7 +1532,7 @@ local function UpdateKeybindList()
     local activeCount = 0
     local modules = {
         "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
-        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
+        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
@@ -1491,7 +1566,7 @@ local function UpdateMobileBinds()
     
     local modulesList = {
         "AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled",
-        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled",
+        "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled",
         "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", 
         "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled",
         "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"
@@ -1645,6 +1720,13 @@ local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
 local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(mEsp2D, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(mEsp2D, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(mEsp2D, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(mEsp2D, "Bar Border", "Esp2DBoxHealthBarBorder")
+
+-- Меню ARROWS обновлено!
+local mArr = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); 
+AddSlider(mArr, "Range", "ArrowsDistance"); 
+AddSlider(mArr, "Size", "ArrowsSize");
+AddToggle(mArr, "Show Distance", "ArrowsShowDistance");
+AddColorBtn(mArr, "Arrow Color", "ArrowsColor")
 
 local mStars = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(mStars, "[COLOR] Stars Color", "WorldParticlesColor")
 local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
