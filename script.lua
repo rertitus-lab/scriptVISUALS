@@ -38,10 +38,6 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
--- // КЭШ СУСТАВОВ ДЛЯ СВОБОДНОЙ КАМЕРЫ
-local origRootC0 = nil
-local currentRootJoint = nil
-
 -- // ЭФФЕКТЫ ОСВЕЩЕНИЯ
 local SaturationEffect = Lighting:FindFirstChild("GeminiSaturation")
 if not SaturationEffect then
@@ -50,7 +46,7 @@ if not SaturationEffect then
     SaturationEffect.Parent = Lighting
 end
 
--- // КОНФИГ
+-- // КОНФИГ 
 _G.Cfg = {
     UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
@@ -63,6 +59,7 @@ _G.Cfg = {
     StrafeEnabled = false, StrafeEnabledBind = "None",
     NoClipEnabled = false, NoClipEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
+    JitterEnabled = false, JitterRange = 45, JitterSpeed = 15, JitterYawMode = 1, JitterEnabledBind = "None",
     HitSoundEnabled = false, HitSoundMode = 1, HitSoundEnabledBind = "None",
     TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPDamageColorEnabled = false, TargetESPDamageColor = Color3.fromRGB(255, 0, 0), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
     Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxEnabledBind = "None",
@@ -80,6 +77,7 @@ _G.Cfg = {
     WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(255, 0, 0), WorldColorTransparency = 0.5, WorldColorDarkness = 0, WorldColorEnabledBind = "None",
     AspectRatioValue = 80,
     CustomFovEnabled = false, CustomFovValue = 100, CustomFovEnabledBind = "None",
+    ThirdPersonEnabled = false, ThirdPersonDistance = 15, ThirdPersonEnabledBind = "None",
     BindListPosition = UDim2.new(0, 20, 0.5, 0),
     TimeChangerEnabled = false, TimeChangerHours = 12, TimeChangerEnabledBind = "None",
     FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
@@ -97,6 +95,7 @@ local ConfigLayout = {
     "StrafeEnabled", "StrafeEnabledBind",
     "NoClipEnabled", "NoClipEnabledBind",
     "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed",
+    "JitterEnabled", "JitterRange", "JitterSpeed", "JitterYawMode", "JitterEnabledBind",
     "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind",
     "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura",
     "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder",
@@ -113,6 +112,7 @@ local ConfigLayout = {
     "WorldColorEnabled", "WorldColorValue", "WorldColorTransparency", "WorldColorDarkness", "WorldColorEnabledBind",
     "AspectRatioValue",
     "CustomFovEnabled", "CustomFovValue", "CustomFovEnabledBind",
+    "ThirdPersonEnabled", "ThirdPersonDistance", "ThirdPersonEnabledBind",
     "BindListPosition",
     "TimeChangerEnabled", "TimeChangerHours", "TimeChangerEnabledBind",
     "FullBrightEnabled", "FullBrightBrightness", "FullBrightEnabledBind"
@@ -126,7 +126,7 @@ local Themes = {
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
-local ConfigFileName = "Gemini_V60_Config.json"
+local ConfigFileName = "Gemini_V61_Config.json"
 local function SaveConfig()
     local copy = {}
     for k, v in pairs(_G.Cfg) do
@@ -566,6 +566,7 @@ local lastEspTargetUserId = nil
 local lastEspTargetHealth = nil
 local lastDamageTimeESP = 0
 local lastRenderedEspThickness = nil
+local wasThirdPerson = false 
 
 table.insert(Connections, RunService.Stepped:Connect(function()
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
@@ -617,22 +618,22 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
 
     local hudTarget = target; if _G.Cfg.TargetHudOnlyKillaura then hudTarget = currentKaTarget end
     local espTarget = target; if _G.Cfg.TargetESPOnlyKillaura then espTarget = currentKaTarget end
-    
-    -- // НАХОДИМ СУСТАВ ТОРСА ДЛЯ ВИЗУАЛЬНОГО ПОВОРОТА
-    local rootJoint = nil
-    if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
-        local isR15 = char.Humanoid.RigType == Enum.HumanoidRigType.R15
-        rootJoint = isR15 and char:FindFirstChild("LowerTorso") and char.LowerTorso:FindFirstChild("Root") or char.HumanoidRootPart:FindFirstChild("RootJoint")
-        
-        if rootJoint ~= currentRootJoint then
-            currentRootJoint = rootJoint
-            origRootC0 = rootJoint and rootJoint.C0 or nil
-        end
-    end
 
     if _G.Cfg.CustomFovEnabled then Camera.FieldOfView = _G.Cfg.CustomFovValue else Camera.FieldOfView = _G.Cfg.AspectRatioValue end
     if _G.Cfg.TimeChangerEnabled then Lighting.ClockTime = math.clamp(_G.Cfg.TimeChangerHours, 0, 23) end
     if _G.Cfg.FullBrightEnabled then Lighting.Brightness = math.clamp(_G.Cfg.FullBrightBrightness, 0, 10) end
+    
+    -- // ПРИНУДИТЕЛЬНЫЙ THIRD PERSON
+    if _G.Cfg.ThirdPersonEnabled then
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic
+        LocalPlayer.CameraMaxZoomDistance = _G.Cfg.ThirdPersonDistance or 15
+        LocalPlayer.CameraMinZoomDistance = _G.Cfg.ThirdPersonDistance or 15
+        wasThirdPerson = true
+    elseif wasThirdPerson then
+        LocalPlayer.CameraMinZoomDistance = 0.5
+        LocalPlayer.CameraMaxZoomDistance = 400
+        wasThirdPerson = false
+    end
     
     if _G.Cfg.SaturationEnabled then
         SaturationEffect.Enabled = true
@@ -856,19 +857,19 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         local angle = tick() * _G.Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * _G.Cfg.TargetStrafeOrbitRadius; char.HumanoidRootPart.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
     end
 
-    local didKillAura = false
+    local didRotateHRP = false
     
+    -- // ПРОВЕРКА KILL AURA
     if _G.Cfg.KillAuraEnabled and char and char:FindFirstChild("HumanoidRootPart") then
         local kaTarget = currentKaTarget
         if kaTarget and kaTarget.Character and kaTarget.Character:FindFirstChild("HumanoidRootPart") then
             local targetPart = kaTarget.Character.HumanoidRootPart
-            local dist = (char.HumanoidRootPart.Position - targetPart.Position).Magnitude
+            local hrp = char.HumanoidRootPart
+            local dist = (hrp.Position - targetPart.Position).Magnitude
             
             if dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
-                didKillAura = true
-                
                 if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
-                    local flatToTarget = Vector3.new(targetPart.Position.X - char.HumanoidRootPart.Position.X, 0, targetPart.Position.Z - char.HumanoidRootPart.Position.Z)
+                    local flatToTarget = Vector3.new(targetPart.Position.X - hrp.Position.X, 0, targetPart.Position.Z - hrp.Position.Z)
                     local distFlat = flatToTarget.Magnitude
                     if distFlat > 0.1 then
                         if tick() > nextKaStrafeDirChange then currentKaStrafeDir = -currentKaStrafeDir; nextKaStrafeDirChange = tick() + (math.random(40, 90) / 100) end
@@ -880,7 +881,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                         local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
                         char.Humanoid:Move(moveDir, false)
                         local kStrafeSpeed = tonumber(_G.Cfg.KillStrafeSpeed) or 20
-                        char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, char.HumanoidRootPart.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
+                        hrp.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, hrp.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
                         
                         local shouldJump = true; if _G.Cfg.CriticalsNoKillStrafeJump then shouldJump = false end
                         if shouldJump and tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
@@ -891,29 +892,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                     end
                 end
 
-                -- // ИСПРАВЛЕННЫЙ ВИЗУАЛЬНЫЙ SILENT AIM ДЛЯ ПЕРВОГО ЛИЦА / SHIFTLOCK
+                -- // ФИЗИЧЕСКИЙ SILENT AIM ИСКЛЮЧИТЕЛЬНО ЧЕРЕЗ БАЗОВЫЕ ЧАСТИ
                 if _G.Cfg.KillAuraNoCamRotation then
-                    if currentRootJoint and origRootC0 then
-                        local hrp = char.HumanoidRootPart
-                        local tPos = targetPart.Position
-                        -- Вычисляем направление на врага
-                        local lookDir = CFrame.lookAt(hrp.Position, Vector3.new(tPos.X, hrp.Position.Y, tPos.Z)).LookVector
-                        local hrpDir = hrp.CFrame.LookVector
-                        -- Разница между тем, куда смотрит камера/HRP, и тем, где находится цель
-                        local angle = math.atan2(lookDir.X, lookDir.Z) - math.atan2(hrpDir.X, hrpDir.Z)
-                        
-                        -- Скручиваем только торс персонажа (камера и HRP остаются нетронутыми!)
-                        local isR15 = char.Humanoid.RigType == Enum.HumanoidRigType.R15
-                        if isR15 then
-                            currentRootJoint.C0 = currentRootJoint.C0:Lerp(origRootC0 * CFrame.Angles(0, angle, 0), 0.4)
-                        else
-                            currentRootJoint.C0 = currentRootJoint.C0:Lerp(origRootC0 * CFrame.Angles(0, 0, -angle), 0.4)
-                        end
-                    end
+                    char.Humanoid.AutoRotate = false
+                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    didRotateHRP = true
                 else
-                    -- Классический Aimbot (Двигает камеру и тело)
                     Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-                    char.HumanoidRootPart.CFrame = CFrame.lookAt(char.HumanoidRootPart.Position, Vector3.new(targetPart.Position.X, char.HumanoidRootPart.Position.Y, targetPart.Position.Z))
+                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
                 end
                 
                 if dist <= (_G.Cfg.KillAuraClickRange or 15) then
@@ -937,15 +923,34 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Если аура не работает или враг пропал - плавно возвращаем торс в ровное положение
-    if not didKillAura then
-        if currentRootJoint and origRootC0 then
-            currentRootJoint.C0 = currentRootJoint.C0:Lerp(origRootC0, 0.2)
+    -- // ФИЗИЧЕСКИЙ JITTER ЧЕРЕЗ БАЗОВЫЕ ЧАСТИ (БЕЗ СУСТАВОВ)
+    if not didRotateHRP and _G.Cfg.JitterEnabled and char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+        local hrp = char.HumanoidRootPart
+        char.Humanoid.AutoRotate = false 
+        local jitterSign = (math.floor(tick() * (_G.Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1
+        local jitterYaw = math.rad(_G.Cfg.JitterRange or 45) * jitterSign
+        local baseYaw = (tonumber(_G.Cfg.JitterYawMode) == 2) and math.pi or 0
+        local totalYaw = baseYaw + jitterYaw
+        
+        local lookVec = Camera.CFrame.LookVector
+        if char.Humanoid.MoveDirection.Magnitude > 0 then
+            lookVec = char.Humanoid.MoveDirection
         end
+        
+        local lookAtTarget = hrp.Position + lookVec
+        local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
+        
+        hrp.CFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
+        didRotateHRP = true
+    end
+    
+    -- Возвращаем AutoRotate если ни киллаура, ни джиттер не крутят персонажа
+    if not didRotateHRP and char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.AutoRotate = true
     end
 
     if _G.Cfg.CriticalsEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
-        local canCrit = true; if _G.Cfg.CriticalsOnlyKillAura and not didKillAura then canCrit = false end
+        local canCrit = true; if _G.Cfg.CriticalsOnlyKillAura and not _G.Cfg.KillAuraEnabled then canCrit = false end
         if canCrit and char.Humanoid.FloorMaterial ~= Enum.Material.Air then
             char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 1, 0)
             char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(char.HumanoidRootPart.AssemblyLinearVelocity.X, 0, char.HumanoidRootPart.AssemblyLinearVelocity.Z)
@@ -953,7 +958,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    if not didKillAura and _G.Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and char and char:FindFirstChild("HumanoidRootPart") then
+    if not _G.Cfg.KillAuraEnabled and _G.Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and char and char:FindFirstChild("HumanoidRootPart") then
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Character.Head.Position), _G.Cfg.AimbotSmoothness)
     end
 end))
@@ -978,7 +983,7 @@ local function UpdateKeybindList()
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
     local activeCount = 0
-    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
@@ -996,7 +1001,7 @@ local globalMobileDragging = false
 local function UpdateMobileBinds()
     if not isMobile then return end
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if _G.Cfg[bindKey] and tostring(_G.Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(_G.Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
@@ -1052,6 +1057,7 @@ local mVel = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); 
 local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
 local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
 local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(mSpider, "Speed", "SpiderSpeed")
+local mJitter = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(mJitter, "Range (Angle)", "JitterRange"); AddSlider(mJitter, "Speed (Freq)", "JitterSpeed"); AddSlider(mJitter, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode")
 
 local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
 local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
@@ -1069,6 +1075,7 @@ local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); Add
 local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
 local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
 local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(mFov, "FOV Value", "CustomFovValue")
+local mThird = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals"); AddSlider(mThird, "Distance", "ThirdPersonDistance")
 
 local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled", "Misc")
 local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled", "Misc")
