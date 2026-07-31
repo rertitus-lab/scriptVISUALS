@@ -1,10 +1,18 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 
--- // Очистка
-if CoreGui:FindFirstChild("Gemini_V60_Final") then CoreGui.Gemini_V60_Final:Destroy() end
-if CoreGui:FindFirstChild("Gemini_Chams_Storage") then CoreGui.Gemini_Chams_Storage:Destroy() end
-if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
+-- // 1. ЖЕСТКАЯ ОЧИСТКА ВСЕГО И ВСЯ
+for _, v in pairs(CoreGui:GetChildren()) do
+    if string.match(v.Name, "^Gemini_") then pcall(function() v:Destroy() end) end
+end
+if workspace:FindFirstChild("Gemini_3D_Chams") then pcall(function() workspace.Gemini_3D_Chams:Destroy() end) end
+if workspace:FindFirstChild("Gemini_ChinaHat") then pcall(function() workspace.Gemini_ChinaHat:Destroy() end) end
+
+local Lighting = game:GetService("Lighting")
+if Lighting:FindFirstChild("GeminiSaturation") then Lighting.GeminiSaturation:Destroy() end
+if Lighting:FindFirstChild("GeminiVibeBloom") then Lighting.GeminiVibeBloom:Destroy() end
+if Lighting:FindFirstChild("GeminiVibeCC") then Lighting.GeminiVibeCC:Destroy() end
+if Lighting:FindFirstChild("GeminiVibeBlur") then Lighting.GeminiVibeBlur:Destroy() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,7 +20,6 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Stats = game:GetService("Stats")
-local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -20,13 +27,11 @@ local Connections = {}
 _G.ToggleFuncs = {} 
 local isMobile = UserInputService.TouchEnabled
 
-local ChamsFolder = Instance.new("Folder", CoreGui)
-ChamsFolder.Name = "Gemini_Chams_Storage"
-local Chams3DFolder = Instance.new("Folder", workspace)
-Chams3DFolder.Name = "Gemini_3D_Chams"
+local ChamsFolder = Instance.new("Folder", CoreGui); ChamsFolder.Name = "Gemini_Chams_Storage"
+local Chams3DFolder = Instance.new("Folder", workspace); Chams3DFolder.Name = "Gemini_3D_Chams"
 local FriendsList = {}
 
--- // КЭШ СИСТЕМА (ОПТИМИЗАЦИЯ)
+-- // КЭШ
 local OrigPartData = setmetatable({}, {__mode = "k"})
 local PlayerPartsCache = setmetatable({}, {__mode = "k"})
 local OrigNoClipStates = setmetatable({}, {__mode = "k"})
@@ -38,15 +43,20 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
--- // ЭФФЕКТЫ ОСВЕЩЕНИЯ
-local SaturationEffect = Lighting:FindFirstChild("GeminiSaturation")
-if not SaturationEffect then
-    SaturationEffect = Instance.new("ColorCorrectionEffect")
-    SaturationEffect.Name = "GeminiSaturation"
-    SaturationEffect.Parent = Lighting
-end
+-- // 2. ИСПРАВЛЕННЫЕ, СПОКОЙНЫЕ ШЕЙДЕРЫ (БЕЗ ЯДЕРНОЙ ВОЙНЫ)
+local SaturationEffect = Instance.new("ColorCorrectionEffect")
+SaturationEffect.Name = "GeminiSaturation"; SaturationEffect.Parent = Lighting; SaturationEffect.Enabled = false
 
--- // КОНФИГ 
+local VibeBloom = Instance.new("BloomEffect")
+VibeBloom.Name = "GeminiVibeBloom"; VibeBloom.Intensity = 0.15; VibeBloom.Size = 10; VibeBloom.Threshold = 0.8; VibeBloom.Parent = Lighting; VibeBloom.Enabled = false
+
+local VibeCC = Instance.new("ColorCorrectionEffect")
+VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.05; VibeCC.Saturation = 0.1; VibeCC.Parent = Lighting; VibeCC.Enabled = false
+
+local VibeBlur = Instance.new("BlurEffect")
+VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Parent = Lighting; VibeBlur.Enabled = false
+
+-- // КОНФИГ
 _G.Cfg = {
     UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
@@ -59,7 +69,8 @@ _G.Cfg = {
     StrafeEnabled = false, StrafeEnabledBind = "None",
     NoClipEnabled = false, NoClipEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
-    JitterEnabled = false, JitterRange = 45, JitterSpeed = 15, JitterYawMode = 1, JitterEnabledBind = "None",
+    JitterEnabled = false, JitterRange = 45, JitterSpeed = 15, JitterYawMode = 1, JitterSpinAtJump = false, JitterSpinSpeed = 20, JitterEnabledBind = "None",
+    AnimLagEnabled = false, AnimLagFPS = 5, AnimLagEnabledBind = "None",
     HitSoundEnabled = false, HitSoundMode = 1, HitSoundEnabledBind = "None",
     TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPDamageColorEnabled = false, TargetESPDamageColor = Color3.fromRGB(255, 0, 0), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
     Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxEnabledBind = "None",
@@ -74,7 +85,7 @@ _G.Cfg = {
     SaturationEnabled = false, SaturationValue = 1, SaturationEnabledBind = "None",
     ClickFriendEnabled = false, ClickFriendEnabledBind = "None",
     DeleteFriendEnabled = false, DeleteFriendEnabledBind = "None",
-    WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(255, 0, 0), WorldColorTransparency = 0.5, WorldColorDarkness = 0, WorldColorEnabledBind = "None",
+    WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(0, 255, 100), WorldColorTransparency = 0.2, WorldColorDarkness = 0, WorldColorShader = false, WorldColorEnabledBind = "None",
     AspectRatioValue = 80,
     CustomFovEnabled = false, CustomFovValue = 100, CustomFovEnabledBind = "None",
     ThirdPersonEnabled = false, ThirdPersonDistance = 15, ThirdPersonEnabledBind = "None",
@@ -83,40 +94,7 @@ _G.Cfg = {
     FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
 }
 
-local ConfigLayout = {
-    "UITheme",
-    "AimbotEnabled", "AimbotMaxDistance", "AimbotSmoothness", "AimbotEnabledBind",
-    "TargetHudEnabled", "TargetHudEnabledBind", "TargetHudNormalColor", "TargetHudDamageColor", "TargetHudPosition", "TargetHudOnlyKillaura",
-    "KillAuraEnabled", "KillAuraNoCamRotation", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind",
-    "CriticalsEnabled", "CriticalsNoKillStrafeJump", "CriticalsOnlyKillAura", "CriticalsEnabledBind",
-    "HitboxEnabled", "HitboxSize", "HitboxOnlyKillaura", "HitboxEnabledBind",
-    "SpeedEnabled", "WalkSpeedValue", "SpeedEnabledBind",
-    "VelocityEnabled", "VelocityHorizontal", "VelocityVertical", "VelocityEnabledBind",
-    "StrafeEnabled", "StrafeEnabledBind",
-    "NoClipEnabled", "NoClipEnabledBind",
-    "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed",
-    "JitterEnabled", "JitterRange", "JitterSpeed", "JitterYawMode", "JitterEnabledBind",
-    "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind",
-    "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura",
-    "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder",
-    "ArrowsEnabled", "ArrowsDistance", "ArrowsColor", "ArrowsEnabledBind", "ArrowsSize", "ArrowsShowDistance",
-    "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind",
-    "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind",
-    "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind",
-    "ChamsEnabled", "ChamsColor", "ChamsOutlineColor", "ChamsFillTransparency", "ChamsEnabledBind",
-    "DamageParticlesEnabled", "ParticleColor", "ParticleSize", "ParticleAmount", "DamageParticlesEnabledBind",
-    "WorldParticlesEnabled", "WorldParticlesColor", "WorldParticlesEnabledBind",
-    "SaturationEnabled", "SaturationValue", "SaturationEnabledBind",
-    "ClickFriendEnabled", "ClickFriendEnabledBind",
-    "DeleteFriendEnabled", "DeleteFriendEnabledBind",
-    "WorldColorEnabled", "WorldColorValue", "WorldColorTransparency", "WorldColorDarkness", "WorldColorEnabledBind",
-    "AspectRatioValue",
-    "CustomFovEnabled", "CustomFovValue", "CustomFovEnabledBind",
-    "ThirdPersonEnabled", "ThirdPersonDistance", "ThirdPersonEnabledBind",
-    "BindListPosition",
-    "TimeChangerEnabled", "TimeChangerHours", "TimeChangerEnabledBind",
-    "FullBrightEnabled", "FullBrightBrightness", "FullBrightEnabledBind"
-}
+local ConfigLayout = { "UITheme", "AimbotEnabled", "AimbotMaxDistance", "AimbotSmoothness", "AimbotEnabledBind", "TargetHudEnabled", "TargetHudEnabledBind", "TargetHudNormalColor", "TargetHudDamageColor", "TargetHudPosition", "TargetHudOnlyKillaura", "KillAuraEnabled", "KillAuraNoCamRotation", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind", "CriticalsEnabled", "CriticalsNoKillStrafeJump", "CriticalsOnlyKillAura", "CriticalsEnabledBind", "HitboxEnabled", "HitboxSize", "HitboxOnlyKillaura", "HitboxEnabledBind", "SpeedEnabled", "WalkSpeedValue", "SpeedEnabledBind", "VelocityEnabled", "VelocityHorizontal", "VelocityVertical", "VelocityEnabledBind", "StrafeEnabled", "StrafeEnabledBind", "NoClipEnabled", "NoClipEnabledBind", "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed", "JitterEnabled", "JitterRange", "JitterSpeed", "JitterYawMode", "JitterSpinAtJump", "JitterSpinSpeed", "JitterEnabledBind", "AnimLagEnabled", "AnimLagFPS", "AnimLagEnabledBind", "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind", "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura", "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder", "ArrowsEnabled", "ArrowsDistance", "ArrowsColor", "ArrowsEnabledBind", "ArrowsSize", "ArrowsShowDistance", "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind", "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind", "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind", "ChamsEnabled", "ChamsColor", "ChamsOutlineColor", "ChamsFillTransparency", "ChamsEnabledBind", "DamageParticlesEnabled", "ParticleColor", "ParticleSize", "ParticleAmount", "DamageParticlesEnabledBind", "WorldParticlesEnabled", "WorldParticlesColor", "WorldParticlesEnabledBind", "SaturationEnabled", "SaturationValue", "SaturationEnabledBind", "ClickFriendEnabled", "ClickFriendEnabledBind", "DeleteFriendEnabled", "DeleteFriendEnabledBind", "WorldColorEnabled", "WorldColorValue", "WorldColorTransparency", "WorldColorDarkness", "WorldColorShader", "WorldColorEnabledBind", "AspectRatioValue", "CustomFovEnabled", "CustomFovValue", "CustomFovEnabledBind", "ThirdPersonEnabled", "ThirdPersonDistance", "ThirdPersonEnabledBind", "BindListPosition", "TimeChangerEnabled", "TimeChangerHours", "TimeChangerEnabledBind", "FullBrightEnabled", "FullBrightBrightness", "FullBrightEnabledBind" }
 
 local ThemeObjects = { Backgrounds = {}, Strokes = {}, Texts = {}, SecondaryTexts = {}, Inputs = {}, InputBackgrounds = {} }
 local Themes = {
@@ -126,7 +104,7 @@ local Themes = {
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
-local ConfigFileName = "Gemini_V61_Config.json"
+local ConfigFileName = "Gemini_V69_Clean.json"
 local function SaveConfig()
     local copy = {}
     for k, v in pairs(_G.Cfg) do
@@ -160,43 +138,23 @@ table.insert(Connections, Camera:GetPropertyChangedSignal("FieldOfView"):Connect
     if _G.Cfg.CustomFovEnabled and Camera.FieldOfView ~= _G.Cfg.CustomFovValue then Camera.FieldOfView = _G.Cfg.CustomFovValue end
 end))
 
-local HitSounds = { [1] = "rbxassetid://140604838213617", [2] = "rbxassetid://130201387574815", [3] = "rbxassetid://135478009117226", [4] = "rbxassetid://96735711388006", [5] = "rbxassetid://126048302910782", [6] = "rbxassetid://7255642553" }
+local HitSounds = { "rbxassetid://140604838213617", "rbxassetid://130201387574815", "rbxassetid://135478009117226", "rbxassetid://96735711388006", "rbxassetid://126048302910782", "rbxassetid://7255642553" }
 
 local GeminiGui = Instance.new("ScreenGui", CoreGui)
-GeminiGui.Name = "Gemini_V60_Final"
-GeminiGui.IgnoreGuiInset = true
-GeminiGui.ResetOnSpawn = false 
+GeminiGui.Name = "Gemini_V69_Final"
+GeminiGui.IgnoreGuiInset = true; GeminiGui.ResetOnSpawn = false 
 
-local Esp2DFolder = Instance.new("Folder", GeminiGui)
-Esp2DFolder.Name = "ESP2D_Storage"
-local ArrowsFolder = Instance.new("Folder", GeminiGui)
-ArrowsFolder.Name = "Arrows_Storage"
-
+local Esp2DFolder = Instance.new("Folder", GeminiGui); Esp2DFolder.Name = "ESP2D_Storage"
+local ArrowsFolder = Instance.new("Folder", GeminiGui); ArrowsFolder.Name = "Arrows_Storage"
 local WorldStarsContainer = Instance.new("Frame", GeminiGui)
-WorldStarsContainer.Name = "WorldStars_Storage"
-WorldStarsContainer.Size = UDim2.new(1, 0, 1, 0)
-WorldStarsContainer.BackgroundTransparency = 1
-WorldStarsContainer.ZIndex = 1 
+WorldStarsContainer.Name = "WorldStars_Storage"; WorldStarsContainer.Size = UDim2.new(1, 0, 1, 0); WorldStarsContainer.BackgroundTransparency = 1; WorldStarsContainer.ZIndex = 1 
 
 local StarsData = {}
-local MAX_STARS = 150 
-local STAR_RANGE = 120
-
+local MAX_STARS = 100; local STAR_RANGE = 120
 for i = 1, MAX_STARS do
     local img = Instance.new("TextLabel", WorldStarsContainer)
-    img.Text = "★" 
-    img.Font = Enum.Font.GothamBlack
-    img.TextScaled = true
-    img.BackgroundTransparency = 1
-    img.Visible = false
-    
-    table.insert(StarsData, {
-        gui = img,
-        pos = Vector3.new(math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE)),
-        drift = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5).Unit * math.random(2, 6),
-        rotSpeed = math.random(-50, 50),
-        size = math.random(15, 30)
-    })
+    img.Text = "★"; img.Font = Enum.Font.GothamBlack; img.TextScaled = true; img.BackgroundTransparency = 1; img.Visible = false
+    table.insert(StarsData, { gui = img, pos = Vector3.new(math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE)), drift = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5).Unit * math.random(2, 6), rotSpeed = math.random(-50, 50), size = math.random(15, 30) })
 end
 
 local TARGET_FONT = Enum.Font.GothamBlack
@@ -204,28 +162,12 @@ local TARGET_FONT = Enum.Font.GothamBlack
 local function ShowNotify(text, isEnabled)
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     local sound = Instance.new("Sound", game:GetService("SoundService"))
-    sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://129384639546095"
-    sound.Volume = 0.5
-    sound:Play()
-    game:GetService("Debris"):AddItem(sound, 1)
+    sound.SoundId = isEnabled and "rbxassetid://1053296915" or "rbxassetid://129384639546095"; sound.Volume = 0.5; sound:Play(); game:GetService("Debris"):AddItem(sound, 1)
 
-    local statusIcon = isEnabled and " ✅" or " ❌"
     local nF = Instance.new("TextLabel", GeminiGui)
-    nF.Size = UDim2.new(0, 280, 0, 40)
-    nF.Position = UDim2.new(0.5, -140, 0.4, 0)
-    nF.BackgroundColor3 = t.bg
-    nF.TextColor3 = t.text 
-    nF.Text = text .. statusIcon
-    nF.Font = TARGET_FONT 
-    nF.TextSize = 16
-    nF.BackgroundTransparency = 1
-    nF.TextTransparency = 1
+    nF.Size = UDim2.new(0, 280, 0, 40); nF.Position = UDim2.new(0.5, -140, 0.4, 0); nF.BackgroundColor3 = t.bg; nF.TextColor3 = t.text; nF.Text = text .. (isEnabled and " ✅" or " ❌"); nF.Font = TARGET_FONT; nF.TextSize = 16; nF.BackgroundTransparency = 1; nF.TextTransparency = 1
     
-    local s = Instance.new("UIStroke", nF)
-    s.Thickness = 2
-    s.Color = isEnabled and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
-    s.Transparency = 1
-    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
+    local s = Instance.new("UIStroke", nF); s.Thickness = 2; s.Color = isEnabled and Color3.new(0, 1, 0) or Color3.new(1, 0, 0); s.Transparency = 1; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
     Instance.new("UICorner", nF).CornerRadius = UDim.new(0, 5)
 
     local targetTrans = t.trans
@@ -236,78 +178,38 @@ local function ShowNotify(text, isEnabled)
     task.delay(1, function()
         local tO = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
         TweenService:Create(nF, tO, {Position = UDim2.new(0.5, -140, 0.5, 0), BackgroundTransparency = 1, TextTransparency = 1}):Play()
-        TweenService:Create(s, tO, {Transparency = 1}):Play()
-        task.wait(0.3)
-        nF:Destroy()
+        TweenService:Create(s, tO, {Transparency = 1}):Play(); task.wait(0.3); nF:Destroy()
     end)
 end
 
 local function GetEspElements(player)
     if not EspCache[player] then
         local cache = {}
+        local esp2DBox = Instance.new("Frame", Esp2DFolder); esp2DBox.Name = player.Name .. "_2DBox"; esp2DBox.BackgroundTransparency = 1; esp2DBox.Visible = false; Instance.new("UICorner", esp2DBox).CornerRadius = UDim.new(0, 4)
+        local mainStroke = Instance.new("UIStroke", esp2DBox); mainStroke.Name = "MainStroke"; mainStroke.Thickness = 1.5; mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        local grad = Instance.new("UIGradient", mainStroke); grad.Name = "StrokeGradient"; grad.Rotation = 45
+        local glowFrame = Instance.new("Frame", esp2DBox); glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1; Instance.new("UICorner", glowFrame).CornerRadius = UDim.new(0, 4)
+        local outerGlow = Instance.new("UIStroke", glowFrame); outerGlow.Name = "OuterGlow"; outerGlow.Thickness = 5; outerGlow.Transparency = 0.7; outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         
-        -- 2D Box
-        local esp2DBox = Instance.new("Frame", Esp2DFolder)
-        esp2DBox.Name = player.Name .. "_2DBox"
-        esp2DBox.BackgroundTransparency = 1
-        esp2DBox.Visible = false
-        Instance.new("UICorner", esp2DBox).CornerRadius = UDim.new(0, 4)
-        local mainStroke = Instance.new("UIStroke", esp2DBox)
-        mainStroke.Name = "MainStroke"; mainStroke.Thickness = 1.5; mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        local grad = Instance.new("UIGradient", mainStroke)
-        grad.Name = "StrokeGradient"; grad.Rotation = 45
-        local glowFrame = Instance.new("Frame", esp2DBox)
-        glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1; Instance.new("UICorner", glowFrame).CornerRadius = UDim.new(0, 4)
-        local outerGlow = Instance.new("UIStroke", glowFrame)
-        outerGlow.Name = "OuterGlow"; outerGlow.Thickness = 5; outerGlow.Transparency = 0.7; outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        local nameTag = Instance.new("TextLabel", esp2DBox); nameTag.Name = "Nametag"; nameTag.BackgroundTransparency = 1; nameTag.Font = TARGET_FONT; nameTag.TextColor3 = Color3.new(1, 1, 1); nameTag.TextStrokeTransparency = 0
         
-        local nameTag = Instance.new("TextLabel", esp2DBox)
-        nameTag.Name = "Nametag"; nameTag.BackgroundTransparency = 1; nameTag.Font = TARGET_FONT; nameTag.TextColor3 = Color3.new(1, 1, 1); nameTag.TextStrokeTransparency = 0
-        
-        local hbBack = Instance.new("Frame", esp2DBox)
-        hbBack.Name = "HealthBarBack"; hbBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30); hbBack.BorderColor3 = Color3.new(0, 0, 0)
-        local hbFill = Instance.new("Frame", hbBack)
-        hbFill.Name = "HealthBarFill"; hbFill.BorderSizePixel = 0; hbFill.BackgroundColor3 = Color3.new(1, 1, 1); hbFill.ClipsDescendants = true
-        local hbGradientFrame = Instance.new("Frame", hbFill)
-        hbGradientFrame.Name = "GradientFrame"; hbGradientFrame.BorderSizePixel = 0; hbGradientFrame.BackgroundColor3 = Color3.new(1, 1, 1)
-        local hbGrad = Instance.new("UIGradient", hbGradientFrame)
-        hbGrad.Name = "HealthBarGradient"; hbGrad.Rotation = 90
+        local hbBack = Instance.new("Frame", esp2DBox); hbBack.Name = "HealthBarBack"; hbBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30); hbBack.BorderColor3 = Color3.new(0, 0, 0)
+        local hbFill = Instance.new("Frame", hbBack); hbFill.Name = "HealthBarFill"; hbFill.BorderSizePixel = 0; hbFill.BackgroundColor3 = Color3.new(1, 1, 1); hbFill.ClipsDescendants = true
+        local hbGradientFrame = Instance.new("Frame", hbFill); hbGradientFrame.Name = "GradientFrame"; hbGradientFrame.BorderSizePixel = 0; hbGradientFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+        local hbGrad = Instance.new("UIGradient", hbGradientFrame); hbGrad.Name = "HealthBarGradient"; hbGrad.Rotation = 90
         hbGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 0)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))})
         
-        cache.Box2D = esp2DBox
-        cache.BoxStroke = mainStroke
-        cache.BoxGrad = grad
-        cache.BoxGlow = outerGlow
-        cache.NameTag = nameTag
-        cache.HealthBack = hbBack
-        cache.HealthFill = hbFill
-        cache.HealthGradF = hbGradientFrame
+        cache.Box2D = esp2DBox; cache.BoxStroke = mainStroke; cache.BoxGrad = grad; cache.BoxGlow = outerGlow; cache.NameTag = nameTag; cache.HealthBack = hbBack; cache.HealthFill = hbFill; cache.HealthGradF = hbGradientFrame
 
-        -- 3D Chams
-        local boxESP = Instance.new("Part", Chams3DFolder)
-        boxESP.Name = player.Name .. "_3DBox"
-        boxESP.Size = Vector3.new(4.5, 6, 1.5)
-        boxESP.Transparency = 1; boxESP.CanCollide = false; boxESP.Anchored = true
-        local hl = Instance.new("Highlight", boxESP)
-        hl.Name = "HL"; hl.Adornee = boxESP; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        cache.Box3D = boxESP
-        cache.ChamsHighlight = hl
+        local boxESP = Instance.new("Part", Chams3DFolder); boxESP.Name = player.Name .. "_3DBox"; boxESP.Size = Vector3.new(4.5, 6, 1.5); boxESP.Transparency = 1; boxESP.CanCollide = false; boxESP.Anchored = true
+        local hl = Instance.new("Highlight", boxESP); hl.Name = "HL"; hl.Adornee = boxESP; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        cache.Box3D = boxESP; cache.ChamsHighlight = hl
 
-        -- Arrows
-        local arrowUI = Instance.new("Frame", ArrowsFolder)
-        arrowUI.Name = player.Name .. "_Arrow"
-        arrowUI.Size = UDim2.new(0, 40, 0, 40)
-        arrowUI.BackgroundTransparency = 1; arrowUI.AnchorPoint = Vector2.new(0.5, 0.5)
-        arrowUI.Visible = false
-        local arrowSym = Instance.new("TextLabel", arrowUI)
-        arrowSym.Name = "Symbol"; arrowSym.Size = UDim2.new(1, 0, 1, 0); arrowSym.BackgroundTransparency = 1; arrowSym.Text = "▲"; arrowSym.Font = Enum.Font.GothamBlack; arrowSym.TextStrokeTransparency = 0; arrowSym.AnchorPoint = Vector2.new(0.5, 0.5); arrowSym.Position = UDim2.new(0.5, 0, 0.5, 0)
-        local distLbl = Instance.new("TextLabel", arrowUI)
-        distLbl.Name = "Distance"; distLbl.Size = UDim2.new(2, 0, 0.5, 0); distLbl.Position = UDim2.new(-0.5, 0, 0.8, 0); distLbl.BackgroundTransparency = 1; distLbl.Font = Enum.Font.GothamBold; distLbl.TextSize = 12; distLbl.TextColor3 = Color3.new(1,1,1); distLbl.TextStrokeTransparency = 0
+        local arrowUI = Instance.new("Frame", ArrowsFolder); arrowUI.Name = player.Name .. "_Arrow"; arrowUI.Size = UDim2.new(0, 40, 0, 40); arrowUI.BackgroundTransparency = 1; arrowUI.AnchorPoint = Vector2.new(0.5, 0.5); arrowUI.Visible = false
+        local arrowSym = Instance.new("TextLabel", arrowUI); arrowSym.Name = "Symbol"; arrowSym.Size = UDim2.new(1, 0, 1, 0); arrowSym.BackgroundTransparency = 1; arrowSym.Text = "▲"; arrowSym.Font = Enum.Font.GothamBlack; arrowSym.TextStrokeTransparency = 0; arrowSym.AnchorPoint = Vector2.new(0.5, 0.5); arrowSym.Position = UDim2.new(0.5, 0, 0.5, 0)
+        local distLbl = Instance.new("TextLabel", arrowUI); distLbl.Name = "Distance"; distLbl.Size = UDim2.new(2, 0, 0.5, 0); distLbl.Position = UDim2.new(-0.5, 0, 0.8, 0); distLbl.BackgroundTransparency = 1; distLbl.Font = Enum.Font.GothamBold; distLbl.TextSize = 12; distLbl.TextColor3 = Color3.new(1,1,1); distLbl.TextStrokeTransparency = 0
         
-        cache.Arrow = arrowUI
-        cache.ArrowSym = arrowSym
-        cache.ArrowDist = distLbl
-
+        cache.Arrow = arrowUI; cache.ArrowSym = arrowSym; cache.ArrowDist = distLbl
         EspCache[player] = cache
     end
     return EspCache[player]
@@ -323,8 +225,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 local Island = Instance.new("TextButton", GeminiGui)
-Island.Size = UDim2.new(0, 350, 0, 35); Island.Position = UDim2.new(0.5, -175, 0, 10); Island.BackgroundColor3 = Color3.fromRGB(20, 20, 20); Island.BackgroundTransparency = 0; Island.Text = ""; Island.AutoButtonColor = false
-Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 6)
+Island.Size = UDim2.new(0, 350, 0, 35); Island.Position = UDim2.new(0.5, -175, 0, 10); Island.BackgroundColor3 = Color3.fromRGB(20, 20, 20); Island.BackgroundTransparency = 0; Island.Text = ""; Island.AutoButtonColor = false; Instance.new("UICorner", Island).CornerRadius = UDim.new(0, 6)
 table.insert(ThemeObjects.Backgrounds, Island)
 
 if isMobile then local islScale = Instance.new("UIScale", Island); islScale.Scale = 0.7; Island.AnchorPoint = Vector2.new(0.5, 0); Island.Position = UDim2.new(0.5, 0, 0, 10) end
@@ -334,9 +235,9 @@ local IslandTitle = Instance.new("TextLabel", Island); IslandTitle.Size = UDim2.
 local StatsLabel = Instance.new("TextLabel", Island); StatsLabel.Size = UDim2.new(0.5, 0, 1, 0); StatsLabel.Position = UDim2.new(0.5, -10, 0, 0); StatsLabel.BackgroundTransparency = 1; StatsLabel.Text = "FPS: 0 | PING: 0ms"; StatsLabel.Font = TARGET_FONT; StatsLabel.TextSize = 12; StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200); StatsLabel.TextXAlignment = "Right"; table.insert(ThemeObjects.SecondaryTexts, StatsLabel)
 
 local MainFrame = Instance.new("Frame", GeminiGui)
-MainFrame.Size = UDim2.new(0, 750, 0, 450); MainFrame.Position = UDim2.new(0.5, -375, 0.5, -180); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); MainFrame.Visible = false; MainFrame.BackgroundTransparency = 1; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+MainFrame.Size = UDim2.new(0, 750, 0, 450); MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -375, 0.5, -225); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); MainFrame.Visible = true; MainFrame.BackgroundTransparency = Themes[_G.Cfg.UITheme].trans; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 table.insert(ThemeObjects.Backgrounds, MainFrame)
-if isMobile then local uiScale = Instance.new("UIScale", MainFrame); uiScale.Scale = 0.65; MainFrame.AnchorPoint = Vector2.new(0.5, 0.5); MainFrame.Position = UDim2.new(0.5, 0, 0.5, 50) end
+if isMobile then local uiScale = Instance.new("UIScale", MainFrame); uiScale.Scale = 0.65; MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) end
 local MainFrame_Glow = Instance.new("Frame", MainFrame); MainFrame_Glow.Size = UDim2.new(1, 4, 1, 4); MainFrame_Glow.Position = UDim2.new(0, -2, 0, -2); MainFrame_Glow.BackgroundColor3 = Color3.fromRGB(15, 15, 15); MainFrame_Glow.BackgroundTransparency = 0.5; MainFrame_Glow.ZIndex = MainFrame.ZIndex - 1; Instance.new("UICorner", MainFrame_Glow).CornerRadius = UDim.new(0, 10)
 local MainStroke = Instance.new("UIStroke", MainFrame); MainStroke.Thickness = 1; MainStroke.Color = Color3.fromRGB(45, 45, 45); table.insert(ThemeObjects.Strokes, MainStroke)
 
@@ -369,26 +270,29 @@ for i, cat in ipairs(categories) do
     catButtons[cat] = btn; btn.MouseButton1Click:Connect(function() SwitchCategory(cat) end)
 end
 
-local MenuOpen = false 
+local MenuOpen = true 
 local function ToggleMenu()
     MenuOpen = not MenuOpen; local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    if MenuOpen then MainFrame.Visible = true; TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = t.trans, Position = isMobile and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -375, 0.5, -225)}):Play()
-    else local tw = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180)}); tw:Play(); tw.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end) end
+    if MenuOpen then 
+        MainFrame.Visible = true; TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = t.trans, Position = isMobile and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -375, 0.5, -225)}):Play()
+    else 
+        local tw = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {BackgroundTransparency = 1, Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180)})
+        tw:Play(); tw.Completed:Connect(function() if not MenuOpen then MainFrame.Visible = false end end) 
+    end
 end
 Island.MouseButton1Click:Connect(ToggleMenu)
+UserInputService.InputBegan:Connect(function(input, gpe) if not gpe and input.KeyCode == Enum.KeyCode.RightShift then ToggleMenu() end end)
 
 task.spawn(function()
-    local renderFrames = 0; local lastTick = tick()
-    RunService.RenderStepped:Connect(function() renderFrames = renderFrames + 1 end)
+    local renderFrames = 0; local lastTick = tick(); RunService.RenderStepped:Connect(function() renderFrames = renderFrames + 1 end)
     while task.wait(0.5) do
-        local currentTick = tick(); local timePassed = currentTick - lastTick; local currentFPS = math.floor(renderFrames / timePassed); renderFrames = 0; lastTick = currentTick
+        local currentTick = tick(); local currentFPS = math.floor(renderFrames / (currentTick - lastTick)); renderFrames = 0; lastTick = currentTick
         local ping = 0; pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
         StatsLabel.Text = "FPS: "..currentFPS.." | PING: "..ping.."ms"; IslandTitle.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
     end
 end)
 
-local CPFrame = Instance.new("Frame", GeminiGui)
-CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); CPFrame.Visible = false; CPFrame.Active = true; CPFrame.ZIndex = 20
+local CPFrame = Instance.new("Frame", GeminiGui); CPFrame.Size = UDim2.new(0, 220, 0, 240); CPFrame.Position = UDim2.new(0.5, -110, 0.5, -120); CPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); CPFrame.Visible = false; CPFrame.Active = true; CPFrame.ZIndex = 20
 table.insert(ThemeObjects.Backgrounds, CPFrame)
 local cpStroke = Instance.new("UIStroke", CPFrame); cpStroke.Color = Color3.fromRGB(50, 50, 50); table.insert(ThemeObjects.Strokes, cpStroke)
 if isMobile then local cpScale = Instance.new("UIScale", CPFrame); cpScale.Scale = 0.7; CPFrame.AnchorPoint = Vector2.new(0.5, 0.5); CPFrame.Position = UDim2.new(0.5, 0, 0.5, 0) end
@@ -407,11 +311,9 @@ local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(
 
 local function IsKeyMatch(inputKeyCode, bindStr)
     local keyName = inputKeyCode.Name:lower(); local bStr = tostring(bindStr)
-    local RuToEn = {["й"]="q",["ц"]="w",["у"]="e",["к"]="r",["е"]="t",["н"]="y",["г"]="u",["ш"]="i",["щ"]="o",["з"]="p",["х"]="leftbracket",["ъ"]="rightbracket",["ф"]="a",["ы"]="s",["в"]="d",["а"]="f",["п"]="g",["р"]="h",["о"]="j",["л"]="k",["д"]="l",["ж"]="semicolon",["э"]="quote",["я"]="z",["ч"]="x",["с"]="c",["м"]="v",["и"]="b",["т"]="n",["ь"]="m",["б"]="comma",["ю"]="period",["Й"]="q",["Ц"]="w",["У"]="e",["К"]="r",["Е"]="t",["Н"]="y",["Г"]="u",["Ш"]="i",["Щ"]="o",["З"]="p",["Х"]="leftbracket",["Ъ"]="rightbracket",["Ф"]="a",["Ы"]="s",["В"]="d",["А"]="f",["П"]="g",["Р"]="h",["О"]="j",["Л"]="k",["Д"]="l",["Ж"]="semicolon",["Э"]="quote",["Я"]="z",["Ч"]="x",["С"]="c",["М"]="v",["И"]="b",["Т"]="n",["Ь"]="m",["Б"]="comma",["Ю"]="period"}
+    local RuToEn = {["й"]="q",["ц"]="w",["у"]="e",["к"]="r",["е"]="t",["н"]="y",["г"]="u",["ш"]="i",["щ"]="o",["з"]="p",["х"]="leftbracket",["ъ"]="rightbracket",["ф"]="a",["ы"]="s",["в"]="d",["а"]="f",["п"]="g",["р"]="h",["о"]="j",["л"]="k",["д"]="l",["ж"]="semicolon",["э"]="quote",["я"]="z",["ч"]="x",["с"]="c",["м"]="v",["и"]="b",["т"]="n",["ь"]="m",["б"]="comma",["ю"]="period"}
     if RuToEn[bStr] then bStr = RuToEn[bStr] else bStr = bStr:lower() end
-    if bStr == "ctrl" or bStr == "control" then return keyName == "leftcontrol" or keyName == "rightcontrol"
-    elseif bStr == "shift" then return keyName == "leftshift" or keyName == "rightshift"
-    elseif bStr == "alt" then return keyName == "leftalt" or keyName == "rightalt" end
+    if bStr == "ctrl" or bStr == "control" then return keyName == "leftcontrol" or keyName == "rightcontrol" elseif bStr == "shift" then return keyName == "leftshift" or keyName == "rightshift" elseif bStr == "alt" then return keyName == "leftalt" or keyName == "rightalt" end
     return keyName == bStr
 end
 
@@ -425,17 +327,16 @@ local function CreateModule(name, key, category)
     local function RunToggle()
         _G.Cfg[key] = not _G.Cfg[key]; ShowNotify(name, _G.Cfg[key])
         if key == "SpeedEnabled" and not _G.Cfg[key] then if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.WalkSpeed = 16 end end
-        if key == "ClickFriendEnabled" and _G.Cfg[key] then StartFriendProcess(false) elseif key == "DeleteFriendEnabled" and _G.Cfg[key] then StartFriendProcess(true) end
-        if key == "WorldColorEnabled" and not _G.Cfg[key] then Lighting.Ambient = Color3.fromRGB(128, 128, 128); Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128); Lighting.ExposureCompensation = 0 end
         if key == "FullBrightEnabled" and not _G.Cfg[key] then Lighting.Brightness = 1 end
         if key == "SaturationEnabled" then SaturationEffect.Enabled = _G.Cfg.SaturationEnabled end
+        if key == "WorldColorEnabled" and not _G.Cfg[key] then Lighting.Ambient = Color3.fromRGB(128, 128, 128); Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128); Lighting.ExposureCompensation = 0; VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
         SaveConfig() 
     end
     _G.ToggleFuncs[key] = RunToggle; Toggle.MouseButton1Click:Connect(RunToggle)
     task.spawn(function() while task.wait(0.1) do Toggle.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0) end end)
     
     local Inner = Instance.new("ScrollingFrame", ModFrame); Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1; Inner.ScrollBarThickness = 2; Inner.CanvasSize = UDim2.new(0, 0, 0, 0); Inner.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    local l = Instance.new("UIListLayout", Inner); l.Padding = UDim.new(0, 2)
+    Instance.new("UIListLayout", Inner).Padding = UDim.new(0, 2)
     local bindKey = key .. "Bind"; local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
     local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT; table.insert(ThemeObjects.SecondaryTexts, bL)
     local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(_G.Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT; table.insert(ThemeObjects.Inputs, bI)
@@ -450,6 +351,7 @@ local function AddToggle(parent, text, key)
     local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
     btn.MouseButton1Click:Connect(function() _G.Cfg[key] = not _G.Cfg[key]; btn.BackgroundColor3 = _G.Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); SaveConfig() end)
+    return f
 end
 
 local function AddSlider(parent, text, key)
@@ -457,11 +359,47 @@ local function AddSlider(parent, text, key)
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT; table.insert(ThemeObjects.SecondaryTexts, l)
     local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(_G.Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 10; i.Font = TARGET_FONT; table.insert(ThemeObjects.Inputs, i)
     i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then _G.Cfg[key] = v; SaveConfig() end end)
+    return f
 end
 
 local function AddColorBtn(parent, text, key)
     local b = Instance.new("TextButton", parent); b.Size = UDim2.new(1, 0, 0, 18); b.Text = "  [COLOR] " .. text; b.BackgroundColor3 = Color3.fromRGB(40, 40, 50); b.TextColor3 = Color3.new(1,1,1); b.TextXAlignment = "Left"; b.TextSize = 12; b.Font = TARGET_FONT; table.insert(ThemeObjects.InputBackgrounds, b); table.insert(ThemeObjects.Texts, b)
     b.MouseButton1Click:Connect(function() curKey = key; CPFrame.Visible = true end)
+    return b
+end
+
+-- // 3. ЕДИНСТВЕННЫЙ И ПРАВИЛЬНЫЙ БЛОК СОЗДАНИЯ UI (БЕЗ ДУБЛЕЙ)
+do
+    local m
+    m = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(m, "Smooth", "AimbotSmoothness"); AddSlider(m, "MaxDist", "AimbotMaxDistance")
+    m = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); AddToggle(m, "No Cam Rotate", "KillAuraNoCamRotation"); AddToggle(m, "Kill Strafe", "KillStrafeEnabled"); AddSlider(m, "Strafe Speed", "KillStrafeSpeed"); AddSlider(m, "Strafe Distance", "KillStrafeDistance"); AddSlider(m, "Range", "KillAuraRange"); AddSlider(m, "Click Range", "KillAuraClickRange"); AddSlider(m, "Delay (0.1s)", "KillAuraSpeed")
+    m = CreateModule("CRITICALS", "CriticalsEnabled", "Combat"); AddToggle(m, "No Kill Strafe Jump", "CriticalsNoKillStrafeJump"); AddToggle(m, "Only with Kill Aura", "CriticalsOnlyKillAura")
+    m = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(m, "Size Multiplier", "HitboxSize"); AddToggle(m, "Only Killaura", "HitboxOnlyKillaura")
+    m = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(m, "Radius", "TargetStrafeOrbitRadius"); AddSlider(m, "Speed", "TargetStrafeOrbitSpeed")
+    
+    m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(m, "WalkSpeed", "WalkSpeedValue")
+    m = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(m, "Horizontal %", "VelocityHorizontal"); AddSlider(m, "Vertical %", "VelocityVertical")
+    m = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
+    m = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
+    m = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m, "Speed", "SpiderSpeed")
+    m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode"); AddToggle(m, "Spin at jump", "JitterSpinAtJump"); AddSlider(m, "Spin Speed", "JitterSpinSpeed")
+    m = CreateModule("ANIM LAG", "AnimLagEnabled", "Movement"); AddSlider(m, "Anim FPS (1-60)", "AnimLagFPS")
+
+    m = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(m, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(m, "Damage HB color", "TargetHudDamageColor"); AddToggle(m, "Only Killaura", "TargetHudOnlyKillaura")
+    m = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(m, "Size", "TargetESPSquareSize"); AddSlider(m, "Border", "TargetESPBorderThickness"); AddColorBtn(m, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(m, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(m, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(m, "Only Killaura", "TargetESPOnlyKillaura")
+    m = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(m, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(m, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(m, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(m, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(m, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(m, "Bar Border", "Esp2DBoxHealthBarBorder")
+    m = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); AddSlider(m, "Range", "ArrowsDistance"); AddSlider(m, "Size", "ArrowsSize"); AddToggle(m, "Show Distance", "ArrowsShowDistance"); AddColorBtn(m, "Arrow Color", "ArrowsColor")
+    m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor")
+    m = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(m, "Head Offset", "ChinaHatHeightOffset"); AddSlider(m, "Width", "ChinaHatWidthScale"); AddSlider(m, "Height", "ChinaHatHeightScale"); AddSlider(m, "Transparency", "ChinaHatTransparency"); AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
+    m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(m, "Color", "ParticleColor"); AddSlider(m, "Size", "ParticleSize"); AddSlider(m, "Amount", "ParticleAmount")
+    m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(m, "Brightness (0-10)", "FullBrightBrightness")
+    m = CreateModule("SATURATION", "SaturationEnabled", "Visuals"); AddSlider(m, "Intensity (0-50)", "SaturationValue")
+    m = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(m, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(m, "Color", "JumpCircleEffectColor")
+    m = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(m, "Hours (0-23)", "TimeChangerHours")
+    m = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(m, "Map Color", "WorldColorValue"); AddSlider(m, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(m, "Darkness (0-5)", "WorldColorDarkness"); AddToggle(m, "Shader (Vibe)", "WorldColorShader")
+    m = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(m, "Sound (1-6)", "HitSoundMode")
+    m = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(m, "FOV Value", "CustomFovValue")
+    m = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals"); AddSlider(m, "Distance", "ThirdPersonDistance")
 end
 
 local function IsVisible(targetPart)
@@ -469,8 +407,7 @@ local function IsVisible(targetPart)
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
     local origin = Camera.CFrame.Position; local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
     local raycastParams = RaycastParams.new(); raycastParams.FilterDescendantsInstances = {char, targetPart.Parent, GeminiGui, ChamsFolder}; raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    local result = workspace:Raycast(origin, direction, raycastParams)
-    return result == nil 
+    return workspace:Raycast(origin, direction, raycastParams) == nil 
 end
 
 local function GetTarget()
@@ -523,8 +460,7 @@ end
 local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
 local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
 
-local TargetHUD = Instance.new("Frame", GeminiGui)
-TargetHUD.Size = UDim2.new(0, 220, 0, 70); TargetHUD.Position = _G.Cfg.TargetHudPosition; TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15); TargetHUD.Visible = false; TargetHUD.Active = true; TargetHUD.Draggable = true; table.insert(ThemeObjects.Backgrounds, TargetHUD)
+local TargetHUD = Instance.new("Frame", GeminiGui); TargetHUD.Size = UDim2.new(0, 220, 0, 70); TargetHUD.Position = _G.Cfg.TargetHudPosition; TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15); TargetHUD.Visible = false; TargetHUD.Active = true; TargetHUD.Draggable = true; table.insert(ThemeObjects.Backgrounds, TargetHUD)
 TargetHUD.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then _G.Cfg.TargetHudPosition = TargetHUD.Position; SaveConfig() end end)
 local TargetHUD_Glow = Instance.new("Frame", TargetHUD); TargetHUD_Glow.Size = UDim2.new(1, 4, 1, 4); TargetHUD_Glow.Position = UDim2.new(0, -2, 0, -2); TargetHUD_Glow.BackgroundColor3 = Color3.fromRGB(0, 255, 255); TargetHUD_Glow.BackgroundTransparency = 0.8; TargetHUD_Glow.ZIndex = TargetHUD.ZIndex - 1; Instance.new("UICorner", TargetHUD_Glow).CornerRadius = UDim.new(0, 15)
 local cornerHUD = Instance.new("UICorner", TargetHUD); cornerHUD.CornerRadius = UDim.new(0, 12)
@@ -567,15 +503,12 @@ local lastEspTargetHealth = nil
 local lastDamageTimeESP = 0
 local lastRenderedEspThickness = nil
 local wasThirdPerson = false 
+local AnimLagAccumulator = 0
+local WasAnimLagging = false
 
-table.insert(Connections, RunService.Stepped:Connect(function()
+table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
-        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if OrigNoClipStates[part] == nil then OrigNoClipStates[part] = part.CanCollide end
-                part.CanCollide = false
-            end
-        end
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do if part:IsA("BasePart") then if OrigNoClipStates[part] == nil then OrigNoClipStates[part] = part.CanCollide end; part.CanCollide = false end end
     elseif not _G.Cfg.NoClipEnabled and LocalPlayer.Character then
         if next(OrigNoClipStates) ~= nil then for part, state in pairs(OrigNoClipStates) do if part and part.Parent then part.CanCollide = state end end; table.clear(OrigNoClipStates) end
     end
@@ -584,12 +517,32 @@ table.insert(Connections, RunService.Stepped:Connect(function()
         local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if hrp then for _, v in ipairs(hrp:GetChildren()) do if v:IsA("BodyVelocity") or v:IsA("BodyThrust") or v:IsA("BodyForce") or v:IsA("LinearVelocity") or v:IsA("VectorForce") then v:Destroy() end end end
     end
+    
+    if _G.Cfg.AnimLagEnabled and LocalPlayer.Character then
+        local char = LocalPlayer.Character; local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            local animator = hum:FindFirstChild("Animator")
+            if animator then
+                AnimLagAccumulator = AnimLagAccumulator + dt
+                local interval = 1 / math.clamp(tonumber(_G.Cfg.AnimLagFPS) or 5, 1, 60)
+                local doUpdate = AnimLagAccumulator >= interval
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do track:AdjustSpeed(0); if doUpdate then track.TimePosition = track.TimePosition + AnimLagAccumulator end end
+                if doUpdate then AnimLagAccumulator = 0 end
+                WasAnimLagging = true
+            end
+        end
+    elseif WasAnimLagging then
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            local animator = LocalPlayer.Character.Humanoid:FindFirstChild("Animator")
+            if animator then for _, track in ipairs(animator:GetPlayingAnimationTracks()) do track:AdjustSpeed(1) end end
+        end
+        WasAnimLagging = false; AnimLagAccumulator = 0
+    end
 end))
 
 task.spawn(function()
     while task.wait(0.2) do
-        local playersList = Players:GetPlayers()
-        for _, player in ipairs(playersList) do
+        for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local plChar = player.Character
                 if plChar then
@@ -597,7 +550,6 @@ task.spawn(function()
                     if _G.Cfg.HitboxEnabled and not isFriend then if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then isHitboxActive = true; mult = tonumber(_G.Cfg.HitboxSize) or 1 end end
                     local partsList = PlayerPartsCache[plChar]
                     if not partsList then partsList = {}; for _, p in ipairs(plChar:GetChildren()) do if p:IsA("BasePart") then table.insert(partsList, p) end end; PlayerPartsCache[plChar] = partsList end
-                    
                     for _, part in ipairs(partsList) do
                         if not OrigPartData[part] then OrigPartData[part] = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless} end
                         local origData = OrigPartData[part]; local targetSize = isHitboxActive and (origData.Size * mult) or origData.Size
@@ -609,10 +561,20 @@ task.spawn(function()
     end
 end)
 
+task.spawn(function()
+    while task.wait(0.5) do
+        if _G.Cfg.WorldColorEnabled then
+            local baseColor = _G.Cfg.WorldColorValue; local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1); local dark = math.clamp(_G.Cfg.WorldColorDarkness, 0, 5)
+            local defaultAmbient = Color3.fromRGB(128, 128, 128); local blendedColor = defaultAmbient:Lerp(baseColor, trans)
+            Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
+            if _G.Cfg.WorldColorShader then VibeBloom.Enabled = true; VibeCC.Enabled = true; VibeBlur.Enabled = true; VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.15) 
+            else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
+        else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
+    end
+end)
+
 table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
-    local target = GetTarget() 
-    local char = LocalPlayer.Character
-    local currentKaTarget = nil
+    local target = GetTarget(); local char = LocalPlayer.Character; local currentKaTarget = nil
     if _G.Cfg.KillAuraEnabled then currentKaTarget = GetKillauraTarget() else KillauraLockedTarget = nil end
     SharedKaTarget = currentKaTarget 
 
@@ -623,36 +585,18 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     if _G.Cfg.TimeChangerEnabled then Lighting.ClockTime = math.clamp(_G.Cfg.TimeChangerHours, 0, 23) end
     if _G.Cfg.FullBrightEnabled then Lighting.Brightness = math.clamp(_G.Cfg.FullBrightBrightness, 0, 10) end
     
-    -- // ПРИНУДИТЕЛЬНЫЙ THIRD PERSON
-    if _G.Cfg.ThirdPersonEnabled then
-        LocalPlayer.CameraMode = Enum.CameraMode.Classic
-        LocalPlayer.CameraMaxZoomDistance = _G.Cfg.ThirdPersonDistance or 15
-        LocalPlayer.CameraMinZoomDistance = _G.Cfg.ThirdPersonDistance or 15
-        wasThirdPerson = true
-    elseif wasThirdPerson then
-        LocalPlayer.CameraMinZoomDistance = 0.5
-        LocalPlayer.CameraMaxZoomDistance = 400
-        wasThirdPerson = false
-    end
+    if _G.Cfg.ThirdPersonEnabled then LocalPlayer.CameraMode = Enum.CameraMode.Classic; LocalPlayer.CameraMaxZoomDistance = _G.Cfg.ThirdPersonDistance or 15; LocalPlayer.CameraMinZoomDistance = _G.Cfg.ThirdPersonDistance or 15; wasThirdPerson = true
+    elseif wasThirdPerson then LocalPlayer.CameraMinZoomDistance = 0.5; LocalPlayer.CameraMaxZoomDistance = 400; wasThirdPerson = false end
     
-    if _G.Cfg.SaturationEnabled then
-        SaturationEffect.Enabled = true
-        SaturationEffect.Saturation = tonumber(_G.Cfg.SaturationValue) or 1
-    else
-        SaturationEffect.Enabled = false
-    end
+    if _G.Cfg.SaturationEnabled then SaturationEffect.Enabled = true; SaturationEffect.Saturation = tonumber(_G.Cfg.SaturationValue) or 1 else SaturationEffect.Enabled = false end
     
-    local rotationSpeed = (tick() * 35) % 360
-    if glowGradientBack then glowGradientBack.Rotation = rotationSpeed end
+    if glowGradientBack then glowGradientBack.Rotation = (tick() * 35) % 360 end
     
     if _G.Cfg.WorldParticlesEnabled then
         WorldStarsContainer.Visible = true; local camPos = Camera.CFrame.Position; local dtSafe = dt or 0.016 
         for _, star in ipairs(StarsData) do
-            star.pos = star.pos + star.drift * dtSafe
-            local diff = star.pos - camPos
-            local wx = (diff.X + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
-            local wy = (diff.Y + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
-            local wz = (diff.Z + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
+            star.pos = star.pos + star.drift * dtSafe; local diff = star.pos - camPos
+            local wx = (diff.X + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE; local wy = (diff.Y + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE; local wz = (diff.Z + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
             star.pos = camPos + Vector3.new(wx, wy, wz)
             local screenPos, onScreen = Camera:WorldToViewportPoint(star.pos)
             if onScreen and screenPos.Z > 1 and screenPos.Z < STAR_RANGE then
@@ -686,145 +630,69 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(_G.Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
     end
-    if _G.Cfg.WorldColorEnabled then
-        local baseColor = _G.Cfg.WorldColorValue; local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1); local dark = math.clamp(_G.Cfg.WorldColorDarkness, 0, 5)
-        local defaultAmbient = Color3.fromRGB(128, 128, 128); local blendedColor = defaultAmbient:Lerp(baseColor, trans)
-        Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
-    end
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            local plChar = player.Character
-            local lowerName = LowerNameCache[player.Name]
-            local isFriend = FriendsList[lowerName]
-            local espCache = GetEspElements(player)
-
+            local plChar = player.Character; local isFriend = FriendsList[LowerNameCache[player.Name]]; local espCache = GetEspElements(player)
             if isFriend then
                 espCache.Box3D.CFrame = CFrame.new(0, -10000, 0) 
                 local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
-                if not friendHighlight and plChar then
-                    friendHighlight = Instance.new("Highlight", plChar); friendHighlight.Name = "FriendHighlight"; friendHighlight.FillColor = Color3.fromRGB(0, 255, 0); friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0); friendHighlight.FillTransparency = 0.8; friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
-                end
+                if not friendHighlight and plChar then friendHighlight = Instance.new("Highlight", plChar); friendHighlight.Name = "FriendHighlight"; friendHighlight.FillColor = Color3.fromRGB(0, 255, 0); friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0); friendHighlight.FillTransparency = 0.8; friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded end
             elseif _G.Cfg.ChamsEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") then
                 if plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
                 espCache.Box3D.CFrame = plChar.HumanoidRootPart.CFrame
                 espCache.ChamsHighlight.FillColor = _G.Cfg.ChamsColor; espCache.ChamsHighlight.OutlineColor = _G.Cfg.ChamsOutlineColor; espCache.ChamsHighlight.FillTransparency = _G.Cfg.ChamsFillTransparency; espCache.ChamsHighlight.OutlineTransparency = 0
-            else 
-                espCache.Box3D.CFrame = CFrame.new(0, -10000, 0)
-                if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
-            end
+            else espCache.Box3D.CFrame = CFrame.new(0, -10000, 0); if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end end
 
             if _G.Cfg.Esp2DBoxEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") and not isFriend then
-                local hrp = plChar.HumanoidRootPart
-                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                
+                local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
-                    local head = plChar:FindFirstChild("Head")
-                    local topPos = head and head.Position + Vector3.new(0, 1, 0) or hrp.Position + Vector3.new(0, 3, 0)
-                    local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
+                    local head = plChar:FindFirstChild("Head"); local topPos = head and head.Position + Vector3.new(0, 1, 0) or hrp.Position + Vector3.new(0, 3, 0); local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
                     local topScreen = Camera:WorldToViewportPoint(topPos); local bottomScreen = Camera:WorldToViewportPoint(bottomPos)
-                    local height = math.abs(bottomScreen.Y - topScreen.Y)
-                    local baseMultiplier = tonumber(_G.Cfg.Esp2DBoxSize) or 1
-                    local finalHeight = height * baseMultiplier
-                    local width = (height / 1.5) * baseMultiplier 
+                    local height = math.abs(bottomScreen.Y - topScreen.Y); local baseMultiplier = tonumber(_G.Cfg.Esp2DBoxSize) or 1; local finalHeight = height * baseMultiplier; local width = (height / 1.5) * baseMultiplier 
                     
-                    espCache.Box2D.Size = UDim2.new(0, width, 0, finalHeight)
-                    espCache.Box2D.Position = UDim2.new(0, pos.X - width/2, 0, pos.Y - finalHeight/2)
-                    
-                    espCache.BoxStroke.Color = _G.Cfg.Esp2DBoxColor 
-                    espCache.BoxGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, _G.Cfg.Esp2DBoxColor), ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(_G.Cfg.Esp2DBoxColor, 0.5))})
-                    espCache.BoxGrad.Rotation = (tick() * 50) % 360 
-                    espCache.BoxGlow.Color = _G.Cfg.Esp2DBoxColor 
+                    espCache.Box2D.Size = UDim2.new(0, width, 0, finalHeight); espCache.Box2D.Position = UDim2.new(0, pos.X - width/2, 0, pos.Y - finalHeight/2)
+                    espCache.BoxStroke.Color = _G.Cfg.Esp2DBoxColor; espCache.BoxGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, _G.Cfg.Esp2DBoxColor), ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(_G.Cfg.Esp2DBoxColor, 0.5))}); espCache.BoxGrad.Rotation = (tick() * 50) % 360; espCache.BoxGlow.Color = _G.Cfg.Esp2DBoxColor 
                     
                     espCache.NameTag.Visible = _G.Cfg.Esp2DBoxNametagsEnabled == true
-                    if _G.Cfg.Esp2DBoxNametagsEnabled then
-                        espCache.NameTag.TextSize = tonumber(_G.Cfg.Esp2DBoxNametagsScale) or 14
-                        espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize)
-                        espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5)
-                        espCache.NameTag.Text = player.DisplayName
-                    end
+                    if _G.Cfg.Esp2DBoxNametagsEnabled then espCache.NameTag.TextSize = tonumber(_G.Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5); espCache.NameTag.Text = player.DisplayName end
                     
                     espCache.HealthBack.Visible = _G.Cfg.Esp2DBoxHealthBarEnabled == true
                     if _G.Cfg.Esp2DBoxHealthBarEnabled then
                         local border = tonumber(_G.Cfg.Esp2DBoxHealthBarBorder) or 1
-                        espCache.HealthBack.BorderSizePixel = border
-                        espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0)
-                        espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0)
-                        
+                        espCache.HealthBack.BorderSizePixel = border; espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0); espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0)
                         local hum = plChar:FindFirstChild("Humanoid")
-                        if hum then
-                            local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0.01, 1)
-                            espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0)
-                            espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0)
-                            espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0)
-                            espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0)
-                        end
+                        if hum then local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0.01, 1); espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0); espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0); espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0); espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0) end
                     end
                     espCache.Box2D.Visible = true
-                else
-                    espCache.Box2D.Visible = false
-                end
-            else
-                espCache.Box2D.Visible = false
-            end
+                else espCache.Box2D.Visible = false end
+            else espCache.Box2D.Visible = false end
 
             if _G.Cfg.ArrowsEnabled and plChar and plChar:FindFirstChild("HumanoidRootPart") and char and char:FindFirstChild("HumanoidRootPart") and not isFriend then
-                local targetHRP = plChar.HumanoidRootPart
-                local localHRP = char.HumanoidRootPart
-                local dist = (targetHRP.Position - localHRP.Position).Magnitude
-                
+                local targetHRP = plChar.HumanoidRootPart; local localHRP = char.HumanoidRootPart; local dist = (targetHRP.Position - localHRP.Position).Magnitude
                 if dist <= (tonumber(_G.Cfg.ArrowsDistance) or 100) then
-                    local arrColor = _G.Cfg.ArrowsColor or Color3.fromRGB(255, 0, 0)
-                    local arrSize = tonumber(_G.Cfg.ArrowsSize) or 22
-                    
-                    espCache.ArrowSym.TextColor3 = arrColor
-                    espCache.ArrowSym.TextSize = arrSize
-                    
-                    if _G.Cfg.ArrowsShowDistance then
-                        espCache.ArrowDist.Visible = true
-                        espCache.ArrowDist.Text = math.floor(dist) .. "m"
-                        espCache.ArrowDist.TextColor3 = arrColor
-                    else
-                        espCache.ArrowDist.Visible = false
-                    end
-                    
-                    local relativeToCam = Camera.CFrame:PointToObjectSpace(targetHRP.Position)
-                    local angle = math.atan2(relativeToCam.X, -relativeToCam.Z)
-                    
-                    local center = Camera.ViewportSize / 2
-                    local radius = 150
-                    local x = center.X + math.sin(angle) * radius
-                    local y = center.Y - math.cos(angle) * radius
-                    
-                    espCache.Arrow.Position = UDim2.new(0, x, 0, y)
-                    espCache.ArrowSym.Rotation = math.deg(angle)
-                    
-                    espCache.Arrow.Visible = true
-                else
-                    espCache.Arrow.Visible = false
-                end
-            else
-                espCache.Arrow.Visible = false
-            end
+                    local arrColor = _G.Cfg.ArrowsColor or Color3.fromRGB(255, 0, 0); local arrSize = tonumber(_G.Cfg.ArrowsSize) or 22
+                    espCache.ArrowSym.TextColor3 = arrColor; espCache.ArrowSym.TextSize = arrSize
+                    if _G.Cfg.ArrowsShowDistance then espCache.ArrowDist.Visible = true; espCache.ArrowDist.Text = math.floor(dist) .. "m"; espCache.ArrowDist.TextColor3 = arrColor else espCache.ArrowDist.Visible = false end
+                    local relativeToCam = Camera.CFrame:PointToObjectSpace(targetHRP.Position); local angle = math.atan2(relativeToCam.X, -relativeToCam.Z)
+                    local center = Camera.ViewportSize / 2; local radius = 150; local x = center.X + math.sin(angle) * radius; local y = center.Y - math.cos(angle) * radius
+                    espCache.Arrow.Position = UDim2.new(0, x, 0, y); espCache.ArrowSym.Rotation = math.deg(angle); espCache.Arrow.Visible = true
+                else espCache.Arrow.Visible = false end
+            else espCache.Arrow.Visible = false end
         end
     end
     
-    if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then
-        HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale); HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0)
-    else HatPart.Transparency = 1 end
+    if _G.Cfg.ChinaHatAccessoryEnabled and char and char:FindFirstChild("Head") then HatPart.Transparency = _G.Cfg.ChinaHatTransparency; HatPart.Color = _G.Cfg.ChinaHatAccessoryColor; HatMesh.Scale = Vector3.new(_G.Cfg.ChinaHatWidthScale, _G.Cfg.ChinaHatHeightScale, _G.Cfg.ChinaHatWidthScale); HatPart.CFrame = char.Head.CFrame * CFrame.new(0, _G.Cfg.ChinaHatHeightOffset, 0) else HatPart.Transparency = 1 end
 
     if _G.Cfg.TargetHudEnabled and hudTarget and hudTarget.Character and hudTarget.Character:FindFirstChild("Humanoid") then
-        TargetHUD.Visible = true
-        local hum = hudTarget.Character.Humanoid
+        TargetHUD.Visible = true; local hum = hudTarget.Character.Humanoid
         if lastTargetUserId ~= hudTarget.UserId then
             lastTargetUserId = hudTarget.UserId; TargetName.Text = hudTarget.DisplayName; TargetIcon.Image = "rbxthumb://type=AvatarHeadShot&id=" .. hudTarget.UserId .. "&w=150&h=150"; lastTargetHealth = hum.Health 
             local initialHealthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
             HealthBar.Size = UDim2.new(initialHealthPercent, 0, 1, 0); lastDamageTimeHUD = 0; TargetIcon.ImageColor3 = Color3.new(1, 1, 1)
         end
         local healthPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-        if lastTargetHealth and hum.Health < lastTargetHealth then 
-            lastDamageTimeHUD = tick(); TargetIcon.ImageColor3 = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0); TweenService:Create(TargetIcon, TweenInfo.new(1, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {ImageColor3 = Color3.new(1, 1, 1)}):Play()
-        end
+        if lastTargetHealth and hum.Health < lastTargetHealth then lastDamageTimeHUD = tick(); TargetIcon.ImageColor3 = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0); TweenService:Create(TargetIcon, TweenInfo.new(1, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {ImageColor3 = Color3.new(1, 1, 1)}):Play() end
         lastTargetHealth = hum.Health; local normColor = _G.Cfg.TargetHudNormalColor or Color3.fromRGB(0, 255, 100); local dmgColor = _G.Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
         local currentBarColor = normColor; local timeSinceDmgHud = tick() - lastDamageTimeHUD; if timeSinceDmgHud < 0.3 then currentBarColor = dmgColor:Lerp(normColor, timeSinceDmgHud / 0.3) end
         barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, currentBarColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, currentBarColor)})
@@ -833,11 +701,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
 
     if _G.Cfg.TargetESPSquareEnabled and espTarget and espTarget.Character:FindFirstChild("HumanoidRootPart") then
         local espHum = espTarget.Character:FindFirstChild("Humanoid")
-        if espHum then
-            if lastEspTargetUserId ~= espTarget.UserId then lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; lastDamageTimeESP = 0 end
-            if lastEspTargetHealth and espHum.Health < lastEspTargetHealth then lastDamageTimeESP = tick() end
-            lastEspTargetHealth = espHum.Health
-        end
+        if espHum then if lastEspTargetUserId ~= espTarget.UserId then lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; lastDamageTimeESP = 0 end; if lastEspTargetHealth and espHum.Health < lastEspTargetHealth then lastDamageTimeESP = tick() end; lastEspTargetHealth = espHum.Health end
         local currentEspColor = _G.Cfg.TargetESPSquareColor
         if _G.Cfg.TargetESPDamageColorEnabled then local timeSinceDmgEsp = tick() - lastDamageTimeESP; if timeSinceDmgEsp < 0.6 then currentEspColor = _G.Cfg.TargetESPDamageColor:Lerp(_G.Cfg.TargetESPSquareColor, timeSinceDmgEsp / 0.6) end end
         local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
@@ -845,9 +709,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             ESPMain.Visible = true; ESPMain.Position = UDim2.new(0, pos.X, 0, pos.Y); ESPMain.Size = UDim2.new(0, _G.Cfg.TargetESPSquareSize, 0, _G.Cfg.TargetESPSquareSize); ESPMain.Rotation = (tick() * 60 * _G.Cfg.TargetESPRotationSpeed) % 360 
             local updateThickness = false; if lastRenderedEspThickness ~= _G.Cfg.TargetESPBorderThickness then updateThickness = true; lastRenderedEspThickness = _G.Cfg.TargetESPBorderThickness end
             for _, c in pairs(corners) do 
-                if updateThickness then
-                    c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11;
-                end
+                if updateThickness then c[3].Thickness = _G.Cfg.TargetESPBorderThickness; c[4].Thickness = _G.Cfg.TargetESPBorderThickness; c[5].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = _G.Cfg.TargetESPBorderThickness + 4.5; c[7].Thickness = _G.Cfg.TargetESPBorderThickness + 11; c[8].Thickness = _G.Cfg.TargetESPBorderThickness + 11; end
                 c[3].Color = currentEspColor; c[4].Color = currentEspColor; c[5].Color = currentEspColor; c[6].Color = currentEspColor; c[7].Color = currentEspColor; c[8].Color = currentEspColor
             end
         else ESPMain.Visible = false end
@@ -859,102 +721,74 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
 
     local didRotateHRP = false
     
-    -- // ПРОВЕРКА KILL AURA
     if _G.Cfg.KillAuraEnabled and char and char:FindFirstChild("HumanoidRootPart") then
         local kaTarget = currentKaTarget
         if kaTarget and kaTarget.Character and kaTarget.Character:FindFirstChild("HumanoidRootPart") then
-            local targetPart = kaTarget.Character.HumanoidRootPart
-            local hrp = char.HumanoidRootPart
-            local dist = (hrp.Position - targetPart.Position).Magnitude
-            
+            local targetPart = kaTarget.Character.HumanoidRootPart; local hrp = char.HumanoidRootPart; local dist = (hrp.Position - targetPart.Position).Magnitude
             if dist <= _G.Cfg.KillAuraRange and IsVisible(targetPart) then
                 if _G.Cfg.KillStrafeEnabled and char:FindFirstChild("Humanoid") then
-                    local flatToTarget = Vector3.new(targetPart.Position.X - hrp.Position.X, 0, targetPart.Position.Z - hrp.Position.Z)
-                    local distFlat = flatToTarget.Magnitude
+                    local flatToTarget = Vector3.new(targetPart.Position.X - hrp.Position.X, 0, targetPart.Position.Z - hrp.Position.Z); local distFlat = flatToTarget.Magnitude
                     if distFlat > 0.1 then
                         if tick() > nextKaStrafeDirChange then currentKaStrafeDir = -currentKaStrafeDir; nextKaStrafeDirChange = tick() + (math.random(40, 90) / 100) end
-                        local dirToTarget = flatToTarget.Unit
-                        local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit * currentKaStrafeDir
-                        local noise = math.sin(tick() * 4) * 0.3
-                        local currentOrbitDist = tonumber(_G.Cfg.KillStrafeDistance) or 1
-                        local distanceError = distFlat - (currentOrbitDist + noise)
-                        local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
-                        char.Humanoid:Move(moveDir, false)
-                        local kStrafeSpeed = tonumber(_G.Cfg.KillStrafeSpeed) or 20
-                        hrp.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, hrp.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
-                        
+                        local dirToTarget = flatToTarget.Unit; local rightDir = dirToTarget:Cross(Vector3.new(0, 1, 0)).Unit * currentKaStrafeDir; local noise = math.sin(tick() * 4) * 0.3; local currentOrbitDist = tonumber(_G.Cfg.KillStrafeDistance) or 1; local distanceError = distFlat - (currentOrbitDist + noise); local moveDir = (dirToTarget * distanceError + rightDir * 3).Unit
+                        char.Humanoid:Move(moveDir, false); local kStrafeSpeed = tonumber(_G.Cfg.KillStrafeSpeed) or 20; hrp.AssemblyLinearVelocity = Vector3.new(moveDir.X * kStrafeSpeed, hrp.AssemblyLinearVelocity.Y, moveDir.Z * kStrafeSpeed)
                         local shouldJump = true; if _G.Cfg.CriticalsNoKillStrafeJump then shouldJump = false end
-                        if shouldJump and tick() - lastStrafeJumpTime > nextStrafeJumpDelay then
-                            if char.Humanoid.FloorMaterial ~= Enum.Material.Air then 
-                                char.Humanoid.Jump = true; lastStrafeJumpTime = tick(); lastKillStrafeJumpTime = tick(); nextStrafeJumpDelay = math.random(1, 8) / 10 
-                            end
-                        end
+                        if shouldJump and tick() - lastStrafeJumpTime > nextStrafeJumpDelay then if char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true; lastStrafeJumpTime = tick(); lastKillStrafeJumpTime = tick(); nextStrafeJumpDelay = math.random(1, 8) / 10 end end
                     end
                 end
 
-                -- // ФИЗИЧЕСКИЙ SILENT AIM ИСКЛЮЧИТЕЛЬНО ЧЕРЕЗ БАЗОВЫЕ ЧАСТИ
                 if _G.Cfg.KillAuraNoCamRotation then
-                    char.Humanoid.AutoRotate = false
-                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
-                    didRotateHRP = true
-                else
-                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness)
-                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    local savedVel = hrp.AssemblyLinearVelocity
+                    char.Humanoid.AutoRotate = false; hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    hrp.AssemblyLinearVelocity = savedVel
+                    didRotateHRP = true 
+                else 
+                    local savedVel = hrp.AssemblyLinearVelocity
+                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPart.Position), _G.Cfg.AimbotSmoothness); hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    hrp.AssemblyLinearVelocity = savedVel
                 end
                 
                 if dist <= (_G.Cfg.KillAuraClickRange or 15) then
                     local attackDelay = (_G.Cfg.KillAuraSpeed / 10)
                     if tick() - lastAttackTime > attackDelay then
                         lastAttackTime = tick()
-                        task.spawn(function()
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-                        end)
-                        if _G.Cfg.KillAuraJump and char.Humanoid.FloorMaterial ~= Enum.Material.Air then char.Humanoid.Jump = true end
-                        if _G.Cfg.HitSoundEnabled then
-                            local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6)
-                            local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1)
-                        end
-                        if _G.Cfg.DamageParticlesEnabled then
-                            local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(targetPart.Position) end 
-                        end
+                        task.spawn(function() VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1) end)
+                        if _G.Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6); local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
+                        if _G.Cfg.DamageParticlesEnabled then local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(targetPart.Position) end end
                     end
                 end
             end
         end
     end
 
-    -- // ФИЗИЧЕСКИЙ JITTER ЧЕРЕЗ БАЗОВЫЕ ЧАСТИ (БЕЗ СУСТАВОВ)
+    -- // 4. ИСПРАВЛЕННЫЙ JITTER SPIN AT JUMP (СОХРАНЯЕТ МОМЕНТУМ И НЕ ЗАВИСАЕТ ПЕРСА)
     if not didRotateHRP and _G.Cfg.JitterEnabled and char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
         local hrp = char.HumanoidRootPart
-        char.Humanoid.AutoRotate = false 
-        local jitterSign = (math.floor(tick() * (_G.Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1
-        local jitterYaw = math.rad(_G.Cfg.JitterRange or 45) * jitterSign
-        local baseYaw = (tonumber(_G.Cfg.JitterYawMode) == 2) and math.pi or 0
-        local totalYaw = baseYaw + jitterYaw
+        local savedVelocity = hrp.AssemblyLinearVelocity -- ВАЖНО: СОХРАНЯЕМ СКОРОСТЬ
         
-        local lookVec = Camera.CFrame.LookVector
-        if char.Humanoid.MoveDirection.Magnitude > 0 then
-            lookVec = char.Humanoid.MoveDirection
+        char.Humanoid.AutoRotate = false; local totalYaw = 0
+        local state = char.Humanoid:GetState()
+        
+        if _G.Cfg.JitterSpinAtJump and (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) then 
+            totalYaw = tick() * (tonumber(_G.Cfg.JitterSpinSpeed) or 20) 
+        else 
+            local jitterSign = (math.floor(tick() * (_G.Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1; local jitterYaw = math.rad(_G.Cfg.JitterRange or 45) * jitterSign; local baseYaw = (tonumber(_G.Cfg.JitterYawMode) == 2) and math.pi or 0; totalYaw = baseYaw + jitterYaw 
         end
         
-        local lookAtTarget = hrp.Position + lookVec
-        local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
+        local lookVec = Camera.CFrame.LookVector; if char.Humanoid.MoveDirection.Magnitude > 0 then lookVec = char.Humanoid.MoveDirection end
+        local lookAtTarget = hrp.Position + lookVec; local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
         
         hrp.CFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
+        hrp.AssemblyLinearVelocity = savedVelocity -- ВАЖНО: ВОЗВРАЩАЕМ СКОРОСТЬ НА МЕСТО
         didRotateHRP = true
     end
     
-    -- Возвращаем AutoRotate если ни киллаура, ни джиттер не крутят персонажа
-    if not didRotateHRP and char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.AutoRotate = true
-    end
+    if not didRotateHRP and char and char:FindFirstChild("Humanoid") then char.Humanoid.AutoRotate = true end
 
     if _G.Cfg.CriticalsEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local canCrit = true; if _G.Cfg.CriticalsOnlyKillAura and not _G.Cfg.KillAuraEnabled then canCrit = false end
         if canCrit and char.Humanoid.FloorMaterial ~= Enum.Material.Air then
-            char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 1, 0)
-            char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(char.HumanoidRootPart.AssemblyLinearVelocity.X, 0, char.HumanoidRootPart.AssemblyLinearVelocity.Z)
-            lastCriticalJumpTime = tick()
+            char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 1, 0); char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(char.HumanoidRootPart.AssemblyLinearVelocity.X, 0, char.HumanoidRootPart.AssemblyLinearVelocity.Z); lastCriticalJumpTime = tick()
         end
     end
 
@@ -965,13 +799,10 @@ end))
 
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30); BindListFrame.Position = _G.Cfg.BindListPosition; BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); BindListFrame.Visible = false
-Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 6)
-table.insert(ThemeObjects.Backgrounds, BindListFrame)
-
+Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 6); table.insert(ThemeObjects.Backgrounds, BindListFrame)
 local BLStroke = Instance.new("UIStroke", BindListFrame); BLStroke.Color = Color3.fromRGB(60, 60, 60); BLStroke.Thickness = 1.5; table.insert(ThemeObjects.Strokes, BLStroke)
 local BLTitle = Instance.new("TextLabel", BindListFrame); BLTitle.Size = UDim2.new(1, 0, 0, 25); BLTitle.Text = "Keybind List"; BLTitle.TextColor3 = Color3.new(1, 1, 1); BLTitle.Font = TARGET_FONT; BLTitle.TextSize = 14; BLTitle.BackgroundTransparency = 1; table.insert(ThemeObjects.Texts, BLTitle)
-local BLContainer = Instance.new("Frame", BindListFrame); BLContainer.Size = UDim2.new(1, -10, 1, -30); BLContainer.Position = UDim2.new(0, 5, 0, 25); BLContainer.BackgroundTransparency = 1
-local BLLayout = Instance.new("UIListLayout", BLContainer); BLLayout.Padding = UDim.new(0, 2)
+local BLContainer = Instance.new("Frame", BindListFrame); BLContainer.Size = UDim2.new(1, -10, 1, -30); BLContainer.Position = UDim2.new(0, 5, 0, 25); BLContainer.BackgroundTransparency = 1; Instance.new("UIListLayout", BLContainer).Padding = UDim.new(0, 2)
 
 local dragging, dragInput, dragStart, startPos
 BindListFrame.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; dragStart = input.Position; startPos = BindListFrame.Position end end)
@@ -983,7 +814,7 @@ local function UpdateKeybindList()
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
     local activeCount = 0
-    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
@@ -1001,7 +832,7 @@ local globalMobileDragging = false
 local function UpdateMobileBinds()
     if not isMobile then return end
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if _G.Cfg[bindKey] and tostring(_G.Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(_G.Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
@@ -1018,9 +849,7 @@ local function UpdateMobileBinds()
             btn.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then mDragInput = input end end)
             UserInputService.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - dragStartPos; if delta.Magnitude > 8 then isTap = false end; btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + delta.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + delta.Y) end end)
             UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if mDragging then mDragging = false; globalMobileDragging = false; btn.ZIndex = 1; if isTap then if _G.ToggleFuncs[key] then _G.ToggleFuncs[key]() end else _G.Cfg["MobilePos_"..key] = {XScale = btn.Position.X.Scale, XOffset = btn.Position.X.Offset, YScale = btn.Position.Y.Scale, YOffset = btn.Position.Y.Offset, isUDim2 = true}; SaveConfig() end end end end)
-        else
-            btn.Text = bindLetter; btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg; btn.TextColor3 = t.text
-        end
+        else btn.Text = bindLetter; btn.BackgroundColor3 = _G.Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg; btn.TextColor3 = t.text end
     end
 end
 task.spawn(function() while task.wait(0.5) do UpdateKeybindList(); UpdateMobileBinds() end end)
@@ -1036,8 +865,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         if tick() - lastAttackTime < 0.1 then return end
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
-            local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
-            local p = Players:GetPlayerFromCharacter(hitChar)
+            local hitChar = res.Instance:FindFirstAncestorOfClass("Model"); local p = Players:GetPlayerFromCharacter(hitChar)
             if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[LowerNameCache[hitChar.Name]] then 
                 if _G.Cfg.DamageParticlesEnabled then local pAmt = tonumber(_G.Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(res.Position) end end
                 if _G.Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(_G.Cfg.HitSoundMode), 1, 6); local sId = HitSounds[sIdx]; local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = sId; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
@@ -1046,177 +874,75 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
-local mAim = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(mAim, "Smooth", "AimbotSmoothness"); AddSlider(mAim, "MaxDist", "AimbotMaxDistance")
-local mKilla = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); AddToggle(mKilla, "No Cam Rotate", "KillAuraNoCamRotation"); AddToggle(mKilla, "Kill Strafe", "KillStrafeEnabled"); AddSlider(mKilla, "Strafe Speed", "KillStrafeSpeed"); AddSlider(mKilla, "Strafe Distance", "KillStrafeDistance"); AddSlider(mKilla, "Range", "KillAuraRange"); AddSlider(mKilla, "Click Range", "KillAuraClickRange"); AddSlider(mKilla, "Delay (0.1s)", "KillAuraSpeed")
-local mCrit = CreateModule("CRITICALS", "CriticalsEnabled", "Combat"); AddToggle(mCrit, "No Kill Strafe Jump", "CriticalsNoKillStrafeJump"); AddToggle(mCrit, "Only with Kill Aura", "CriticalsOnlyKillAura")
-local mHitbox = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(mHitbox, "Size Multiplier", "HitboxSize"); AddToggle(mHitbox, "Only Killaura", "HitboxOnlyKillaura");
-local mOrb = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(mOrb, "Radius", "TargetStrafeOrbitRadius"); AddSlider(mOrb, "Speed", "TargetStrafeOrbitSpeed")
-
-local mSpeed = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(mSpeed, "WalkSpeed", "WalkSpeedValue")
-local mVel = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(mVel, "Horizontal %", "VelocityHorizontal"); AddSlider(mVel, "Vertical %", "VelocityVertical")
-local mStrf = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
-local mNoc = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
-local mSpider = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(mSpider, "Speed", "SpiderSpeed")
-local mJitter = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(mJitter, "Range (Angle)", "JitterRange"); AddSlider(mJitter, "Speed (Freq)", "JitterSpeed"); AddSlider(mJitter, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode")
-
-local mHud = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(mHud, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(mHud, "Damage HB color", "TargetHudDamageColor"); AddToggle(mHud, "Only Killaura", "TargetHudOnlyKillaura")
-local mEsp = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(mEsp, "Size", "TargetESPSquareSize"); AddSlider(mEsp, "Border", "TargetESPBorderThickness"); AddColorBtn(mEsp, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(mEsp, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(mEsp, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(mEsp, "Only Killaura", "TargetESPOnlyKillaura")
-local mEsp2D = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(mEsp2D, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(mEsp2D, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(mEsp2D, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(mEsp2D, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(mEsp2D, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(mEsp2D, "Bar Border", "Esp2DBoxHealthBarBorder")
-
-local mArr = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); AddSlider(mArr, "Range", "ArrowsDistance"); AddSlider(mArr, "Size", "ArrowsSize"); AddToggle(mArr, "Show Distance", "ArrowsShowDistance"); AddColorBtn(mArr, "Arrow Color", "ArrowsColor")
-local mStars = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(mStars, "[COLOR] Stars Color", "WorldParticlesColor")
-local mHat = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(mHat, "Head Offset", "ChinaHatHeightOffset"); AddSlider(mHat, "Width", "ChinaHatWidthScale"); AddSlider(mHat, "Height", "ChinaHatHeightScale"); AddSlider(mHat, "Transparency", "ChinaHatTransparency"); AddColorBtn(mHat, "Hat Color", "ChinaHatAccessoryColor")
-local mHit = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(mHit, "Color", "ParticleColor"); AddSlider(mHit, "Size", "ParticleSize"); AddSlider(mHit, "Amount", "ParticleAmount")
-local mBright = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(mBright, "Brightness (0-10)", "FullBrightBrightness")
-local mSat = CreateModule("SATURATION", "SaturationEnabled", "Visuals"); AddSlider(mSat, "Intensity (0-50)", "SaturationValue")
-
-local mJmp = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(mJmp, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(mJmp, "Color", "JumpCircleEffectColor")
-local mTime = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(mTime, "Hours (0-23)", "TimeChangerHours")
-local mWcl = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(mWcl, "Map Color", "WorldColorValue"); AddSlider(mWcl, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(mWcl, "Darkness (0-5)", "WorldColorDarkness")
-local mHitS = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(mHitS, "Sound (1-6)", "HitSoundMode")
-local mFov = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(mFov, "FOV Value", "CustomFovValue")
-local mThird = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals"); AddSlider(mThird, "Distance", "ThirdPersonDistance")
-
-local mFnd = CreateModule("CLICK FRIEND", "ClickFriendEnabled", "Misc")
-local mDFnd = CreateModule("DELETE FRIEND", "DeleteFriendEnabled", "Misc")
-
-local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-local function encB64(data)
-    local sub = string.sub; local len = #data; local res = {}
-    for i = 1, len, 3 do
-        local b1 = string.byte(data, i); local b2 = string.byte(data, i+1) or 0; local b3 = string.byte(data, i+2) or 0
-        local n = b1 * 65536 + b2 * 256 + b3; local n1 = math.floor(n / 262144) % 64 + 1; local n2 = math.floor(n / 4096) % 64 + 1; local n3 = math.floor(n / 64) % 64 + 1; local n4 = n % 64 + 1
-        table.insert(res, sub(b64chars, n1, n1) .. sub(b64chars, n2, n2) .. (i+1 <= len and sub(b64chars, n3, n3) or "=") .. (i+2 <= len and sub(b64chars, n4, n4) or "="))
+do
+    local function mkMisc(title)
+        local f = Instance.new("Frame", ContentScroll); f.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", f); 
+        local str = Instance.new("UIStroke", f); str.Color = Color3.fromRGB(45, 45, 45); 
+        table.insert(moduleFrames, {frame = f, category = "Misc"}); table.insert(ThemeObjects.Backgrounds, f); table.insert(ThemeObjects.Strokes, str)
+        local t = Instance.new("TextLabel", f); t.Size = UDim2.new(1, -10, 0, 20); t.Position = UDim2.new(0, 5, 0, 5); t.Text = title; t.TextColor3 = Color3.new(1,1,1); t.Font = TARGET_FONT; t.TextSize = 14; t.BackgroundTransparency = 1; t.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, t)
+        return f
     end
-    return table.concat(res)
-end
 
-local function decB64(data)
-    local sub = string.sub; local find = string.find; local char = string.char; local res = {}; data = data:gsub("[^" .. b64chars .. "=]", "")
-    for i = 1, #data, 4 do
-        local o1 = find(b64chars, sub(data, i, i)) or 1; local o2 = find(b64chars, sub(data, i+1, i+1)) or 1; local o3 = find(b64chars, sub(data, i+2, i+2)) or 1; local o4 = find(b64chars, sub(data, i+3, i+3)) or 1
-        o1, o2, o3, o4 = o1-1, o2-1, o3-1, o4-1
-        local n = o1 * 262144 + o2 * 4096 + o3 * 64 + o4
-        local b1 = math.floor(n / 65536) % 256; local b2 = math.floor(n / 256) % 256; local b3 = n % 256
-        table.insert(res, char(b1)); if sub(data, i+2, i+2) ~= "=" then table.insert(res, char(b2)) end; if sub(data, i+3, i+3) ~= "=" then table.insert(res, char(b3)) end
+    local UI = {}
+    
+    UI.fF = mkMisc("FRIENDS MANAGER")
+    UI.fInp = Instance.new("TextBox", UI.fF); UI.fInp.Size = UDim2.new(1, -40, 0, 24); UI.fInp.Position = UDim2.new(0, 5, 0, 25); UI.fInp.BackgroundColor3 = Color3.fromRGB(15, 15, 15); UI.fInp.TextColor3 = Color3.new(1,1,1); UI.fInp.Font = TARGET_FONT; UI.fInp.TextSize = 12; UI.fInp.Text = "Username"; UI.fInp.ClearTextOnFocus = true; Instance.new("UICorner", UI.fInp).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.fInp)
+    UI.fAdd = Instance.new("TextButton", UI.fF); UI.fAdd.Size = UDim2.new(0, 24, 0, 24); UI.fAdd.Position = UDim2.new(1, -30, 0, 25); UI.fAdd.BackgroundColor3 = Color3.fromRGB(40, 40, 40); UI.fAdd.TextColor3 = Color3.new(0, 1, 0); UI.fAdd.Text = "+"; UI.fAdd.Font = TARGET_FONT; UI.fAdd.TextSize = 16; Instance.new("UICorner", UI.fAdd).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.fAdd)
+    UI.fScr = Instance.new("ScrollingFrame", UI.fF); UI.fScr.Size = UDim2.new(1, -10, 1, -60); UI.fScr.Position = UDim2.new(0, 5, 0, 55); UI.fScr.BackgroundTransparency = 1; UI.fScr.ScrollBarThickness = 2; UI.fScr.CanvasSize = UDim2.new(0, 0, 0, 0); UI.fScr.AutomaticCanvasSize = "Y"; Instance.new("UIListLayout", UI.fScr).Padding = UDim.new(0, 2)
+    
+    local function RefreshFriends()
+        local th = Themes[_G.Cfg.UITheme] or Themes.Dark
+        for _, c in pairs(UI.fScr:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+        for fname, _ in pairs(FriendsList) do
+            local i = Instance.new("Frame", UI.fScr); i.Size = UDim2.new(1, 0, 0, 20); i.BackgroundTransparency = 1
+            local b = Instance.new("TextButton", i); b.Size = UDim2.new(0, 20, 0, 20); b.BackgroundColor3 = th.accent; b.TextColor3 = Color3.new(1, 0.2, 0.2); b.Text = "-"; b.Font = TARGET_FONT; b.TextSize = 14; Instance.new("UICorner", b).CornerRadius = UDim.new(0,4)
+            local l = Instance.new("TextLabel", i); l.Size = UDim2.new(1, -25, 1, 0); l.Position = UDim2.new(0, 25, 0, 0); l.BackgroundTransparency = 1; l.Text = fname; l.TextColor3 = th.textSec; l.Font = TARGET_FONT; l.TextSize = 12; l.TextXAlignment = "Left"
+            b.MouseButton1Click:Connect(function() FriendsList[fname] = nil; for _, tp in ipairs(Players:GetPlayers()) do if string.lower(tp.Name) == fname then if tp.Character and tp.Character:FindFirstChild("FriendHighlight") then tp.Character.FriendHighlight:Destroy() end break end end; SaveConfig(); RefreshFriends(); ShowNotify("Friend Removed: " .. fname, false) end)
+        end
     end
-    return table.concat(res)
-end
+    UI.fAdd.MouseButton1Click:Connect(function() local t = UI.fInp.Text:gsub("%s+", ""); if t ~= "" and t ~= "Username" then local lt = LowerNameCache[t]; FriendsList[lt] = true; UI.fInp.Text = "Username"; SaveConfig(); RefreshFriends(); ShowNotify("Friend Added: " .. lt, true) end end)
+    local lastF = ""; task.spawn(function() while task.wait(0.2) do local c = HttpService:JSONEncode(FriendsList); if c ~= lastF then lastF = c; RefreshFriends() end end end)
 
-local function PackConfigString()
-    local p = {}
-    for _, k in ipairs(ConfigLayout) do
-        local v = _G.Cfg[k]
-        if type(v) == "boolean" then table.insert(p, v and "1" or "0")
-        elseif typeof(v) == "Color3" then table.insert(p, math.floor(v.R*255)..","..math.floor(v.G*255)..","..math.floor(v.B*255))
-        elseif typeof(v) == "UDim2" then table.insert(p, v.X.Scale..","..v.X.Offset..","..v.Y.Scale..","..v.Y.Offset)
-        else table.insert(p, tostring(v)) end
+    UI.gC = mkMisc("GENERATE CONFIG KEY")
+    UI.gB = Instance.new("TextBox", UI.gC); UI.gB.Size = UDim2.new(1, -20, 0, 40); UI.gB.Position = UDim2.new(0, 10, 0, 35); UI.gB.BackgroundColor3 = Color3.fromRGB(15, 15, 15); UI.gB.TextColor3 = Color3.fromRGB(150, 150, 150); UI.gB.Font = Enum.Font.Code; UI.gB.TextSize = 10; UI.gB.TextWrapped = true; UI.gB.Text = "Your key will appear here"; UI.gB.ClearTextOnFocus = false; UI.gB.TextEditable = false; Instance.new("UICorner", UI.gB).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.gB)
+    UI.gG = Instance.new("TextButton", UI.gC); UI.gG.Size = UDim2.new(1, -20, 0, 24); UI.gG.Position = UDim2.new(0, 10, 0, 80); UI.gG.BackgroundColor3 = Color3.fromRGB(40, 40, 40); UI.gG.TextColor3 = Color3.new(1,1,1); UI.gG.Text = "GENERATE"; UI.gG.Font = TARGET_FONT; UI.gG.TextSize = 14; Instance.new("UICorner", UI.gG).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.gG); table.insert(ThemeObjects.Texts, UI.gG)
+    UI.gCp = Instance.new("TextButton", UI.gC); UI.gCp.Size = UDim2.new(1, -20, 0, 16); UI.gCp.Position = UDim2.new(0, 10, 0, 108); UI.gCp.BackgroundColor3 = Color3.fromRGB(30, 30, 30); UI.gCp.TextColor3 = Color3.fromRGB(200, 200, 200); UI.gCp.Text = "COPY"; UI.gCp.Font = TARGET_FONT; UI.gCp.TextSize = 10; Instance.new("UICorner", UI.gCp).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.gCp); table.insert(ThemeObjects.SecondaryTexts, UI.gCp)
+    UI.gG.MouseButton1Click:Connect(function() UI.gB.Text = PackConfigString(); ShowNotify("Config Key Generated", true) end)
+    UI.gCp.MouseButton1Click:Connect(function() if setclipboard then setclipboard(UI.gB.Text); ShowNotify("Copied to clipboard", true) else ShowNotify("Executor not supported", false) end end)
+
+    UI.lC = mkMisc("LOAD CONFIG KEY")
+    UI.lB = Instance.new("TextBox", UI.lC); UI.lB.Size = UDim2.new(1, -20, 0, 40); UI.lB.Position = UDim2.new(0, 10, 0, 35); UI.lB.BackgroundColor3 = Color3.fromRGB(15, 15, 15); UI.lB.TextColor3 = Color3.new(1,1,1); UI.lB.Font = Enum.Font.Code; UI.lB.TextSize = 10; UI.lB.TextWrapped = true; UI.lB.Text = "Paste key here"; UI.lB.ClearTextOnFocus = true; Instance.new("UICorner", UI.lB).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.lB)
+    UI.lL = Instance.new("TextButton", UI.lC); UI.lL.Size = UDim2.new(1, -20, 0, 24); UI.lL.Position = UDim2.new(0, 10, 0, 80); UI.lL.BackgroundColor3 = Color3.fromRGB(40, 40, 40); UI.lL.TextColor3 = Color3.new(1,1,1); UI.lL.Text = "LOAD"; UI.lL.Font = TARGET_FONT; UI.lL.TextSize = 14; Instance.new("UICorner", UI.lL).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.lL); table.insert(ThemeObjects.Texts, UI.lL)
+    UI.lP = Instance.new("TextButton", UI.lC); UI.lP.Size = UDim2.new(1, -20, 0, 16); UI.lP.Position = UDim2.new(0, 10, 0, 108); UI.lP.BackgroundColor3 = Color3.fromRGB(30, 30, 30); UI.lP.TextColor3 = Color3.fromRGB(200, 200, 200); UI.lP.Text = "PASTE"; UI.lP.Font = TARGET_FONT; UI.lP.TextSize = 10; Instance.new("UICorner", UI.lP).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.lP); table.insert(ThemeObjects.SecondaryTexts, UI.lP)
+    UI.lL.MouseButton1Click:Connect(function() local txt = UI.lB.Text; if txt == "" or txt:find("Paste key") then return end; local cln = txt:gsub("%s+", ""); if UnpackConfigString(cln) then ShowNotify("Config Loaded", true) else ShowNotify("Invalid Key", false) end end)
+    UI.lP.MouseButton1Click:Connect(function() if getclipboard then UI.lB.Text = tostring(getclipboard()); ShowNotify("Pasted from clipboard", true) else ShowNotify("Executor not supported", false) end end)
+
+    UI.kC = mkMisc("")
+    UI.kBtn = Instance.new("TextButton", UI.kC); UI.kBtn.Size = UDim2.new(1, -20, 0, 40); UI.kBtn.Position = UDim2.new(0, 10, 0.5, -20); UI.kBtn.Text = "KILL SCRIPT"; UI.kBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); UI.kBtn.TextColor3 = Color3.new(1,1,1); UI.kBtn.Font = TARGET_FONT; UI.kBtn.TextSize = 16; Instance.new("UICorner", UI.kBtn)
+    UI.kBtn.MouseButton1Click:Connect(function() 
+        for _, c in pairs(Connections) do c:Disconnect() end 
+        GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy();
+        if SaturationEffect then SaturationEffect:Destroy() end; if VibeBloom then VibeBloom:Destroy() end; if VibeCC then VibeCC:Destroy() end; if VibeBlur then VibeBlur:Destroy() end
+        if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
+    end)
+
+    UI.tC = mkMisc("UI THEME (CYCLE)")
+    UI.tBtn = Instance.new("TextButton", UI.tC); UI.tBtn.Size = UDim2.new(1, -20, 0, 40); UI.tBtn.Position = UDim2.new(0, 10, 0, 35); UI.tBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); UI.tBtn.TextColor3 = Color3.new(1,1,1); UI.tBtn.Text = "Theme: " .. tostring(_G.Cfg.UITheme); UI.tBtn.Font = TARGET_FONT; UI.tBtn.TextSize = 14; Instance.new("UICorner", UI.tBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.tBtn); table.insert(ThemeObjects.Texts, UI.tBtn)
+
+    local function ApplyTheme()
+        local t = Themes[_G.Cfg.UITheme] or Themes.Dark
+        for _, obj in ipairs(ThemeObjects.Backgrounds) do if obj and obj.Parent then obj.BackgroundColor3 = t.bg; if obj.Name == "TargetHUD" then obj.BackgroundTransparency = t.trans else obj.BackgroundTransparency = t.trans end end end
+        for _, obj in ipairs(ThemeObjects.Strokes) do if obj and obj.Parent then obj.Color = t.stroke end end
+        for _, obj in ipairs(ThemeObjects.Texts) do if obj and obj.Parent then obj.TextColor3 = t.text end end
+        for _, obj in ipairs(ThemeObjects.SecondaryTexts) do if obj and obj.Parent then obj.TextColor3 = t.textSec end end
+        for _, obj in ipairs(ThemeObjects.Inputs) do if obj and obj.Parent then obj.BackgroundColor3 = t.inputBg; obj.TextColor3 = t.text end end
+        for _, obj in ipairs(ThemeObjects.InputBackgrounds) do if obj and obj.Parent then obj.BackgroundColor3 = t.accent end end
+        UpdateKeybindList(); RefreshFriends(); SwitchCategory(currentCat)
     end
-    local f = {}; for k,_ in pairs(FriendsList) do table.insert(f, k) end
-    table.insert(p, table.concat(f, ",")); return encB64(table.concat(p, "|"))
+
+    local ThemesList = {"Dark", "Light", "Gray", "Glass"}
+    UI.tBtn.MouseButton1Click:Connect(function() local idx = table.find(ThemesList, _G.Cfg.UITheme) or 1; idx = idx + 1; if idx > #ThemesList then idx = 1 end; _G.Cfg.UITheme = ThemesList[idx]; UI.tBtn.Text = "Theme: " .. _G.Cfg.UITheme; SaveConfig(); ApplyTheme() end)
+    ApplyTheme()
 end
 
-local function UnpackConfigString(b64)
-    local s = decB64(b64); if not s or s == "" then return false end
-    local p = string.split(s, "|"); if #p < #ConfigLayout then return false end
-    for i, k in ipairs(ConfigLayout) do
-        local v = _G.Cfg[k]; local d = p[i]
-        if type(v) == "boolean" then _G.Cfg[k] = (d == "1")
-        elseif type(v) == "number" then _G.Cfg[k] = tonumber(d) or v
-        elseif typeof(v) == "Color3" then local rgb = string.split(d, ","); if #rgb == 3 then _G.Cfg[k] = Color3.fromRGB(tonumber(rgb[1]) or 255, tonumber(rgb[2]) or 255, tonumber(rgb[3]) or 255) end
-        elseif typeof(v) == "UDim2" then local u = string.split(d, ","); if #u == 4 then _G.Cfg[k] = UDim2.new(tonumber(u[1]) or 0, tonumber(u[2]) or 0, tonumber(u[3]) or 0, tonumber(u[4]) or 0) end
-        else _G.Cfg[k] = d or v end
-    end
-    FriendsList = {}
-    if p[#ConfigLayout+1] and p[#ConfigLayout+1] ~= "" then for _, f in ipairs(string.split(p[#ConfigLayout+1], ",")) do if f ~= "" then FriendsList[string.lower(f)] = true end end end
-    SaveConfig(); return true
-end
-
-local FriendsFrame = Instance.new("Frame", ContentScroll); FriendsFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", FriendsFrame); 
-local FFStroke = Instance.new("UIStroke", FriendsFrame); FFStroke.Color = Color3.fromRGB(45, 45, 45); 
-table.insert(moduleFrames, {frame = FriendsFrame, category = "Misc"})
-table.insert(ThemeObjects.Backgrounds, FriendsFrame); table.insert(ThemeObjects.Strokes, FFStroke)
-
-local FTitle = Instance.new("TextLabel", FriendsFrame); FTitle.Size = UDim2.new(1, -10, 0, 20); FTitle.Position = UDim2.new(0, 5, 0, 5); FTitle.Text = "FRIENDS MANAGER"; FTitle.TextColor3 = Color3.new(1,1,1); FTitle.Font = TARGET_FONT; FTitle.TextSize = 14; FTitle.BackgroundTransparency = 1; FTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, FTitle)
-local FInput = Instance.new("TextBox", FriendsFrame); FInput.Size = UDim2.new(1, -40, 0, 24); FInput.Position = UDim2.new(0, 5, 0, 25); FInput.BackgroundColor3 = Color3.fromRGB(15, 15, 15); FInput.TextColor3 = Color3.new(1,1,1); FInput.Font = TARGET_FONT; FInput.TextSize = 12; FInput.Text = "Username"; FInput.ClearTextOnFocus = true; Instance.new("UICorner", FInput).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, FInput)
-local FAddBtn = Instance.new("TextButton", FriendsFrame); FAddBtn.Size = UDim2.new(0, 24, 0, 24); FAddBtn.Position = UDim2.new(1, -30, 0, 25); FAddBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); FAddBtn.TextColor3 = Color3.new(0, 1, 0); FAddBtn.Text = "+"; FAddBtn.Font = TARGET_FONT; FAddBtn.TextSize = 16; Instance.new("UICorner", FAddBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, FAddBtn)
-
-local FListScroll = Instance.new("ScrollingFrame", FriendsFrame); FListScroll.Size = UDim2.new(1, -10, 1, -60); FListScroll.Position = UDim2.new(0, 5, 0, 55); FListScroll.BackgroundTransparency = 1; FListScroll.ScrollBarThickness = 2; FListScroll.CanvasSize = UDim2.new(0, 0, 0, 0); FListScroll.AutomaticCanvasSize = "Y"
-local FListLayout = Instance.new("UIListLayout", FListScroll); FListLayout.Padding = UDim.new(0, 2)
-
-local function RefreshFriendsList()
-    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    for _, child in pairs(FListScroll:GetChildren()) do if child:IsA("Frame") then child:Destroy() end end
-    for fname, _ in pairs(FriendsList) do
-        local itm = Instance.new("Frame", FListScroll); itm.Size = UDim2.new(1, 0, 0, 20); itm.BackgroundTransparency = 1
-        local dBtn = Instance.new("TextButton", itm); dBtn.Size = UDim2.new(0, 20, 0, 20); dBtn.Position = UDim2.new(0, 0, 0, 0); dBtn.BackgroundColor3 = t.accent; dBtn.TextColor3 = Color3.new(1, 0.2, 0.2); dBtn.Text = "-"; dBtn.Font = TARGET_FONT; dBtn.TextSize = 14; Instance.new("UICorner", dBtn).CornerRadius = UDim.new(0,4)
-        local nLbl = Instance.new("TextLabel", itm); nLbl.Size = UDim2.new(1, -25, 1, 0); nLbl.Position = UDim2.new(0, 25, 0, 0); nLbl.BackgroundTransparency = 1; nLbl.Text = fname; nLbl.TextColor3 = t.textSec; nLbl.Font = TARGET_FONT; nLbl.TextSize = 12; nLbl.TextXAlignment = "Left"
-        dBtn.MouseButton1Click:Connect(function()
-            FriendsList[fname] = nil
-            for _, targetPlayer in ipairs(Players:GetPlayers()) do if string.lower(targetPlayer.Name) == fname then if targetPlayer.Character and targetPlayer.Character:FindFirstChild("FriendHighlight") then targetPlayer.Character.FriendHighlight:Destroy() end break end end
-            SaveConfig(); RefreshFriendsList(); ShowNotify("Friend Removed: " .. fname, false)
-        end)
-    end
-end
-FAddBtn.MouseButton1Click:Connect(function() local txt = FInput.Text:gsub("%s+", ""); if txt ~= "" and txt ~= "Username" then local lowerTxt = LowerNameCache[txt]; FriendsList[lowerTxt] = true; FInput.Text = "Username"; SaveConfig(); RefreshFriendsList(); ShowNotify("Friend Added: " .. lowerTxt, true) end end)
-local lastFriendsStr = ""; task.spawn(function() while task.wait(0.2) do local currentStr = HttpService:JSONEncode(FriendsList); if currentStr ~= lastFriendsStr then lastFriendsStr = currentStr; RefreshFriendsList() end end end)
-
-local GenConfigFrame = Instance.new("Frame", ContentScroll); GenConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", GenConfigFrame); 
-local GCStroke = Instance.new("UIStroke", GenConfigFrame); GCStroke.Color = Color3.fromRGB(45, 45, 45); 
-table.insert(moduleFrames, {frame = GenConfigFrame, category = "Misc"}); table.insert(ThemeObjects.Backgrounds, GenConfigFrame); table.insert(ThemeObjects.Strokes, GCStroke)
-
-local GenTitle = Instance.new("TextLabel", GenConfigFrame); GenTitle.Size = UDim2.new(1, -10, 0, 25); GenTitle.Position = UDim2.new(0, 5, 0, 5); GenTitle.Text = "GENERATE CONFIG KEY"; GenTitle.TextColor3 = Color3.new(1,1,1); GenTitle.Font = TARGET_FONT; GenTitle.TextSize = 14; GenTitle.BackgroundTransparency = 1; GenTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, GenTitle)
-local GenBox = Instance.new("TextBox", GenConfigFrame); GenBox.Size = UDim2.new(1, -20, 0, 40); GenBox.Position = UDim2.new(0, 10, 0, 35); GenBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); GenBox.TextColor3 = Color3.fromRGB(150, 150, 150); GenBox.Font = Enum.Font.Code; GenBox.TextSize = 10; GenBox.TextWrapped = true; GenBox.Text = "Your key will appear here"; GenBox.ClearTextOnFocus = false; GenBox.TextEditable = false; Instance.new("UICorner", GenBox).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, GenBox)
-local GenBtn = Instance.new("TextButton", GenConfigFrame); GenBtn.Size = UDim2.new(1, -20, 0, 24); GenBtn.Position = UDim2.new(0, 10, 0, 80); GenBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); GenBtn.TextColor3 = Color3.new(1,1,1); GenBtn.Text = "GENERATE"; GenBtn.Font = TARGET_FONT; GenBtn.TextSize = 14; Instance.new("UICorner", GenBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, GenBtn); table.insert(ThemeObjects.Texts, GenBtn)
-local CopyBtn = Instance.new("TextButton", GenConfigFrame); CopyBtn.Size = UDim2.new(1, -20, 0, 16); CopyBtn.Position = UDim2.new(0, 10, 0, 108); CopyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); CopyBtn.TextColor3 = Color3.fromRGB(200, 200, 200); CopyBtn.Text = "COPY"; CopyBtn.Font = TARGET_FONT; CopyBtn.TextSize = 10; Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, CopyBtn); table.insert(ThemeObjects.SecondaryTexts, CopyBtn)
-GenBtn.MouseButton1Click:Connect(function() GenBox.Text = PackConfigString(); ShowNotify("Config Key Generated", true) end)
-CopyBtn.MouseButton1Click:Connect(function() if setclipboard then setclipboard(GenBox.Text); ShowNotify("Copied to clipboard", true) else ShowNotify("Executor not supported", false) end end)
-
-local LoadConfigFrame = Instance.new("Frame", ContentScroll); LoadConfigFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", LoadConfigFrame); 
-local LCStroke = Instance.new("UIStroke", LoadConfigFrame); LCStroke.Color = Color3.fromRGB(45, 45, 45); 
-table.insert(moduleFrames, {frame = LoadConfigFrame, category = "Misc"}); table.insert(ThemeObjects.Backgrounds, LoadConfigFrame); table.insert(ThemeObjects.Strokes, LCStroke)
-
-local LoadTitle = Instance.new("TextLabel", LoadConfigFrame); LoadTitle.Size = UDim2.new(1, -10, 0, 25); LoadTitle.Position = UDim2.new(0, 5, 0, 5); LoadTitle.Text = "LOAD CONFIG KEY"; LoadTitle.TextColor3 = Color3.new(1,1,1); LoadTitle.Font = TARGET_FONT; LoadTitle.TextSize = 14; LoadTitle.BackgroundTransparency = 1; LoadTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, LoadTitle)
-local LoadBox = Instance.new("TextBox", LoadConfigFrame); LoadBox.Size = UDim2.new(1, -20, 0, 40); LoadBox.Position = UDim2.new(0, 10, 0, 35); LoadBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15); LoadBox.TextColor3 = Color3.new(1,1,1); LoadBox.Font = Enum.Font.Code; LoadBox.TextSize = 10; LoadBox.TextWrapped = true; LoadBox.Text = "Paste key here"; LoadBox.ClearTextOnFocus = true; Instance.new("UICorner", LoadBox).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, LoadBox)
-local LoadBtn = Instance.new("TextButton", LoadConfigFrame); LoadBtn.Size = UDim2.new(1, -20, 0, 24); LoadBtn.Position = UDim2.new(0, 10, 0, 80); LoadBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); LoadBtn.TextColor3 = Color3.new(1,1,1); LoadBtn.Text = "LOAD"; LoadBtn.Font = TARGET_FONT; LoadBtn.TextSize = 14; Instance.new("UICorner", LoadBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, LoadBtn); table.insert(ThemeObjects.Texts, LoadBtn)
-local PasteBtn = Instance.new("TextButton", LoadConfigFrame); PasteBtn.Size = UDim2.new(1, -20, 0, 16); PasteBtn.Position = UDim2.new(0, 10, 0, 108); PasteBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); PasteBtn.TextColor3 = Color3.fromRGB(200, 200, 200); PasteBtn.Text = "PASTE"; PasteBtn.Font = TARGET_FONT; PasteBtn.TextSize = 10; Instance.new("UICorner", PasteBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, PasteBtn); table.insert(ThemeObjects.SecondaryTexts, PasteBtn)
-LoadBtn.MouseButton1Click:Connect(function() local txt = LoadBox.Text; if txt == "" or txt:find("Paste key") then return end; local cleanTxt = txt:gsub("%s+", ""); local success = UnpackConfigString(cleanTxt); if success then ShowNotify("Config Loaded", true) else ShowNotify("Invalid Key", false) end end)
-PasteBtn.MouseButton1Click:Connect(function() if getclipboard then LoadBox.Text = tostring(getclipboard()); ShowNotify("Pasted from clipboard", true) else ShowNotify("Executor not supported", false) end end)
-
-local KillFrame = Instance.new("Frame", ContentScroll); KillFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", KillFrame); 
-local KStroke = Instance.new("UIStroke", KillFrame); KStroke.Color = Color3.fromRGB(45, 45, 45); 
-table.insert(moduleFrames, {frame = KillFrame, category = "Misc"}); table.insert(ThemeObjects.Backgrounds, KillFrame); table.insert(ThemeObjects.Strokes, KStroke)
-
-local KillBtn = Instance.new("TextButton", KillFrame); KillBtn.Size = UDim2.new(1, -20, 0, 40); KillBtn.Position = UDim2.new(0, 10, 0.5, -20); KillBtn.Text = "KILL SCRIPT"; KillBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); KillBtn.TextColor3 = Color3.new(1,1,1); KillBtn.Font = TARGET_FONT; KillBtn.TextSize = 16; Instance.new("UICorner", KillBtn)
-KillBtn.MouseButton1Click:Connect(function() 
-    for _, c in pairs(Connections) do c:Disconnect() end 
-    GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy(); if SaturationEffect then SaturationEffect:Destroy() end
-    if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
-end)
-
-local ThemeFrame = Instance.new("Frame", ContentScroll); ThemeFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", ThemeFrame); 
-local tfs = Instance.new("UIStroke", ThemeFrame); tfs.Color = Color3.fromRGB(45, 45, 45); 
-table.insert(moduleFrames, {frame = ThemeFrame, category = "Misc"}); table.insert(ThemeObjects.Backgrounds, ThemeFrame); table.insert(ThemeObjects.Strokes, tfs)
-
-local TTitle = Instance.new("TextLabel", ThemeFrame); TTitle.Size = UDim2.new(1, -10, 0, 25); TTitle.Position = UDim2.new(0, 5, 0, 5); TTitle.Text = "UI THEME (CYCLE)"; TTitle.TextColor3 = Color3.new(1,1,1); TTitle.Font = TARGET_FONT; TTitle.TextSize = 14; TTitle.BackgroundTransparency = 1; TTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, TTitle)
-local TCyc = Instance.new("TextButton", ThemeFrame); TCyc.Size = UDim2.new(1, -20, 0, 40); TCyc.Position = UDim2.new(0, 10, 0, 35); TCyc.BackgroundColor3 = Color3.fromRGB(40, 40, 40); TCyc.TextColor3 = Color3.new(1,1,1); TCyc.Text = "Theme: " .. tostring(_G.Cfg.UITheme); TCyc.Font = TARGET_FONT; TCyc.TextSize = 14; Instance.new("UICorner", TCyc).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, TCyc); table.insert(ThemeObjects.Texts, TCyc)
-
-local function ApplyTheme()
-    local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    for _, obj in ipairs(ThemeObjects.Backgrounds) do if obj and obj.Parent then obj.BackgroundColor3 = t.bg; if obj.Name == "TargetHUD" then obj.BackgroundTransparency = t.trans else obj.BackgroundTransparency = t.trans end end end
-    for _, obj in ipairs(ThemeObjects.Strokes) do if obj and obj.Parent then obj.Color = t.stroke end end
-    for _, obj in ipairs(ThemeObjects.Texts) do if obj and obj.Parent then obj.TextColor3 = t.text end end
-    for _, obj in ipairs(ThemeObjects.SecondaryTexts) do if obj and obj.Parent then obj.TextColor3 = t.textSec end end
-    for _, obj in ipairs(ThemeObjects.Inputs) do if obj and obj.Parent then obj.BackgroundColor3 = t.inputBg; obj.TextColor3 = t.text end end
-    for _, obj in ipairs(ThemeObjects.InputBackgrounds) do if obj and obj.Parent then obj.BackgroundColor3 = t.accent end end
-    UpdateKeybindList(); RefreshFriendsList(); SwitchCategory(currentCat)
-end
-
-local ThemesList = {"Dark", "Light", "Gray", "Glass"}
-TCyc.MouseButton1Click:Connect(function()
-    local idx = table.find(ThemesList, _G.Cfg.UITheme) or 1; idx = idx + 1; if idx > #ThemesList then idx = 1 end
-    _G.Cfg.UITheme = ThemesList[idx]; TCyc.Text = "Theme: " .. _G.Cfg.UITheme; SaveConfig(); ApplyTheme()
-end)
-
-ApplyTheme()
 SwitchCategory("Combat")
