@@ -56,7 +56,7 @@ VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.15; VibeCC.Saturation = 0.2; V
 local VibeBlur = Instance.new("BlurEffect")
 VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Parent = Lighting; VibeBlur.Enabled = false
 
--- // КОНФИГ (ОТВЯЗАН ОТ ВЕРСИЙ, БОЛЬШЕ НЕ СЛЕТИТ)
+-- // КОНФИГ
 _G.Cfg = {
     UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
@@ -83,6 +83,7 @@ _G.Cfg = {
     DamageParticlesEnabled = false, ParticleColor = Color3.fromRGB(255, 255, 255), ParticleSize = 4, ParticleAmount = 8, DamageParticlesEnabledBind = "None",
     WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesEnabledBind = "None",
     SaturationEnabled = false, SaturationValue = 1, SaturationEnabledBind = "None",
+    ClientSideEnabled = false, ClientSideTransparency = 50, ClientSideColor = Color3.fromRGB(255, 100, 100), ClientSideDelTexture = false, ClientSideEnabledBind = "None",
     ClickFriendEnabled = false, ClickFriendEnabledBind = "None",
     DeleteFriendEnabled = false, DeleteFriendEnabledBind = "None",
     WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(0, 255, 100), WorldColorTransparency = 0.2, WorldColorDarkness = 0, WorldColorShader = false, WorldColorEnabledBind = "None",
@@ -102,7 +103,6 @@ local Themes = {
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
--- ИМЯ ФАЙЛА ЗАФИКСИРОВАНО
 local ConfigFileName = "Gemini_Config_Main.json"
 local function SaveConfig()
     local copy = {}
@@ -233,11 +233,10 @@ local IslandStroke = Instance.new("UIStroke", Island); IslandStroke.Thickness = 
 local IslandTitle = Instance.new("TextLabel", Island); IslandTitle.Size = UDim2.new(0.5, 0, 1, 0); IslandTitle.Position = UDim2.new(0, 15, 0, 0); IslandTitle.BackgroundTransparency = 1; IslandTitle.Text = "тгк: extazz_scripts"; IslandTitle.Font = TARGET_FONT; IslandTitle.TextSize = 14; IslandTitle.TextColor3 = Color3.new(1, 1, 1); IslandTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, IslandTitle)
 local StatsLabel = Instance.new("TextLabel", Island); StatsLabel.Size = UDim2.new(0.5, 0, 1, 0); StatsLabel.Position = UDim2.new(0.5, -10, 0, 0); StatsLabel.BackgroundTransparency = 1; StatsLabel.Text = "FPS: 0 | PING: 0ms"; StatsLabel.Font = TARGET_FONT; StatsLabel.TextSize = 12; StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200); StatsLabel.TextXAlignment = "Right"; table.insert(ThemeObjects.SecondaryTexts, StatsLabel)
 
--- МЕНЮ ТЕПЕРЬ ПО ДЕФОЛТУ ЗАКРЫТО
 local MenuOpen = false 
 local MainFrame = Instance.new("Frame", GeminiGui)
 MainFrame.Size = UDim2.new(0, 750, 0, 450)
-MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180) -- Начальная закрытая позиция
+MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 MainFrame.Visible = false 
 MainFrame.BackgroundTransparency = 1
@@ -394,6 +393,7 @@ do
     m = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(m, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(m, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(m, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(m, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(m, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(m, "Bar Border", "Esp2DBoxHealthBarBorder")
     m = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); AddSlider(m, "Range", "ArrowsDistance"); AddSlider(m, "Size", "ArrowsSize"); AddToggle(m, "Show Distance", "ArrowsShowDistance"); AddColorBtn(m, "Arrow Color", "ArrowsColor")
     m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor")
+    m = CreateModule("CLIENT SIDE (GHOST)", "ClientSideEnabled", "Visuals"); AddSlider(m, "Transparency (0-100)", "ClientSideTransparency"); AddColorBtn(m, "Ghost Color", "ClientSideColor"); AddToggle(m, "Del Texture", "ClientSideDelTexture")
     m = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(m, "Head Offset", "ChinaHatHeightOffset"); AddSlider(m, "Width", "ChinaHatWidthScale"); AddSlider(m, "Height", "ChinaHatHeightScale"); AddSlider(m, "Transparency", "ChinaHatTransparency"); AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
     m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(m, "Color", "ParticleColor"); AddSlider(m, "Size", "ParticleSize"); AddSlider(m, "Amount", "ParticleAmount")
     m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(m, "Brightness (0-10)", "FullBrightBrightness")
@@ -536,6 +536,7 @@ table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     end
 end))
 
+-- // НЕВИДИМЫЙ ХИТБОКС ГОЛОВЫ С ФЕЙКОВОЙ ГОЛОВОЙ
 task.spawn(function()
     while task.wait(0.2) do
         for _, player in ipairs(Players:GetPlayers()) do
@@ -543,13 +544,78 @@ task.spawn(function()
                 local plChar = player.Character
                 if plChar then
                     local isFriend = FriendsList[LowerNameCache[player.Name]]; local isHitboxActive = false; local mult = 1
-                    if _G.Cfg.HitboxEnabled and not isFriend then if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then isHitboxActive = true; mult = tonumber(_G.Cfg.HitboxSize) or 1 end end
+                    if _G.Cfg.HitboxEnabled and not isFriend then 
+                        if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then 
+                            isHitboxActive = true; mult = tonumber(_G.Cfg.HitboxSize) or 1 
+                        end 
+                    end
+                    
                     local partsList = PlayerPartsCache[plChar]
-                    if not partsList then partsList = {}; for _, p in ipairs(plChar:GetChildren()) do if p:IsA("BasePart") then table.insert(partsList, p) end end; PlayerPartsCache[plChar] = partsList end
+                    if not partsList then 
+                        partsList = {}; 
+                        for _, p in ipairs(plChar:GetChildren()) do 
+                            if p:IsA("BasePart") then table.insert(partsList, p) end 
+                        end; 
+                        PlayerPartsCache[plChar] = partsList 
+                    end
+                    
                     for _, part in ipairs(partsList) do
-                        if not OrigPartData[part] then OrigPartData[part] = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless} end
-                        local origData = OrigPartData[part]; local targetSize = isHitboxActive and (origData.Size * mult) or origData.Size
-                        if part.Size ~= targetSize then part.Size = targetSize; if isHitboxActive then part.CanCollide = false; part.Massless = true else part.CanCollide = origData.CanCollide; part.Massless = origData.Massless end end
+                        if not OrigPartData[part] then 
+                            OrigPartData[part] = {Size = part.Size, Trans = part.Transparency, CanCollide = part.CanCollide, Massless = part.Massless} 
+                        end
+                        
+                        if isHitboxActive and part.Name == "Head" then
+                            local targetSize = OrigPartData[part].Size * mult
+                            if part.Size ~= targetSize then
+                                part.Size = targetSize
+                                part.Transparency = 1
+                                part.CanCollide = false
+                                part.Massless = true
+                                
+                                local face = part:FindFirstChildOfClass("Decal")
+                                if face then 
+                                    if not OrigPartData[face] then OrigPartData[face] = {Trans = face.Transparency} end
+                                    face.Transparency = 1 
+                                end
+                                
+                                if not plChar:FindFirstChild("Gemini_FakeHead") then
+                                    local fakeHead = part:Clone()
+                                    fakeHead.Name = "Gemini_FakeHead"
+                                    for _, v in ipairs(fakeHead:GetChildren()) do
+                                        if v:IsA("Attachment") or v:IsA("Weld") or v:IsA("WeldConstraint") or v:IsA("Motor6D") or v:IsA("Script") or v:IsA("LocalScript") then
+                                            v:Destroy()
+                                        end
+                                    end
+                                    fakeHead.Size = OrigPartData[part].Size
+                                    fakeHead.Transparency = OrigPartData[part].Trans
+                                    fakeHead.CanCollide = false
+                                    fakeHead.Massless = true
+                                    
+                                    local fakeFace = fakeHead:FindFirstChildOfClass("Decal")
+                                    if fakeFace and OrigPartData[face] then fakeFace.Transparency = OrigPartData[face].Trans end
+                                    
+                                    local w = Instance.new("WeldConstraint")
+                                    w.Part0 = part
+                                    w.Part1 = fakeHead
+                                    w.Parent = fakeHead
+                                    fakeHead.Parent = plChar
+                                end
+                            end
+                        else
+                            if part.Size ~= OrigPartData[part].Size or (part.Name == "Head" and part.Transparency ~= OrigPartData[part].Trans) then
+                                part.Size = OrigPartData[part].Size
+                                part.Transparency = OrigPartData[part].Trans
+                                part.CanCollide = OrigPartData[part].CanCollide
+                                part.Massless = OrigPartData[part].Massless
+                                
+                                if part.Name == "Head" then
+                                    local face = part:FindFirstChildOfClass("Decal")
+                                    if face and OrigPartData[face] then face.Transparency = OrigPartData[face].Trans end
+                                    local fakeH = plChar:FindFirstChild("Gemini_FakeHead")
+                                    if fakeH then fakeH:Destroy() end
+                                end
+                            end
+                        end
                     end
                 end
             end
@@ -565,7 +631,7 @@ task.spawn(function()
             Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
             if _G.Cfg.WorldColorShader then 
                 VibeBloom.Enabled = true; VibeCC.Enabled = true; VibeBlur.Enabled = true; 
-                VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.4) -- Увеличил интенсивность цвета
+                VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.4)
             else 
                 VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false 
             end
@@ -574,6 +640,63 @@ task.spawn(function()
         end
     end
 end)
+
+-- GHOST VARIABLES
+local GhostModel = nil
+local GhostPartsMap = {}
+local GhostHistory = {}
+local lastGhostColor = nil
+local lastGhostTrans = nil
+local lastGhostDelTex = nil
+local currentGhostCharRef = nil
+
+-- ИСПРАВЛЕННАЯ ФУНКЦИЯ ОЧИСТКИ ТЕКСТУР И ВОЛОС (С PCALL)
+local function UpdateGhostAppearance()
+    if not GhostModel then return end
+    local trans = (tonumber(_G.Cfg.ClientSideTransparency) or 50) / 100
+    local delTex = _G.Cfg.ClientSideDelTexture
+    local gColor = _G.Cfg.ClientSideColor
+    
+    pcall(function()
+        local bc = GhostModel:FindFirstChildOfClass("BodyColors")
+        if bc then bc:Destroy() end
+    end)
+    
+    for _, p in ipairs(GhostModel:GetDescendants()) do
+        pcall(function()
+            if delTex then
+                if p:IsA("Shirt") or p:IsA("Pants") or p:IsA("ShirtGraphic") or p:IsA("Decal") or p:IsA("Texture") or p:IsA("SurfaceAppearance") or p:IsA("WrapLayer") or p:IsA("WrapTarget") then
+                    p:Destroy()
+                    return
+                end
+                
+                if p:IsA("CharacterMesh") then
+                    p.BaseTextureId = 0
+                    p.OverlayTextureId = 0
+                end
+                
+                if p:IsA("SpecialMesh") then
+                    p.TextureId = ""
+                end
+                
+                if p:IsA("MeshPart") then
+                    p.TextureID = ""
+                end
+            end
+            
+            if p:IsA("BasePart") then
+                p.Transparency = trans
+                p.Color = gColor
+                if delTex then
+                    p.Material = Enum.Material.SmoothPlastic
+                    if p:IsA("MeshPart") then
+                        p.TextureID = ""
+                    end
+                end
+            end
+        end)
+    end
+end
 
 table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     local target = GetTarget(); local char = LocalPlayer.Character; local currentKaTarget = nil
@@ -631,6 +754,104 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             end
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(_G.Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
+    end
+
+    -- // 5. CLIENT SIDE GHOST LOGIC
+    if _G.Cfg.ClientSideEnabled and char and char:FindFirstChild("HumanoidRootPart") then
+        if currentGhostCharRef ~= char then
+            if GhostModel then GhostModel:Destroy() end
+            GhostModel = nil
+            GhostPartsMap = {}
+            GhostHistory = {}
+            currentGhostCharRef = char
+        end
+        
+        -- Динамическая перезагрузка при смене Del Texture
+        if lastGhostDelTex ~= nil and lastGhostDelTex ~= _G.Cfg.ClientSideDelTexture then
+            if GhostModel then GhostModel:Destroy() end
+            GhostModel = nil 
+            GhostPartsMap = {}
+            lastGhostDelTex = _G.Cfg.ClientSideDelTexture
+        end
+        
+        if not GhostModel or GhostModel.Parent ~= Chams3DFolder then
+            char.Archivable = true
+            GhostModel = char:Clone()
+            GhostModel.Name = "Gemini_Ghost"
+            GhostModel.Parent = Chams3DFolder
+            GhostPartsMap = {}
+            
+            -- Удаляем Humanoid и HRP
+            local hum = GhostModel:FindFirstChildOfClass("Humanoid")
+            if hum then hum:Destroy() end
+            local hrp = GhostModel:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp:Destroy() end
+            
+            for _, v in ipairs(GhostModel:GetDescendants()) do
+                if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
+                if v:IsA("BasePart") then 
+                    v.Anchored = true 
+                    v.CanCollide = false 
+                    v.CanQuery = false 
+                    v.CanTouch = false 
+                    v.Massless = true 
+                end
+            end
+            
+            for _, realPart in ipairs(char:GetDescendants()) do
+                if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
+                    local ghostPart = nil
+                    if realPart.Parent == char then
+                        ghostPart = GhostModel:FindFirstChild(realPart.Name)
+                    elseif realPart.Parent:IsA("Accessory") then
+                        local acc = GhostModel:FindFirstChild(realPart.Parent.Name)
+                        if acc then ghostPart = acc:FindFirstChild(realPart.Name) end
+                    end
+                    
+                    if ghostPart and ghostPart:IsA("BasePart") then
+                        GhostPartsMap[realPart] = ghostPart
+                    end
+                end
+            end
+            
+            lastGhostColor = _G.Cfg.ClientSideColor
+            lastGhostTrans = _G.Cfg.ClientSideTransparency
+            lastGhostDelTex = _G.Cfg.ClientSideDelTexture
+            UpdateGhostAppearance()
+        end
+
+        local currentTrans = tonumber(_G.Cfg.ClientSideTransparency) or 50
+        if lastGhostColor ~= _G.Cfg.ClientSideColor or lastGhostTrans ~= currentTrans then
+            lastGhostColor = _G.Cfg.ClientSideColor; lastGhostTrans = currentTrans 
+            UpdateGhostAppearance()
+        end
+
+        local currentPose = { t = tick(), parts = {} }
+        for realPart, ghostPart in pairs(GhostPartsMap) do
+            if realPart and realPart.Parent then
+                currentPose.parts[ghostPart] = realPart.CFrame
+            end
+        end
+        table.insert(GhostHistory, currentPose)
+        
+        while #GhostHistory > 0 and tick() - GhostHistory[1].t > 2 do table.remove(GhostHistory, 1) end
+        
+        local ping = 0; pcall(function() ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+        ping = math.clamp(ping / 1000, 0, 2)
+        local targetTime = tick() - ping
+        local targetPose = GhostHistory[#GhostHistory]
+        
+        for i = #GhostHistory, 1, -1 do
+            if GhostHistory[i].t <= targetTime then targetPose = GhostHistory[i]; break end
+        end
+        
+        if targetPose then
+            for ghostPart, cframe in pairs(targetPose.parts) do
+                if ghostPart and ghostPart.Parent then ghostPart.CFrame = cframe end
+            end
+        end
+    else
+        if GhostModel then GhostModel:Destroy(); GhostModel = nil; GhostPartsMap = {}; GhostHistory = {}; currentGhostCharRef = nil end
     end
 
     for _, player in ipairs(Players:GetPlayers()) do
@@ -763,14 +984,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- // ИСПРАВЛЕННЫЙ JITTER SPIN
     if not didRotateHRP and _G.Cfg.JitterEnabled and char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
         local hrp = char.HumanoidRootPart
         char.Humanoid.AutoRotate = false
         
         local state = char.Humanoid:GetState()
         if _G.Cfg.JitterSpinAtJump and (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) then 
-            -- Переводим значение в радианы, чтобы Роблокс понимал это как нормальные градусы поворота, а не дичь
             local spinSpeed = tonumber(_G.Cfg.JitterSpinSpeed) or 20
             local spinAngle = math.rad((tick() * spinSpeed * 15) % 360)
             
@@ -820,7 +1039,7 @@ local function UpdateKeybindList()
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
     local activeCount = 0
-    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
@@ -838,7 +1057,7 @@ local globalMobileDragging = false
 local function UpdateMobileBinds()
     if not isMobile then return end
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if _G.Cfg[bindKey] and tostring(_G.Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(_G.Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
