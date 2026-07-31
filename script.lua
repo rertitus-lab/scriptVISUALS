@@ -43,20 +43,20 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
--- // 2. ИСПРАВЛЕННЫЕ, СПОКОЙНЫЕ ШЕЙДЕРЫ (БЕЗ ЯДЕРНОЙ ВОЙНЫ)
+-- // ЭФФЕКТЫ
 local SaturationEffect = Instance.new("ColorCorrectionEffect")
 SaturationEffect.Name = "GeminiSaturation"; SaturationEffect.Parent = Lighting; SaturationEffect.Enabled = false
 
 local VibeBloom = Instance.new("BloomEffect")
-VibeBloom.Name = "GeminiVibeBloom"; VibeBloom.Intensity = 0.15; VibeBloom.Size = 10; VibeBloom.Threshold = 0.8; VibeBloom.Parent = Lighting; VibeBloom.Enabled = false
+VibeBloom.Name = "GeminiVibeBloom"; VibeBloom.Intensity = 0.35; VibeBloom.Size = 14; VibeBloom.Threshold = 0.9; VibeBloom.Parent = Lighting; VibeBloom.Enabled = false
 
 local VibeCC = Instance.new("ColorCorrectionEffect")
-VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.05; VibeCC.Saturation = 0.1; VibeCC.Parent = Lighting; VibeCC.Enabled = false
+VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.15; VibeCC.Saturation = 0.2; VibeCC.Parent = Lighting; VibeCC.Enabled = false
 
 local VibeBlur = Instance.new("BlurEffect")
 VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Parent = Lighting; VibeBlur.Enabled = false
 
--- // КОНФИГ
+-- // КОНФИГ (ОТВЯЗАН ОТ ВЕРСИЙ, БОЛЬШЕ НЕ СЛЕТИТ)
 _G.Cfg = {
     UITheme = "Dark",
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
@@ -94,8 +94,6 @@ _G.Cfg = {
     FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
 }
 
-local ConfigLayout = { "UITheme", "AimbotEnabled", "AimbotMaxDistance", "AimbotSmoothness", "AimbotEnabledBind", "TargetHudEnabled", "TargetHudEnabledBind", "TargetHudNormalColor", "TargetHudDamageColor", "TargetHudPosition", "TargetHudOnlyKillaura", "KillAuraEnabled", "KillAuraNoCamRotation", "KillStrafeEnabled", "KillStrafeSpeed", "KillStrafeDistance", "KillAuraRange", "KillAuraClickRange", "KillAuraSpeed", "KillAuraEnabledBind", "CriticalsEnabled", "CriticalsNoKillStrafeJump", "CriticalsOnlyKillAura", "CriticalsEnabledBind", "HitboxEnabled", "HitboxSize", "HitboxOnlyKillaura", "HitboxEnabledBind", "SpeedEnabled", "WalkSpeedValue", "SpeedEnabledBind", "VelocityEnabled", "VelocityHorizontal", "VelocityVertical", "VelocityEnabledBind", "StrafeEnabled", "StrafeEnabledBind", "NoClipEnabled", "NoClipEnabledBind", "SpiderEnabled", "SpiderEnabledBind", "SpiderSpeed", "JitterEnabled", "JitterRange", "JitterSpeed", "JitterYawMode", "JitterSpinAtJump", "JitterSpinSpeed", "JitterEnabledBind", "AnimLagEnabled", "AnimLagFPS", "AnimLagEnabledBind", "HitSoundEnabled", "HitSoundMode", "HitSoundEnabledBind", "TargetESPSquareEnabled", "TargetESPSquareSize", "TargetESPBorderThickness", "TargetESPSquareColor", "TargetESPDamageColorEnabled", "TargetESPDamageColor", "TargetESPRotationSpeed", "TargetESPSquareEnabledBind", "TargetESPOnlyKillaura", "Esp2DBoxEnabled", "Esp2DBoxSize", "Esp2DBoxColor", "Esp2DBoxEnabledBind", "Esp2DBoxNametagsEnabled", "Esp2DBoxNametagsScale", "Esp2DBoxHealthBarEnabled", "Esp2DBoxHealthBarBorder", "ArrowsEnabled", "ArrowsDistance", "ArrowsColor", "ArrowsEnabledBind", "ArrowsSize", "ArrowsShowDistance", "TargetStrafeOrbitEnabled", "TargetStrafeOrbitRadius", "TargetStrafeOrbitSpeed", "TargetStrafeOrbitEnabledBind", "ChinaHatAccessoryEnabled", "ChinaHatAccessoryColor", "ChinaHatHeightOffset", "ChinaHatWidthScale", "ChinaHatHeightScale", "ChinaHatTransparency", "ChinaHatAccessoryEnabledBind", "JumpVisualCirclesEnabled", "JumpCircleMaximumSize", "JumpCircleEffectColor", "JumpVisualCirclesEnabledBind", "ChamsEnabled", "ChamsColor", "ChamsOutlineColor", "ChamsFillTransparency", "ChamsEnabledBind", "DamageParticlesEnabled", "ParticleColor", "ParticleSize", "ParticleAmount", "DamageParticlesEnabledBind", "WorldParticlesEnabled", "WorldParticlesColor", "WorldParticlesEnabledBind", "SaturationEnabled", "SaturationValue", "SaturationEnabledBind", "ClickFriendEnabled", "ClickFriendEnabledBind", "DeleteFriendEnabled", "DeleteFriendEnabledBind", "WorldColorEnabled", "WorldColorValue", "WorldColorTransparency", "WorldColorDarkness", "WorldColorShader", "WorldColorEnabledBind", "AspectRatioValue", "CustomFovEnabled", "CustomFovValue", "CustomFovEnabledBind", "ThirdPersonEnabled", "ThirdPersonDistance", "ThirdPersonEnabledBind", "BindListPosition", "TimeChangerEnabled", "TimeChangerHours", "TimeChangerEnabledBind", "FullBrightEnabled", "FullBrightBrightness", "FullBrightEnabledBind" }
-
 local ThemeObjects = { Backgrounds = {}, Strokes = {}, Texts = {}, SecondaryTexts = {}, Inputs = {}, InputBackgrounds = {} }
 local Themes = {
     Dark = { name = "Dark", bg = Color3.fromRGB(20, 20, 20), trans = 0.1, stroke = Color3.fromRGB(45, 45, 45), text = Color3.new(1,1,1), textSec = Color3.fromRGB(180,180,180), inputBg = Color3.fromRGB(35,35,35), accent = Color3.fromRGB(40,40,40) },
@@ -104,7 +102,8 @@ local Themes = {
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
-local ConfigFileName = "Gemini_V69_Clean.json"
+-- ИМЯ ФАЙЛА ЗАФИКСИРОВАНО
+local ConfigFileName = "Gemini_Config_Main.json"
 local function SaveConfig()
     local copy = {}
     for k, v in pairs(_G.Cfg) do
@@ -141,7 +140,7 @@ end))
 local HitSounds = { "rbxassetid://140604838213617", "rbxassetid://130201387574815", "rbxassetid://135478009117226", "rbxassetid://96735711388006", "rbxassetid://126048302910782", "rbxassetid://7255642553" }
 
 local GeminiGui = Instance.new("ScreenGui", CoreGui)
-GeminiGui.Name = "Gemini_V69_Final"
+GeminiGui.Name = "Gemini_Final"
 GeminiGui.IgnoreGuiInset = true; GeminiGui.ResetOnSpawn = false 
 
 local Esp2DFolder = Instance.new("Folder", GeminiGui); Esp2DFolder.Name = "ESP2D_Storage"
@@ -234,8 +233,15 @@ local IslandStroke = Instance.new("UIStroke", Island); IslandStroke.Thickness = 
 local IslandTitle = Instance.new("TextLabel", Island); IslandTitle.Size = UDim2.new(0.5, 0, 1, 0); IslandTitle.Position = UDim2.new(0, 15, 0, 0); IslandTitle.BackgroundTransparency = 1; IslandTitle.Text = "тгк: extazz_scripts"; IslandTitle.Font = TARGET_FONT; IslandTitle.TextSize = 14; IslandTitle.TextColor3 = Color3.new(1, 1, 1); IslandTitle.TextXAlignment = "Left"; table.insert(ThemeObjects.Texts, IslandTitle)
 local StatsLabel = Instance.new("TextLabel", Island); StatsLabel.Size = UDim2.new(0.5, 0, 1, 0); StatsLabel.Position = UDim2.new(0.5, -10, 0, 0); StatsLabel.BackgroundTransparency = 1; StatsLabel.Text = "FPS: 0 | PING: 0ms"; StatsLabel.Font = TARGET_FONT; StatsLabel.TextSize = 12; StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200); StatsLabel.TextXAlignment = "Right"; table.insert(ThemeObjects.SecondaryTexts, StatsLabel)
 
+-- МЕНЮ ТЕПЕРЬ ПО ДЕФОЛТУ ЗАКРЫТО
+local MenuOpen = false 
 local MainFrame = Instance.new("Frame", GeminiGui)
-MainFrame.Size = UDim2.new(0, 750, 0, 450); MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -375, 0.5, -225); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); MainFrame.Visible = true; MainFrame.BackgroundTransparency = Themes[_G.Cfg.UITheme].trans; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+MainFrame.Size = UDim2.new(0, 750, 0, 450)
+MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180) -- Начальная закрытая позиция
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.Visible = false 
+MainFrame.BackgroundTransparency = 1
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 table.insert(ThemeObjects.Backgrounds, MainFrame)
 if isMobile then local uiScale = Instance.new("UIScale", MainFrame); uiScale.Scale = 0.65; MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) end
 local MainFrame_Glow = Instance.new("Frame", MainFrame); MainFrame_Glow.Size = UDim2.new(1, 4, 1, 4); MainFrame_Glow.Position = UDim2.new(0, -2, 0, -2); MainFrame_Glow.BackgroundColor3 = Color3.fromRGB(15, 15, 15); MainFrame_Glow.BackgroundTransparency = 0.5; MainFrame_Glow.ZIndex = MainFrame.ZIndex - 1; Instance.new("UICorner", MainFrame_Glow).CornerRadius = UDim.new(0, 10)
@@ -270,7 +276,6 @@ for i, cat in ipairs(categories) do
     catButtons[cat] = btn; btn.MouseButton1Click:Connect(function() SwitchCategory(cat) end)
 end
 
-local MenuOpen = true 
 local function ToggleMenu()
     MenuOpen = not MenuOpen; local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     if MenuOpen then 
@@ -368,7 +373,6 @@ local function AddColorBtn(parent, text, key)
     return b
 end
 
--- // 3. ЕДИНСТВЕННЫЙ И ПРАВИЛЬНЫЙ БЛОК СОЗДАНИЯ UI (БЕЗ ДУБЛЕЙ)
 do
     local m
     m = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(m, "Smooth", "AimbotSmoothness"); AddSlider(m, "MaxDist", "AimbotMaxDistance")
@@ -402,6 +406,7 @@ do
     m = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals"); AddSlider(m, "Distance", "ThirdPersonDistance")
 end
 
+-- // CORE LOGIC
 local function IsVisible(targetPart)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
@@ -493,18 +498,9 @@ local function CreateCorner(name, pos)
 end
 local corners = {CreateCorner("TL", UDim2.new(0,0,0,0)), CreateCorner("TR", UDim2.new(0.7,0,0,0)), CreateCorner("BL", UDim2.new(0,0,0.7,0)), CreateCorner("BR", UDim2.new(0.7,0,0.7,0))}
 
-local lastAttackTime = 0
-local lastStrafeJumpTime = 0
-local nextStrafeJumpDelay = math.random(1, 8) / 10 
-local currentKaStrafeDir = 1
-local nextKaStrafeDirChange = 0
-local lastEspTargetUserId = nil
-local lastEspTargetHealth = nil
-local lastDamageTimeESP = 0
-local lastRenderedEspThickness = nil
-local wasThirdPerson = false 
-local AnimLagAccumulator = 0
-local WasAnimLagging = false
+local lastAttackTime = 0; local lastStrafeJumpTime = 0; local nextStrafeJumpDelay = math.random(1, 8) / 10; local currentKaStrafeDir = 1; local nextKaStrafeDirChange = 0
+local lastEspTargetUserId = nil; local lastEspTargetHealth = nil; local lastDamageTimeESP = 0; local lastRenderedEspThickness = nil
+local wasThirdPerson = false; local AnimLagAccumulator = 0; local WasAnimLagging = false
 
 table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     if _G.Cfg.NoClipEnabled and LocalPlayer.Character then
@@ -567,9 +563,15 @@ task.spawn(function()
             local baseColor = _G.Cfg.WorldColorValue; local trans = math.clamp(_G.Cfg.WorldColorTransparency, 0, 1); local dark = math.clamp(_G.Cfg.WorldColorDarkness, 0, 5)
             local defaultAmbient = Color3.fromRGB(128, 128, 128); local blendedColor = defaultAmbient:Lerp(baseColor, trans)
             Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
-            if _G.Cfg.WorldColorShader then VibeBloom.Enabled = true; VibeCC.Enabled = true; VibeBlur.Enabled = true; VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.15) 
-            else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
-        else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
+            if _G.Cfg.WorldColorShader then 
+                VibeBloom.Enabled = true; VibeCC.Enabled = true; VibeBlur.Enabled = true; 
+                VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.4) -- Увеличил интенсивность цвета
+            else 
+                VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false 
+            end
+        else 
+            VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false 
+        end
     end
 end)
 
@@ -761,25 +763,29 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- // 4. ИСПРАВЛЕННЫЙ JITTER SPIN AT JUMP (СОХРАНЯЕТ МОМЕНТУМ И НЕ ЗАВИСАЕТ ПЕРСА)
+    -- // ИСПРАВЛЕННЫЙ JITTER SPIN
     if not didRotateHRP and _G.Cfg.JitterEnabled and char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
         local hrp = char.HumanoidRootPart
-        local savedVelocity = hrp.AssemblyLinearVelocity -- ВАЖНО: СОХРАНЯЕМ СКОРОСТЬ
+        char.Humanoid.AutoRotate = false
         
-        char.Humanoid.AutoRotate = false; local totalYaw = 0
         local state = char.Humanoid:GetState()
-        
         if _G.Cfg.JitterSpinAtJump and (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) then 
-            totalYaw = tick() * (tonumber(_G.Cfg.JitterSpinSpeed) or 20) 
+            -- Переводим значение в радианы, чтобы Роблокс понимал это как нормальные градусы поворота, а не дичь
+            local spinSpeed = tonumber(_G.Cfg.JitterSpinSpeed) or 20
+            local spinAngle = math.rad((tick() * spinSpeed * 15) % 360)
+            
+            hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
         else 
-            local jitterSign = (math.floor(tick() * (_G.Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1; local jitterYaw = math.rad(_G.Cfg.JitterRange or 45) * jitterSign; local baseYaw = (tonumber(_G.Cfg.JitterYawMode) == 2) and math.pi or 0; totalYaw = baseYaw + jitterYaw 
+            local jitterSign = (math.floor(tick() * (_G.Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1
+            local jitterYaw = math.rad(_G.Cfg.JitterRange or 45) * jitterSign
+            local baseYaw = (tonumber(_G.Cfg.JitterYawMode) == 2) and math.pi or 0
+            local totalYaw = baseYaw + jitterYaw 
+            
+            local lookVec = Camera.CFrame.LookVector; if char.Humanoid.MoveDirection.Magnitude > 0 then lookVec = char.Humanoid.MoveDirection end
+            local lookAtTarget = hrp.Position + lookVec; local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
+            
+            hrp.CFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
         end
-        
-        local lookVec = Camera.CFrame.LookVector; if char.Humanoid.MoveDirection.Magnitude > 0 then lookVec = char.Humanoid.MoveDirection end
-        local lookAtTarget = hrp.Position + lookVec; local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
-        
-        hrp.CFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
-        hrp.AssemblyLinearVelocity = savedVelocity -- ВАЖНО: ВОЗВРАЩАЕМ СКОРОСТЬ НА МЕСТО
         didRotateHRP = true
     end
     
