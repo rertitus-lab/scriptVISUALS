@@ -33,7 +33,6 @@ local FriendsList = {}
 
 -- // КЭШ
 local OrigPartData = setmetatable({}, {__mode = "k"})
-local PlayerPartsCache = setmetatable({}, {__mode = "k"})
 local OrigNoClipStates = setmetatable({}, {__mode = "k"})
 local LowerNameCache = setmetatable({}, {__index = function(t, k) local v = string.lower(k); t[k] = v; return v end})
 local EspCache = {} 
@@ -67,6 +66,7 @@ _G.Cfg = {
     SpeedEnabled = false, WalkSpeedValue = 16, SpeedEnabledBind = "None",
     VelocityEnabled = false, VelocityHorizontal = 0, VelocityVertical = 0, VelocityEnabledBind = "None",
     StrafeEnabled = false, StrafeEnabledBind = "None",
+    AirStrafeEnabled = false, AirStrafeSpeed = 30, AirStrafeEnabledBind = "None",
     NoClipEnabled = false, NoClipEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
     JitterEnabled = false, JitterRange = 45, JitterSpeed = 15, JitterYawMode = 1, JitterSpinAtJump = false, JitterSpinSpeed = 20, JitterEnabledBind = "None",
@@ -383,6 +383,7 @@ do
     m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(m, "WalkSpeed", "WalkSpeedValue")
     m = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(m, "Horizontal %", "VelocityHorizontal"); AddSlider(m, "Vertical %", "VelocityVertical")
     m = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
+    m = CreateModule("AIR STRAFE", "AirStrafeEnabled", "Movement"); AddSlider(m, "Speed", "AirStrafeSpeed")
     m = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
     m = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m, "Speed", "SpiderSpeed")
     m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode"); AddToggle(m, "Spin at jump", "JitterSpinAtJump"); AddSlider(m, "Spin Speed", "JitterSpinSpeed")
@@ -536,80 +537,77 @@ table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     end
 end))
 
--- // НЕВИДИМЫЙ ХИТБОКС ГОЛОВЫ С ФЕЙКОВОЙ ГОЛОВОЙ
+-- // НЕВИДИМЫЙ ХИТБОКС ГОЛОВЫ С ФЕЙКОВОЙ ГОЛОВОЙ (ОБНОВЛЕНО - УБРАН КЭШ ДЛЯ НАДЕЖНОСТИ)
 task.spawn(function()
     while task.wait(0.2) do
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
-                local plChar = player.Character
-                if plChar then
-                    local isFriend = FriendsList[LowerNameCache[player.Name]]; local isHitboxActive = false; local mult = 1
-                    if _G.Cfg.HitboxEnabled and not isFriend then 
-                        if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then 
-                            isHitboxActive = true; mult = tonumber(_G.Cfg.HitboxSize) or 1 
-                        end 
-                    end
-                    
-                    local partsList = PlayerPartsCache[plChar]
-                    if not partsList then 
-                        partsList = {}; 
-                        for _, p in ipairs(plChar:GetChildren()) do 
-                            if p:IsA("BasePart") then table.insert(partsList, p) end 
-                        end; 
-                        PlayerPartsCache[plChar] = partsList 
-                    end
-                    
-                    for _, part in ipairs(partsList) do
-                        if not OrigPartData[part] then 
-                            OrigPartData[part] = {Size = part.Size, Trans = part.Transparency, CanCollide = part.CanCollide, Massless = part.Massless} 
+                pcall(function()
+                    local plChar = player.Character
+                    if plChar then
+                        local isFriend = FriendsList[LowerNameCache[player.Name]]
+                        local isHitboxActive = false
+                        local mult = 1
+                        
+                        if _G.Cfg.HitboxEnabled and not isFriend then 
+                            if not _G.Cfg.HitboxOnlyKillaura or player == SharedKaTarget then 
+                                isHitboxActive = true
+                                mult = tonumber(_G.Cfg.HitboxSize) or 1 
+                            end 
                         end
                         
-                        if isHitboxActive and part.Name == "Head" then
-                            local targetSize = OrigPartData[part].Size * mult
-                            if part.Size ~= targetSize then
-                                part.Size = targetSize
-                                part.Transparency = 1
-                                part.CanCollide = false
-                                part.Massless = true
-                                
-                                local face = part:FindFirstChildOfClass("Decal")
-                                if face then 
-                                    if not OrigPartData[face] then OrigPartData[face] = {Trans = face.Transparency} end
-                                    face.Transparency = 1 
-                                end
-                                
-                                if not plChar:FindFirstChild("Gemini_FakeHead") then
-                                    local fakeHead = part:Clone()
-                                    fakeHead.Name = "Gemini_FakeHead"
-                                    for _, v in ipairs(fakeHead:GetChildren()) do
-                                        if v:IsA("Attachment") or v:IsA("Weld") or v:IsA("WeldConstraint") or v:IsA("Motor6D") or v:IsA("Script") or v:IsA("LocalScript") then
-                                            v:Destroy()
-                                        end
-                                    end
-                                    fakeHead.Size = OrigPartData[part].Size
-                                    fakeHead.Transparency = OrigPartData[part].Trans
-                                    fakeHead.CanCollide = false
-                                    fakeHead.Massless = true
-                                    
-                                    local fakeFace = fakeHead:FindFirstChildOfClass("Decal")
-                                    if fakeFace and OrigPartData[face] then fakeFace.Transparency = OrigPartData[face].Trans end
-                                    
-                                    local w = Instance.new("WeldConstraint")
-                                    w.Part0 = part
-                                    w.Part1 = fakeHead
-                                    w.Parent = fakeHead
-                                    fakeHead.Parent = plChar
-                                end
+                        -- Ищем голову напрямую, без кэширования списка частей
+                        local head = plChar:FindFirstChild("Head")
+                        if head and head:IsA("BasePart") then
+                            if not OrigPartData[head] then 
+                                OrigPartData[head] = {Size = head.Size, Trans = head.Transparency, CanCollide = head.CanCollide, Massless = head.Massless} 
                             end
-                        else
-                            if part.Size ~= OrigPartData[part].Size or (part.Name == "Head" and part.Transparency ~= OrigPartData[part].Trans) then
-                                part.Size = OrigPartData[part].Size
-                                part.Transparency = OrigPartData[part].Trans
-                                part.CanCollide = OrigPartData[part].CanCollide
-                                part.Massless = OrigPartData[part].Massless
-                                
-                                if part.Name == "Head" then
-                                    local face = part:FindFirstChildOfClass("Decal")
+                            
+                            if isHitboxActive then
+                                local targetSize = OrigPartData[head].Size * mult
+                                if head.Size ~= targetSize then
+                                    head.Size = targetSize
+                                    head.Transparency = 1
+                                    head.CanCollide = false
+                                    head.Massless = true
+                                    
+                                    local face = head:FindFirstChildOfClass("Decal")
+                                    if face then 
+                                        if not OrigPartData[face] then OrigPartData[face] = {Trans = face.Transparency} end
+                                        face.Transparency = 1 
+                                    end
+                                    
+                                    if not plChar:FindFirstChild("Gemini_FakeHead") then
+                                        local fakeHead = head:Clone()
+                                        fakeHead.Name = "Gemini_FakeHead"
+                                        for _, v in ipairs(fakeHead:GetChildren()) do
+                                            if v:IsA("Attachment") or v:IsA("Weld") or v:IsA("WeldConstraint") or v:IsA("Motor6D") or v:IsA("Script") or v:IsA("LocalScript") then
+                                                v:Destroy()
+                                            end
+                                        end
+                                        fakeHead.Size = OrigPartData[head].Size
+                                        fakeHead.Transparency = OrigPartData[head].Trans
+                                        fakeHead.CanCollide = false
+                                        fakeHead.Massless = true
+                                        
+                                        local fakeFace = fakeHead:FindFirstChildOfClass("Decal")
+                                        if fakeFace and OrigPartData[face] then fakeFace.Transparency = OrigPartData[face].Trans end
+                                        
+                                        local w = Instance.new("WeldConstraint")
+                                        w.Part0 = head
+                                        w.Part1 = fakeHead
+                                        w.Parent = fakeHead
+                                        fakeHead.Parent = plChar
+                                    end
+                                end
+                            else
+                                if head.Size ~= OrigPartData[head].Size or head.Transparency ~= OrigPartData[head].Trans then
+                                    head.Size = OrigPartData[head].Size
+                                    head.Transparency = OrigPartData[head].Trans
+                                    head.CanCollide = OrigPartData[head].CanCollide
+                                    head.Massless = OrigPartData[head].Massless
+                                    
+                                    local face = head:FindFirstChildOfClass("Decal")
                                     if face and OrigPartData[face] then face.Transparency = OrigPartData[face].Trans end
                                     local fakeH = plChar:FindFirstChild("Gemini_FakeHead")
                                     if fakeH then fakeH:Destroy() end
@@ -617,7 +615,7 @@ task.spawn(function()
                             end
                         end
                     end
-                end
+                end)
             end
         end
     end
@@ -650,7 +648,6 @@ local lastGhostTrans = nil
 local lastGhostDelTex = nil
 local currentGhostCharRef = nil
 
--- ИСПРАВЛЕННАЯ ФУНКЦИЯ ОЧИСТКИ ТЕКСТУР И ВОЛОС (С PCALL)
 local function UpdateGhostAppearance()
     if not GhostModel then return end
     local trans = (tonumber(_G.Cfg.ClientSideTransparency) or 50) / 100
@@ -734,14 +731,33 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     else WorldStarsContainer.Visible = false end
 
     if _G.Cfg.SpeedEnabled and char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = _G.Cfg.WalkSpeedValue end
+    
+    -- // AIR STRAFE LOGIC
+    if _G.Cfg.AirStrafeEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+        local hum = char.Humanoid
+        local hrp = char.HumanoidRootPart
+        if hum.FloorMaterial == Enum.Material.Air and hum.MoveDirection.Magnitude > 0 then
+            local speed = tonumber(_G.Cfg.AirStrafeSpeed) or 30
+            local currentVel = hrp.AssemblyLinearVelocity
+            local targetVel = hum.MoveDirection.Unit * speed
+            hrp.AssemblyLinearVelocity = Vector3.new(targetVel.X, currentVel.Y, targetVel.Z)
+        end
+    end
+    
     if _G.Cfg.VelocityEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hrp = char.HumanoidRootPart; local hum = char.Humanoid; local hMult = tonumber(_G.Cfg.VelocityHorizontal) or 0; local vMult = tonumber(_G.Cfg.VelocityVertical) or 0
-        if hMult == 0 then if hum.MoveDirection.Magnitude == 0 then hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) elseif not _G.Cfg.StrafeEnabled then local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed; local targetVel = hum.MoveDirection.Unit * currentSpeed; hrp.AssemblyLinearVelocity = Vector3.new(targetVel.X, hrp.AssemblyLinearVelocity.Y, targetVel.Z) end end
+        if hMult == 0 then if hum.MoveDirection.Magnitude == 0 then hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) elseif not _G.Cfg.StrafeEnabled and not (_G.Cfg.AirStrafeEnabled and hum.FloorMaterial == Enum.Material.Air) then local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed; local targetVel = hum.MoveDirection.Unit * currentSpeed; hrp.AssemblyLinearVelocity = Vector3.new(targetVel.X, hrp.AssemblyLinearVelocity.Y, targetVel.Z) end end
         if vMult == 0 then if hrp.AssemblyLinearVelocity.Y > 0 and (tick() - lastRealJumpTime > 0.3) and (tick() - lastKillStrafeJumpTime > 0.3) and (tick() - lastCriticalJumpTime > 0.3) and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z) end end
     end
     if _G.Cfg.StrafeEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid; local rootPart = char.HumanoidRootPart
-        if hum.MoveDirection.Magnitude > 0 then local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed; local instantVel = hum.MoveDirection.Unit * currentSpeed; rootPart.AssemblyLinearVelocity = Vector3.new(instantVel.X, rootPart.AssemblyLinearVelocity.Y, instantVel.Z) else rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0) end
+        if hum.MoveDirection.Magnitude > 0 then 
+            if not (_G.Cfg.AirStrafeEnabled and hum.FloorMaterial == Enum.Material.Air) then
+                local currentSpeed = _G.Cfg.SpeedEnabled and _G.Cfg.WalkSpeedValue or hum.WalkSpeed; local instantVel = hum.MoveDirection.Unit * currentSpeed; rootPart.AssemblyLinearVelocity = Vector3.new(instantVel.X, rootPart.AssemblyLinearVelocity.Y, instantVel.Z) 
+            end
+        else 
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0) 
+        end
     end
     if _G.Cfg.SpiderEnabled and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
@@ -1039,7 +1055,7 @@ local function UpdateKeybindList()
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
     local activeCount = 0
-    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
         if _G.Cfg[key] == true and _G.Cfg[bindKey] ~= "None" then
@@ -1057,7 +1073,7 @@ local globalMobileDragging = false
 local function UpdateMobileBinds()
     if not isMobile then return end
     local t = Themes[_G.Cfg.UITheme] or Themes.Dark
-    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if _G.Cfg[bindKey] and tostring(_G.Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(_G.Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
