@@ -27,7 +27,10 @@ local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local HttpReq = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+local HttpReq = nil
+pcall(function()
+    HttpReq = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+end)
 
 local Connections = {}
 _G.ToggleFuncs = {}
@@ -127,7 +130,7 @@ end
 
 local function ExportConfigToCloud()
     local fallbackId = GenerateRandomID()
-    if not HttpReq then return fallbackId end
+    if type(HttpReq) ~= "function" then return fallbackId end
     
     local copy = {}
     for k, v in pairs(Cfg) do
@@ -151,7 +154,7 @@ local function ExportConfigToCloud()
     
     if s2 and r and r.Body then
         local s3, resData = pcall(function() return HttpService:JSONDecode(r.Body) end)
-        if s3 and resData and resData.key then
+        if s3 and type(resData) == "table" and resData.key then
             return resData.key
         end
     end
@@ -172,7 +175,7 @@ end
 local function LoadConfig(id)
     if not id or id == "" then return false end
     local success, dataStr = false, nil
-    local isCloudKey = (HttpReq ~= nil) and (#id < 15) and not string.find(id, "-")
+    local isCloudKey = (type(HttpReq) == "function") and (#id < 15) and not string.find(id, "-")
     
     if isCloudKey then
         local s, r = pcall(function() return HttpReq({Url = "https://bytebin.lucko.me/" .. id, Method = "GET"}) end)
@@ -181,7 +184,7 @@ local function LoadConfig(id)
     
     if not success then
         local cfgName = GetConfigName(id)
-        if isfile and isfile(cfgName) then success, dataStr = pcall(function() return readfile(cfgName) end) end
+        pcall(function() if isfile and isfile(cfgName) then success, dataStr = pcall(function() return readfile(cfgName) end) end end)
     end
 
     if success and type(dataStr) == "string" and dataStr ~= "" then
@@ -570,7 +573,7 @@ do
     m = CreateModule("ANTI FLING", "AntiFlingEnabled", "Movement")
     m = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
     m = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m, "Speed", "SpiderSpeed")
-    m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode"); AddToggle(m, "Spin at jump", "JitterSpinAtJump"); AddSlider(m, "Spin Speed", "JitterSpinSpeed")
+    m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterSpinAtJump", "JitterSpinSpeed")
     m = CreateModule("ANIM LAG", "AnimLagEnabled", "Movement"); AddSlider(m, "Anim FPS (1-60)", "AnimLagFPS")
 
     m = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(m, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(m, "Damage HB color", "TargetHudDamageColor"); AddToggle(m, "Only Killaura", "TargetHudOnlyKillaura")
@@ -706,7 +709,6 @@ local lastAttackTime = 0; local lastStrafeJumpTime = 0; local nextStrafeJumpDela
 local lastEspTargetUserId = nil; local lastEspTargetHealth = nil; local lastDamageTimeESP = 0; local lastRenderedEspThickness = nil
 local wasThirdPerson = false; local AnimLagAccumulator = 0; local WasAnimLagging = false
 
--- // ИСПРАВЛЕНО: ЖЕСТКИЙ ANTI FLING (БЕЗ ДИСТАНЦИЙ)
 table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     local char = LocalPlayer.Character
     if not char then return end
@@ -1334,15 +1336,44 @@ do
     UI.expCopyBtn = Instance.new("TextButton", UI.expF); UI.expCopyBtn.Size = UDim2.new(0.6, 0, 0, 20); UI.expCopyBtn.Position = UDim2.new(0.2, 0, 0, 100); UI.expCopyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40); UI.expCopyBtn.TextColor3 = Color3.new(1,1,1); UI.expCopyBtn.Font = TARGET_FONT; UI.expCopyBtn.TextSize = 12; UI.expCopyBtn.Text = "COPY"; Instance.new("UICorner", UI.expCopyBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.expCopyBtn); table.insert(ThemeObjects.Texts, UI.expCopyBtn)
 
     UI.expGenBtn.MouseButton1Click:Connect(function()
+        if UI.expGenBtn.Text == "GENERATING..." then return end
         UI.expGenBtn.Text = "GENERATING..."
+        
+        local isDone = false
+        task.delay(5, function()
+            if not isDone then
+                pcall(function()
+                    UI.expGenBtn.Text = "GENERATE CFG"
+                    ShowNotify("Timeout! Fallback saved locally.", false)
+                end)
+            end
+        end)
+        
         task.spawn(function()
-            local newID = ExportConfigToCloud()
-            _G.CurrentConfigID = newID
-            UI.expLbl.Text = newID
-            UI.expGenBtn.Text = "GENERATE CFG"
-            ShowNotify("Generated: " .. newID, true)
+            local s, newID = pcall(ExportConfigToCloud)
+            if not s or type(newID) ~= "string" then newID = GenerateRandomID() end
+            
+            pcall(function()
+                local copy = {}
+                for k, v in pairs(Cfg) do
+                    if typeof(v) == "Color3" then copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+                    elseif typeof(v) == "UDim2" then copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
+                    else copy[k] = v end
+                end
+                copy.SavedFriends = FriendsList
+                if writefile then writefile(GetConfigName(newID), HttpService:JSONEncode(copy)) end
+            end)
+            
+            isDone = true
+            pcall(function()
+                _G.CurrentConfigID = newID
+                UI.expLbl.Text = newID
+                UI.expGenBtn.Text = "GENERATE CFG"
+                ShowNotify("Generated: " .. newID, true)
+            end)
         end)
     end)
+    
     UI.expCopyBtn.MouseButton1Click:Connect(function() if setclipboard then setclipboard(UI.expLbl.Text); ShowNotify("Copied to clipboard!", true) else ShowNotify("Executor doesn't support copy", false) end end)
 
     UI.impF = mkMisc("IMPORT CONFIG")
@@ -1355,11 +1386,33 @@ do
     UI.impLoadBtn.MouseButton1Click:Connect(function()
         local txt = UI.impInp.Text:gsub("%s+", "")
         if txt ~= "" then
+            if UI.impLoadBtn.Text == "LOADING..." then return end
             UI.impLoadBtn.Text = "LOADING..."
+            
+            local isDone = false
+            task.delay(5, function()
+                if not isDone then
+                    pcall(function()
+                        UI.impLoadBtn.Text = "LOAD CONFIG"
+                        ShowNotify("Timeout! Check connection.", false)
+                    end)
+                end
+            end)
+            
             task.spawn(function()
-                local success = LoadConfig(txt)
-                if success then _G.CurrentConfigID = txt; UI.expLbl.Text = txt; ShowNotify("Config Loaded Successfully!", true) else ShowNotify("Invalid key / Config not found", false) end
-                UI.impLoadBtn.Text = "LOAD CONFIG"
+                local s, success = pcall(function() return LoadConfig(txt) end)
+                isDone = true
+                
+                pcall(function()
+                    if s and success then 
+                        _G.CurrentConfigID = txt
+                        UI.expLbl.Text = txt
+                        ShowNotify("Config Loaded Successfully!", true) 
+                    else 
+                        ShowNotify("Invalid key / Config not found", false) 
+                    end
+                    UI.impLoadBtn.Text = "LOAD CONFIG"
+                end)
             end)
         end
     end)
