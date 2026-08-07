@@ -1,18 +1,22 @@
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 
--- // 1. ЖЕСТКАЯ ОЧИСТКА ВСЕГО И ВСЯ
+-- // 1. ЖЕСТКАЯ ОЧИСТКА
 for _, v in ipairs(CoreGui:GetChildren()) do
     if string.match(v.Name, "^Gemini_") then pcall(function() v:Destroy() end) end
 end
 if workspace:FindFirstChild("Gemini_3D_Chams") then pcall(function() workspace.Gemini_3D_Chams:Destroy() end) end
 if workspace:FindFirstChild("Gemini_ChinaHat") then pcall(function() workspace.Gemini_ChinaHat:Destroy() end) end
+if workspace:FindFirstChild("Gemini_WorldStars") then pcall(function() workspace.Gemini_WorldStars:Destroy() end) end
 
 local Lighting = game:GetService("Lighting")
-if Lighting:FindFirstChild("GeminiSaturation") then Lighting.GeminiSaturation:Destroy() end
-if Lighting:FindFirstChild("GeminiVibeBloom") then Lighting.GeminiVibeBloom:Destroy() end
-if Lighting:FindFirstChild("GeminiVibeCC") then Lighting.GeminiVibeCC:Destroy() end
-if Lighting:FindFirstChild("GeminiVibeBlur") then Lighting.GeminiVibeBlur:Destroy() end
+local function CleanLighting(name) if Lighting:FindFirstChild(name) then Lighting[name]:Destroy() end end
+CleanLighting("GeminiSaturation")
+CleanLighting("GeminiVibeBloom")
+CleanLighting("GeminiVibeCC")
+CleanLighting("GeminiVibeBlur")
+CleanLighting("GeminiVibeAtmosphere")
+CleanLighting("GeminiVibeSky")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -23,21 +27,41 @@ local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+local HttpReq = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+
 local Connections = {}
-_G.ToggleFuncs = {} 
+_G.ToggleFuncs = {}
+_G.RefreshUIFunctions = {}
 local isMobile = UserInputService.TouchEnabled
 
 local ChamsFolder = Instance.new("Folder", CoreGui); ChamsFolder.Name = "Gemini_Chams_Storage"
 local Chams3DFolder = Instance.new("Folder", workspace); Chams3DFolder.Name = "Gemini_3D_Chams"
 local FriendsList = {}
 
--- // КЭШ И ЛОКАЛЬНЫЕ ПЕРЕМЕННЫЕ (ДЛЯ СКОРОСТИ)
+-- Создание China Hat
+local HatPart = Instance.new("Part", workspace)
+HatPart.Name = "Gemini_ChinaHat"
+HatPart.CanCollide = false
+HatPart.Anchored = true
+HatPart.Massless = true
+HatPart.Transparency = 1
+local HatMesh = Instance.new("SpecialMesh", HatPart)
+HatMesh.MeshId = "rbxassetid://1033714" 
+
+-- Хранилище для настоящих 3D World Stars
+local WorldStarsFolder = Instance.new("Folder", workspace)
+WorldStarsFolder.Name = "Gemini_WorldStars"
+local StarsData = {}
+local STAR_RANGE = 120
+
+-- // КЭШ ПЕРЕМЕННЫХ
 local OrigPartData = setmetatable({}, {__mode = "k"})
 local OrigNoClipStates = setmetatable({}, {__mode = "k"})
 local LowerNameCache = setmetatable({}, {__index = function(t, k) local v = string.lower(k); t[k] = v; return v end})
 local EspCache = {} 
 local EspHiddenState = {} 
-local ViewHandsParts = {} -- Кэш частей тела для View Hands
+local ViewHandsParts = {} 
+local AntiFlingCache = {}
 
 local SharedTarget = nil
 local SharedKaTarget = nil 
@@ -53,11 +77,13 @@ _G.Cfg = {
     KillAuraEnabled = false, KillAuraNoCamRotation = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
     CriticalsEnabled = false, CriticalsNoKillStrafeJump = false, CriticalsOnlyKillAura = false, CriticalsEnabledBind = "None",
     HitboxEnabled = false, HitboxSize = 1, HitboxOnlyKillaura = false, HitboxEnabledBind = "None",
-    SpeedEnabled = false, WalkSpeedValue = 16, SpeedEnabledBind = "None",
+    SpeedEnabled = false, WalkSpeedValue = 16, SpeedACMode = false, SpeedEnabledBind = "None", 
+    InfJumpEnabled = false, InfJumpEnabledBind = "None",
     VelocityEnabled = false, VelocityHorizontal = 0, VelocityVertical = 0, VelocityEnabledBind = "None",
     StrafeEnabled = false, StrafeEnabledBind = "None",
     AirStrafeEnabled = false, AirStrafeSpeed = 30, AirStrafeEnabledBind = "None",
     NoClipEnabled = false, NoClipEnabledBind = "None",
+    AntiFlingEnabled = false, AntiFlingEnabledBind = "None",
     SpiderEnabled = false, SpiderEnabledBind = "None", SpiderSpeed = 45,
     JitterEnabled = false, JitterRange = 45, JitterSpeed = 15, JitterYawMode = 1, JitterSpinAtJump = false, JitterSpinSpeed = 20, JitterEnabledBind = "None",
     AnimLagEnabled = false, AnimLagFPS = 5, AnimLagEnabledBind = "None",
@@ -71,25 +97,114 @@ _G.Cfg = {
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
     ChamsEnabled = false, ChamsColor = Color3.new(1, 0, 0), ChamsOutlineColor = Color3.new(1, 1, 1), ChamsFillTransparency = 0.5, ChamsEnabledBind = "None",
     DamageParticlesEnabled = false, ParticleColor = Color3.fromRGB(255, 255, 255), ParticleSize = 4, ParticleAmount = 8, DamageParticlesEnabledBind = "None",
-    WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesEnabledBind = "None",
-    SaturationEnabled = false, SaturationValue = 1, SaturationEnabledBind = "None",
+    WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesAmount = 40, WorldParticlesEnabledBind = "None",
+    SaturationEnabled = false, SaturationValue = 10, SaturationEnabledBind = "None",
     ClientSideEnabled = false, ClientSideTransparency = 50, ClientSideColor = Color3.fromRGB(255, 100, 100), ClientSideDelTexture = false, ClientSideEnabledBind = "None",
     ViewHandsEnabled = false, ViewHandsEnabledBind = "None",
-    ClickFriendEnabled = false, ClickFriendEnabledBind = "None",
-    DeleteFriendEnabled = false, DeleteFriendEnabledBind = "None",
-    WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(0, 255, 100), WorldColorTransparency = 0.2, WorldColorDarkness = 0, WorldColorShader = false, WorldColorEnabledBind = "None",
+    WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(150, 50, 255), WorldColorTransparency = 0.5, WorldColorDarkness = 1, WorldColorShader = false, WorldColorEnabledBind = "None",
     AspectRatioValue = 80,
     CustomFovEnabled = false, CustomFovValue = 100, CustomFovEnabledBind = "None",
     ThirdPersonEnabled = false, ThirdPersonDistance = 15, ThirdPersonEnabledBind = "None",
     BindListPosition = UDim2.new(0, 20, 0.5, 0),
     TimeChangerEnabled = false, TimeChangerHours = 12, TimeChangerEnabledBind = "None",
-    FullBrightEnabled = false, FullBrightBrightness = 2, FullBrightEnabledBind = "None"
+    FullBrightEnabled = false, FullBrightTime = 12, FullBrightEnabledBind = "None"
 }
 local Cfg = _G.Cfg
 
--- // ==========================================
+local function RefreshUI()
+    for _, func in ipairs(_G.RefreshUIFunctions) do pcall(func) end
+end
+_G.RefreshUI = RefreshUI
+_G.CurrentConfigID = _G.CurrentConfigID or "MAIN"
+
+local function GetConfigName(id) return (not id or id == "MAIN") and "Gemini_Config_Main.json" or "Gemini_Config_" .. id .. ".json" end
+
+local function GenerateRandomID()
+    local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local function r() local i = math.random(1, #chars); return string.sub(chars, i, i) end
+    return r()..r()..r()..r().."-"..r()..r()..r()..r().."-"..r()..r()..r()..r().."-"..r()..r()..r()..r()
+end
+
+local function ExportConfigToCloud()
+    local fallbackId = GenerateRandomID()
+    if not HttpReq then return fallbackId end
+    
+    local copy = {}
+    for k, v in pairs(Cfg) do
+        if typeof(v) == "Color3" then copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+        elseif typeof(v) == "UDim2" then copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
+        else copy[k] = v end
+    end
+    copy.SavedFriends = FriendsList 
+    
+    local s, jsonData = pcall(function() return HttpService:JSONEncode(copy) end)
+    if not s then return fallbackId end
+    
+    local s2, r = pcall(function()
+        return HttpReq({
+            Url = "https://bytebin.lucko.me/post",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json; charset=utf-8"},
+            Body = jsonData
+        })
+    end)
+    
+    if s2 and r and r.Body then
+        local s3, resData = pcall(function() return HttpService:JSONDecode(r.Body) end)
+        if s3 and resData and resData.key then
+            return resData.key
+        end
+    end
+    return fallbackId
+end
+
+local function SaveLocalMAIN()
+    local copy = {}
+    for k, v in pairs(Cfg) do
+        if typeof(v) == "Color3" then copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
+        elseif typeof(v) == "UDim2" then copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
+        else copy[k] = v end
+    end
+    copy.SavedFriends = FriendsList 
+    pcall(function() writefile(GetConfigName("MAIN"), HttpService:JSONEncode(copy)) end)
+end
+
+local function LoadConfig(id)
+    if not id or id == "" then return false end
+    local success, dataStr = false, nil
+    local isCloudKey = (HttpReq ~= nil) and (#id < 15) and not string.find(id, "-")
+    
+    if isCloudKey then
+        local s, r = pcall(function() return HttpReq({Url = "https://bytebin.lucko.me/" .. id, Method = "GET"}) end)
+        if s and r and (r.StatusCode == 200 or r.StatusCode == 201) then success = true; dataStr = r.Body end
+    end
+    
+    if not success then
+        local cfgName = GetConfigName(id)
+        if isfile and isfile(cfgName) then success, dataStr = pcall(function() return readfile(cfgName) end) end
+    end
+
+    if success and type(dataStr) == "string" and dataStr ~= "" then
+        local s, data = pcall(function() return HttpService:JSONDecode(dataStr) end)
+        if s and type(data) == "table" then
+            local newFriends = {}
+            if type(data.SavedFriends) == "table" then for k, v in pairs(data.SavedFriends) do newFriends[string.lower(k)] = v end end
+            for k, v in pairs(data) do
+                if k ~= "SavedFriends" and (Cfg[k] ~= nil or string.match(k, "^MobilePos_")) then 
+                    if type(v) == "table" and v.isColor then Cfg[k] = Color3.new(v.R, v.G, v.B)
+                    elseif type(v) == "table" and v.isUDim2 then Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
+                    else Cfg[k] = v end
+                end
+            end
+            FriendsList = newFriends
+            pcall(RefreshUI)
+            return true
+        end
+    end
+    return false
+end
+
 -- // ОПТИМИЗИРОВАННЫЙ SILENT AIM HOOK
--- // ==========================================
 if hookmetamethod then
     local OldIndex = nil
     OldIndex = hookmetamethod(game, "__index", function(self, key)
@@ -98,19 +213,12 @@ if hookmetamethod then
                 if typeof(self) == "Instance" then
                     local eChar = SharedKaTarget.Character
                     local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
-                    
                     if targetPart then
-                        if key == "CFrame" and self:IsA("Camera") then
-                            local realCFrame = OldIndex(self, key)
-                            return CFrame.lookAt(realCFrame.Position, targetPart.Position)
+                        if key == "CFrame" and self:IsA("Camera") then return CFrame.lookAt(OldIndex(self, key).Position, targetPart.Position)
                         elseif self:IsA("Mouse") then
                             if key == "Hit" then return CFrame.new(targetPart.Position) end
                             if key == "Target" then return targetPart end
-                            if key == "UnitRay" then
-                                local origin = workspace.CurrentCamera.CFrame.Position
-                                local dir = (targetPart.Position - origin).Unit
-                                return Ray.new(origin, dir)
-                            end
+                            if key == "UnitRay" then local origin = workspace.CurrentCamera.CFrame.Position; return Ray.new(origin, (targetPart.Position - origin).Unit) end
                         end
                     end
                 end
@@ -126,25 +234,16 @@ if hookmetamethod then
             if not checkcaller() and Cfg.KillAuraEnabled and Cfg.KillAuraNoCamRotation and SharedKaTarget then
                 local eChar = SharedKaTarget.Character
                 local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
-                
                 if targetPart then
-                    local args = {...}
-                    local origin = workspace.CurrentCamera.CFrame.Position
-                    
-                    if self:IsA("Camera") and (method == "ViewportPointToRay" or method == "ScreenPointToRay") then
-                        local dir = (targetPart.Position - origin).Unit
-                        return Ray.new(origin, dir)
+                    local args = {...}; local origin = workspace.CurrentCamera.CFrame.Position
+                    if self:IsA("Camera") and (method == "ViewportPointToRay" or method == "ScreenPointToRay") then return Ray.new(origin, (targetPart.Position - origin).Unit)
                     elseif method == "Raycast" and self == workspace then
-                        local rayOrigin = args[1] or origin
-                        local rayDir = args[2]
+                        local rayOrigin = args[1] or origin; local rayDir = args[2]
                         if rayDir then args[2] = (targetPart.Position - rayOrigin).Unit * (rayDir.Magnitude or 1000) end
                         return OldNameCall(self, unpack(args))
                     elseif self == workspace then
                         local oldRay = args[1]
-                        if oldRay then
-                            local dir = (targetPart.Position - oldRay.Origin).Unit * (oldRay.Direction.Magnitude or 1000)
-                            args[1] = Ray.new(oldRay.Origin, dir)
-                        end
+                        if oldRay then args[1] = Ray.new(oldRay.Origin, (targetPart.Position - oldRay.Origin).Unit * (oldRay.Direction.Magnitude or 1000)) end
                         return OldNameCall(self, unpack(args))
                     end
                 end
@@ -153,20 +252,73 @@ if hookmetamethod then
         return OldNameCall(self, ...)
     end)
 end
--- // ==========================================
 
--- // ЭФФЕКТЫ
-local SaturationEffect = Instance.new("ColorCorrectionEffect")
-SaturationEffect.Name = "GeminiSaturation"; SaturationEffect.Parent = Lighting; SaturationEffect.Enabled = false
+-- // ЭФФЕКТЫ И ШЕЙДЕРЫ
+local SaturationEffect = Instance.new("ColorCorrectionEffect", Lighting)
+SaturationEffect.Name = "GeminiSaturation"; SaturationEffect.Enabled = false
 
-local VibeBloom = Instance.new("BloomEffect")
-VibeBloom.Name = "GeminiVibeBloom"; VibeBloom.Intensity = 0.35; VibeBloom.Size = 14; VibeBloom.Threshold = 0.9; VibeBloom.Parent = Lighting; VibeBloom.Enabled = false
+local VibeBloom = Instance.new("BloomEffect", Lighting)
+VibeBloom.Name = "GeminiVibeBloom"; VibeBloom.Intensity = 0.4; VibeBloom.Size = 24; VibeBloom.Threshold = 1.5; VibeBloom.Enabled = false
 
-local VibeCC = Instance.new("ColorCorrectionEffect")
-VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.15; VibeCC.Saturation = 0.2; VibeCC.Parent = Lighting; VibeCC.Enabled = false
+local VibeCC = Instance.new("ColorCorrectionEffect", Lighting)
+VibeCC.Name = "GeminiVibeCC"; VibeCC.Contrast = 0.2; VibeCC.Enabled = false
 
-local VibeBlur = Instance.new("BlurEffect")
-VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Parent = Lighting; VibeBlur.Enabled = false
+local VibeBlur = Instance.new("BlurEffect", Lighting)
+VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Enabled = false
+
+local VibeAtmo = Instance.new("Atmosphere", Lighting)
+VibeAtmo.Name = "GeminiVibeAtmosphere"; VibeAtmo.Density = 0; VibeAtmo.Offset = 0.25; VibeAtmo.Glare = 0; VibeAtmo.Haze = 1
+
+local VibeSky = Instance.new("Sky", Lighting)
+VibeSky.Name = "GeminiVibeSky"; VibeSky.SkyboxBk = "rbxassetid://600886090"; VibeSky.SkyboxDn = "rbxassetid://600886090"; VibeSky.SkyboxFt = "rbxassetid://600886090"; VibeSky.SkyboxLf = "rbxassetid://600886090"; VibeSky.SkyboxRt = "rbxassetid://600886090"; VibeSky.SkyboxUp = "rbxassetid://600886090"
+
+local OrigFogColor = Lighting.FogColor
+local OrigFogEnd = Lighting.FogEnd
+local OrigAmbient = Lighting.Ambient
+local OrigOutdoorAmbient = Lighting.OutdoorAmbient
+
+local lastWorldColor, lastWorldTrans, lastWorldDark, lastWorldShader, lastWorldState = nil, nil, nil, nil, nil
+local function UpdateWorldShader()
+    if Cfg.WorldColorEnabled then
+        if lastWorldColor ~= Cfg.WorldColorValue or lastWorldTrans ~= Cfg.WorldColorTransparency or lastWorldDark ~= Cfg.WorldColorDarkness or lastWorldShader ~= Cfg.WorldColorShader or lastWorldState ~= true then
+            lastWorldColor = Cfg.WorldColorValue; lastWorldTrans = Cfg.WorldColorTransparency; lastWorldDark = Cfg.WorldColorDarkness; lastWorldShader = Cfg.WorldColorShader; lastWorldState = true
+            
+            if not Cfg.FullBrightEnabled then
+                Lighting.Ambient = Cfg.WorldColorValue
+                Lighting.OutdoorAmbient = Cfg.WorldColorValue
+            end
+            Lighting.FogColor = Cfg.WorldColorValue
+            Lighting.FogEnd = 300 + (1 - Cfg.WorldColorTransparency) * 1500 
+            
+            if Cfg.WorldColorShader then
+                VibeBloom.Enabled = true
+                VibeCC.Enabled = true
+                VibeBlur.Enabled = true
+                VibeCC.TintColor = Cfg.WorldColorValue:Lerp(Color3.new(1,1,1), 1 - Cfg.WorldColorTransparency)
+                VibeCC.Brightness = -Cfg.WorldColorDarkness * 0.1
+                
+                VibeAtmo.Color = Cfg.WorldColorValue
+                VibeAtmo.Decay = Color3.new(0, 0, 0)
+                VibeAtmo.Density = Cfg.WorldColorTransparency * 0.45 
+            else
+                VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false
+                VibeAtmo.Density = 0
+            end
+        end
+    else
+        if lastWorldState ~= false then
+            lastWorldState = false
+            if not Cfg.FullBrightEnabled then
+                Lighting.Ambient = OrigAmbient
+                Lighting.OutdoorAmbient = OrigOutdoorAmbient
+            end
+            Lighting.FogColor = OrigFogColor
+            Lighting.FogEnd = OrigFogEnd
+            VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false
+            VibeAtmo.Density = 0
+        end
+    end
+end
 
 local ThemeObjects = { Backgrounds = {}, Strokes = {}, Texts = {}, SecondaryTexts = {}, Inputs = {}, InputBackgrounds = {} }
 local Themes = {
@@ -176,58 +328,17 @@ local Themes = {
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
 
-local ConfigFileName = "Gemini_Config_Main.json"
-local function SaveConfig()
-    local copy = {}
-    for k, v in pairs(Cfg) do
-        if typeof(v) == "Color3" then copy[k] = {R = v.R, G = v.G, B = v.B, isColor = true}
-        elseif typeof(v) == "UDim2" then copy[k] = {XScale = v.X.Scale, XOffset = v.X.Offset, YScale = v.Y.Scale, YOffset = v.Y.Offset, isUDim2 = true}
-        else copy[k] = v end
-    end
-    copy.SavedFriends = FriendsList 
-    pcall(function() writefile(ConfigFileName, HttpService:JSONEncode(copy)) end)
-end
-
-local function LoadConfig()
-    if isfile and isfile(ConfigFileName) then
-        local success, data = pcall(function() return HttpService:JSONDecode(readfile(ConfigFileName)) end)
-        if success and type(data) == "table" then
-            if type(data.SavedFriends) == "table" then FriendsList = {}; for k, v in pairs(data.SavedFriends) do FriendsList[string.lower(k)] = v end end
-            for k, v in pairs(data) do
-                if k ~= "SavedFriends" then
-                    if type(v) == "table" and v.isColor then Cfg[k] = Color3.new(v.R, v.G, v.B)
-                    elseif type(v) == "table" and v.isUDim2 then Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
-                    else Cfg[k] = v end
-                end
-            end
-        end
-    end
-    if not Cfg.UITheme then Cfg.UITheme = "Dark" end
-end
-LoadConfig()
-
 table.insert(Connections, Camera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
-    if Cfg.CustomFovEnabled and Camera.FieldOfView ~= Cfg.CustomFovValue then Camera.FieldOfView = Cfg.CustomFovValue end
+    if Cfg.CustomFovEnabled and Camera.FieldOfView ~= Cfg.CustomFovValue then Camera.FieldOfView = Cfg.CustomFovValue end 
 end))
 
 local HitSounds = { "rbxassetid://140604838213617", "rbxassetid://130201387574815", "rbxassetid://135478009117226", "rbxassetid://96735711388006", "rbxassetid://126048302910782", "rbxassetid://7255642553" }
 
 local GeminiGui = Instance.new("ScreenGui", CoreGui)
-GeminiGui.Name = "Gemini_Final"
-GeminiGui.IgnoreGuiInset = true; GeminiGui.ResetOnSpawn = false 
+GeminiGui.Name = "Gemini_Final"; GeminiGui.IgnoreGuiInset = true; GeminiGui.ResetOnSpawn = false 
 
 local Esp2DFolder = Instance.new("Folder", GeminiGui); Esp2DFolder.Name = "ESP2D_Storage"
 local ArrowsFolder = Instance.new("Folder", GeminiGui); ArrowsFolder.Name = "Arrows_Storage"
-local WorldStarsContainer = Instance.new("Frame", GeminiGui)
-WorldStarsContainer.Name = "WorldStars_Storage"; WorldStarsContainer.Size = UDim2.new(1, 0, 1, 0); WorldStarsContainer.BackgroundTransparency = 1; WorldStarsContainer.ZIndex = 1 
-
-local StarsData = {}
-local MAX_STARS = 100; local STAR_RANGE = 120
-for i = 1, MAX_STARS do
-    local img = Instance.new("TextLabel", WorldStarsContainer)
-    img.Text = "★"; img.Font = Enum.Font.GothamBlack; img.TextScaled = true; img.BackgroundTransparency = 1; img.Visible = false
-    table.insert(StarsData, { gui = img, pos = Vector3.new(math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE)), drift = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5).Unit * math.random(2, 6), rotSpeed = math.random(-50, 50), size = math.random(15, 30) })
-end
 
 local TARGET_FONT = Enum.Font.GothamBlack
 
@@ -238,16 +349,14 @@ local function ShowNotify(text, isEnabled)
 
     local nF = Instance.new("TextLabel", GeminiGui)
     nF.Size = UDim2.new(0, 280, 0, 40); nF.Position = UDim2.new(0.5, -140, 0.4, 0); nF.BackgroundColor3 = t.bg; nF.TextColor3 = t.text; nF.Text = text .. (isEnabled and " ✅" or " ❌"); nF.Font = TARGET_FONT; nF.TextSize = 16; nF.BackgroundTransparency = 1; nF.TextTransparency = 1
-    
     local s = Instance.new("UIStroke", nF); s.Thickness = 2; s.Color = isEnabled and Color3.new(0, 1, 0) or Color3.new(1, 0, 0); s.Transparency = 1; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
     Instance.new("UICorner", nF).CornerRadius = UDim.new(0, 5)
 
-    local targetTrans = t.trans
     local tI = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    TweenService:Create(nF, tI, {Position = UDim2.new(0.5, -140, 0.45, 0), BackgroundTransparency = targetTrans, TextTransparency = 0}):Play()
+    TweenService:Create(nF, tI, {Position = UDim2.new(0.5, -140, 0.45, 0), BackgroundTransparency = t.trans, TextTransparency = 0}):Play()
     TweenService:Create(s, tI, {Transparency = 0}):Play()
     
-    task.delay(1, function()
+    task.delay(1.5, function()
         local tO = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
         TweenService:Create(nF, tO, {Position = UDim2.new(0.5, -140, 0.5, 0), BackgroundTransparency = 1, TextTransparency = 1}):Play()
         TweenService:Create(s, tO, {Transparency = 1}):Play(); task.wait(0.3); nF:Destroy()
@@ -292,8 +401,7 @@ Players.PlayerRemoving:Connect(function(player)
         if EspCache[player].Box2D then EspCache[player].Box2D:Destroy() end
         if EspCache[player].Box3D then EspCache[player].Box3D:Destroy() end
         if EspCache[player].Arrow then EspCache[player].Arrow:Destroy() end
-        EspCache[player] = nil
-        EspHiddenState[player] = nil
+        EspCache[player] = nil; EspHiddenState[player] = nil
     end
 end)
 
@@ -309,13 +417,8 @@ local StatsLabel = Instance.new("TextLabel", Island); StatsLabel.Size = UDim2.ne
 
 local MenuOpen = false 
 local MainFrame = Instance.new("Frame", GeminiGui)
-MainFrame.Size = UDim2.new(0, 750, 0, 450)
-MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-MainFrame.Visible = false 
-MainFrame.BackgroundTransparency = 1
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
-table.insert(ThemeObjects.Backgrounds, MainFrame)
+MainFrame.Size = UDim2.new(0, 750, 0, 450); MainFrame.Position = isMobile and UDim2.new(0.5, 0, 0.5, 50) or UDim2.new(0.5, -375, 0.5, -180); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); MainFrame.Visible = false; MainFrame.BackgroundTransparency = 1
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8); table.insert(ThemeObjects.Backgrounds, MainFrame)
 if isMobile then local uiScale = Instance.new("UIScale", MainFrame); uiScale.Scale = 0.65; MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) end
 local MainFrame_Glow = Instance.new("Frame", MainFrame); MainFrame_Glow.Size = UDim2.new(1, 4, 1, 4); MainFrame_Glow.Position = UDim2.new(0, -2, 0, -2); MainFrame_Glow.BackgroundColor3 = Color3.fromRGB(15, 15, 15); MainFrame_Glow.BackgroundTransparency = 0.5; MainFrame_Glow.ZIndex = MainFrame.ZIndex - 1; Instance.new("UICorner", MainFrame_Glow).CornerRadius = UDim.new(0, 10)
 local MainStroke = Instance.new("UIStroke", MainFrame); MainStroke.Thickness = 1; MainStroke.Color = Color3.fromRGB(45, 45, 45); table.insert(ThemeObjects.Strokes, MainStroke)
@@ -363,7 +466,7 @@ UserInputService.InputBegan:Connect(function(input, gpe) if not gpe and input.Ke
 
 task.spawn(function()
     local renderFrames = 0; local lastTick = tick(); RunService.RenderStepped:Connect(function() renderFrames = renderFrames + 1 end)
-    while task.wait(0.5) do
+    while task.wait(1) do 
         local currentTick = tick(); local currentFPS = math.floor(renderFrames / (currentTick - lastTick)); renderFrames = 0; lastTick = currentTick
         local ping = 0; pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
         StatsLabel.Text = "FPS: "..currentFPS.." | PING: "..ping.."ms"; IslandTitle.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
@@ -380,12 +483,12 @@ local SVGradientH = Instance.new("UIGradient", SatValBox); local SatValOverlay =
 local HueBox = Instance.new("Frame", CPFrame); HueBox.Size = UDim2.new(0, 200, 0, 15); HueBox.Position = UDim2.new(0, 10, 0, 170); HueBox.ZIndex = 21; local HueGradient = Instance.new("UIGradient", HueBox); HueGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(1,0,0)), ColorSequenceKeypoint.new(0.16, Color3.new(1,1,0)), ColorSequenceKeypoint.new(0.33, Color3.new(0,1,0)), ColorSequenceKeypoint.new(0.5, Color3.new(0,1,1)), ColorSequenceKeypoint.new(0.66, Color3.new(0,0,1)), ColorSequenceKeypoint.new(0.83, Color3.new(1,0,1)), ColorSequenceKeypoint.new(1, Color3.new(1,0,0))})
 local SVIndicator = Instance.new("Frame", SatValBox); SVIndicator.Size = UDim2.new(0, 4, 0, 4); SVIndicator.BackgroundColor3 = Color3.new(1,1,1); SVIndicator.ZIndex = 25; SVIndicator.BorderSizePixel = 1
 local curKey, h, s, v = "", 0, 1, 1
-local function UpdateRGB() local color = Color3.fromHSV(h, s, v); if Cfg[curKey] ~= nil then Cfg[curKey] = color end; SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1)); SaveConfig() end
+local function UpdateRGB() local color = Color3.fromHSV(h, s, v); if Cfg[curKey] ~= nil then Cfg[curKey] = color end; SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1)); SaveLocalMAIN(); UpdateWorldShader() end
 local SVTrigger = Instance.new("TextButton", SatValBox); SVTrigger.Size = UDim2.new(1, 0, 1, 0); SVTrigger.BackgroundTransparency = 1; SVTrigger.Text = ""; SVTrigger.ZIndex = 26
 local HueTrigger = Instance.new("TextButton", HueBox); HueTrigger.Size = UDim2.new(1, 0, 1, 0); HueTrigger.BackgroundTransparency = 1; HueTrigger.Text = ""; HueTrigger.ZIndex = 26
 HueTrigger.MouseButton1Down:Connect(function() local move; move = UserInputService.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then h = math.clamp((input.Position.X - HueBox.AbsolutePosition.X) / HueBox.AbsoluteSize.X, 0, 1); UpdateRGB() end end); UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end) end)
 SVTrigger.MouseButton1Down:Connect(function() local move; move = UserInputService.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then s = math.clamp((input.Position.X - SatValBox.AbsolutePosition.X) / SatValBox.AbsoluteSize.X, 0, 1); v = math.clamp((input.Position.Y - SatValBox.AbsolutePosition.Y) / SatValBox.AbsoluteSize.Y, 0, 1); SVIndicator.Position = UDim2.new(s, -2, v, -2); UpdateRGB() end end); UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end) end)
-local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25; ApplyBtn.Font = TARGET_FONT; table.insert(ThemeObjects.InputBackgrounds, ApplyBtn); table.insert(ThemeObjects.Texts, ApplyBtn); ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveConfig() end)
+local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25; ApplyBtn.Font = TARGET_FONT; table.insert(ThemeObjects.InputBackgrounds, ApplyBtn); table.insert(ThemeObjects.Texts, ApplyBtn); ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveLocalMAIN() end)
 
 local function IsKeyMatch(inputKeyCode, bindStr)
     local keyName = inputKeyCode.Name:lower(); local bStr = tostring(bindStr)
@@ -404,22 +507,24 @@ local function CreateModule(name, key, category)
     
     local function RunToggle()
         Cfg[key] = not Cfg[key]; ShowNotify(name, Cfg[key])
+        Toggle.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
+        
         if key == "SpeedEnabled" and not Cfg[key] then if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.WalkSpeed = 16 end end
-        if key == "FullBrightEnabled" and not Cfg[key] then Lighting.Brightness = 1 end
-        if key == "SaturationEnabled" then SaturationEffect.Enabled = Cfg.SaturationEnabled end
-        if key == "WorldColorEnabled" and not Cfg[key] then Lighting.Ambient = Color3.fromRGB(128, 128, 128); Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128); Lighting.ExposureCompensation = 0; VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
-        SaveConfig() 
+        if string.find(key, "WorldColor") then UpdateWorldShader() end
+        SaveLocalMAIN() 
     end
     _G.ToggleFuncs[key] = RunToggle; Toggle.MouseButton1Click:Connect(RunToggle)
-    task.spawn(function() while task.wait(0.2) do Toggle.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0) end end)
     
     local Inner = Instance.new("ScrollingFrame", ModFrame); Inner.Size = UDim2.new(1, -10, 1, -40); Inner.Position = UDim2.new(0, 5, 0, 35); Inner.BackgroundTransparency = 1; Inner.ScrollBarThickness = 2; Inner.CanvasSize = UDim2.new(0, 0, 0, 0); Inner.AutomaticCanvasSize = Enum.AutomaticSize.Y
     Instance.new("UIListLayout", Inner).Padding = UDim.new(0, 2)
     local bindKey = key .. "Bind"; local bF = Instance.new("Frame", Inner); bF.Size = UDim2.new(1, 0, 0, 20); bF.BackgroundTransparency = 1
     local bL = Instance.new("TextLabel", bF); bL.Size = UDim2.new(0.6, 0, 1, 0); bL.Text = "  Bind Key"; bL.TextColor3 = Color3.new(0.7,0.7,0.7); bL.BackgroundTransparency = 1; bL.TextXAlignment = "Left"; bL.TextSize = 12; bL.Font = TARGET_FONT; table.insert(ThemeObjects.SecondaryTexts, bL)
-    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(Cfg[bindKey]); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT; table.insert(ThemeObjects.Inputs, bI)
-    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then Cfg[bindKey] = "None" else Cfg[bindKey] = inputStr end; bI.Text = Cfg[bindKey]; SaveConfig() end)
-    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe) if gpe and UserInputService:GetFocusedTextBox() ~= nil then return end; if Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then if IsKeyMatch(input.KeyCode, Cfg[bindKey]) then RunToggle() end end end))
+    local bI = Instance.new("TextBox", bF); bI.Size = UDim2.new(0, 60, 0.9, 0); bI.Position = UDim2.new(1, -65, 0, 0); bI.Text = tostring(Cfg[bindKey] or "None"); bI.BackgroundColor3 = Color3.fromRGB(35,35,35); bI.TextColor3 = Color3.new(1,1,1); bI.TextSize = 10; bI.Font = TARGET_FONT; table.insert(ThemeObjects.Inputs, bI)
+    bI.FocusLost:Connect(function() local inputStr = bI.Text:gsub("%s+", ""); if inputStr == "" or inputStr:lower() == "none" then Cfg[bindKey] = "None" else Cfg[bindKey] = inputStr end; bI.Text = Cfg[bindKey]; SaveLocalMAIN() end)
+    
+    table.insert(_G.RefreshUIFunctions, function() Toggle.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); bI.Text = tostring(Cfg[bindKey] or "None") end)
+
+    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe) if gpe and UserInputService:GetFocusedTextBox() ~= nil then return end; if Cfg[bindKey] and Cfg[bindKey] ~= "None" and input.UserInputType == Enum.UserInputType.Keyboard then if IsKeyMatch(input.KeyCode, Cfg[bindKey]) then RunToggle() end end end))
     return Inner
 end
 
@@ -428,7 +533,8 @@ local function AddToggle(parent, text, key)
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT; table.insert(ThemeObjects.SecondaryTexts, l)
     local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 30, 0, 12); btn.Position = UDim2.new(1, -40, 0, 3); btn.Text = ""; Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
     btn.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0)
-    btn.MouseButton1Click:Connect(function() Cfg[key] = not Cfg[key]; btn.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); SaveConfig() end)
+    btn.MouseButton1Click:Connect(function() Cfg[key] = not Cfg[key]; btn.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0); if string.find(key, "WorldColor") then UpdateWorldShader() end; SaveLocalMAIN() end)
+    table.insert(_G.RefreshUIFunctions, function() btn.BackgroundColor3 = Cfg[key] and Color3.new(0, 0.8, 0) or Color3.new(0.8, 0, 0) end)
     return f
 end
 
@@ -436,7 +542,8 @@ local function AddSlider(parent, text, key)
     local f = Instance.new("Frame", parent); f.Size = UDim2.new(1, 0, 0, 18); f.BackgroundTransparency = 1
     local l = Instance.new("TextLabel", f); l.Size = UDim2.new(0.6, 0, 1, 0); l.Text = "  " .. text; l.TextColor3 = Color3.new(0.6,0.6,0.6); l.BackgroundTransparency = 1; l.TextXAlignment = "Left"; l.TextSize = 12; l.Font = TARGET_FONT; table.insert(ThemeObjects.SecondaryTexts, l)
     local i = Instance.new("TextBox", f); i.Size = UDim2.new(0, 45, 0.9, 0); i.Position = UDim2.new(1, -50, 0, 0); i.Text = tostring(Cfg[key]); i.BackgroundColor3 = Color3.fromRGB(40,40,40); i.TextColor3 = Color3.new(1,1,1); i.TextSize = 10; i.Font = TARGET_FONT; table.insert(ThemeObjects.Inputs, i)
-    i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then Cfg[key] = v; SaveConfig() end end)
+    i.FocusLost:Connect(function() local v = tonumber(i.Text); if v then Cfg[key] = v; if string.find(key, "WorldColor") then UpdateWorldShader() end; SaveLocalMAIN() end end)
+    table.insert(_G.RefreshUIFunctions, function() i.Text = tostring(Cfg[key]) end)
     return f
 end
 
@@ -454,10 +561,13 @@ do
     m = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(m, "Size Multiplier", "HitboxSize"); AddToggle(m, "Only Killaura", "HitboxOnlyKillaura")
     m = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(m, "Radius", "TargetStrafeOrbitRadius"); AddSlider(m, "Speed", "TargetStrafeOrbitSpeed")
     
-    m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(m, "WalkSpeed", "WalkSpeedValue")
+    m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(m, "WalkSpeed", "WalkSpeedValue"); AddToggle(m, "AC Mode (Fake Lag)", "SpeedACMode")
+    m = CreateModule("INFINITE JUMP", "InfJumpEnabled", "Movement")
+    
     m = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(m, "Horizontal %", "VelocityHorizontal"); AddSlider(m, "Vertical %", "VelocityVertical")
     m = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
     m = CreateModule("AIR STRAFE", "AirStrafeEnabled", "Movement"); AddSlider(m, "Speed", "AirStrafeSpeed")
+    m = CreateModule("ANTI FLING", "AntiFlingEnabled", "Movement")
     m = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
     m = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m, "Speed", "SpiderSpeed")
     m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode"); AddToggle(m, "Spin at jump", "JitterSpinAtJump"); AddSlider(m, "Spin Speed", "JitterSpinSpeed")
@@ -467,12 +577,12 @@ do
     m = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(m, "Size", "TargetESPSquareSize"); AddSlider(m, "Border", "TargetESPBorderThickness"); AddColorBtn(m, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(m, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(m, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(m, "Only Killaura", "TargetESPOnlyKillaura")
     m = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(m, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(m, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(m, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(m, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(m, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(m, "Bar Border", "Esp2DBoxHealthBarBorder")
     m = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); AddSlider(m, "Range", "ArrowsDistance"); AddSlider(m, "Size", "ArrowsSize"); AddToggle(m, "Show Distance", "ArrowsShowDistance"); AddColorBtn(m, "Arrow Color", "ArrowsColor")
-    m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor")
+    m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor"); AddSlider(m, "Amount (1-200)", "WorldParticlesAmount")
     m = CreateModule("CLIENT SIDE (GHOST)", "ClientSideEnabled", "Visuals"); AddSlider(m, "Transparency (0-100)", "ClientSideTransparency"); AddColorBtn(m, "Ghost Color", "ClientSideColor"); AddToggle(m, "Del Texture", "ClientSideDelTexture")
     m = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(m, "Head Offset", "ChinaHatHeightOffset"); AddSlider(m, "Width", "ChinaHatWidthScale"); AddSlider(m, "Height", "ChinaHatHeightScale"); AddSlider(m, "Transparency", "ChinaHatTransparency"); AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
     m = CreateModule("VIEW HANDS", "ViewHandsEnabled", "Visuals") 
     m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(m, "Color", "ParticleColor"); AddSlider(m, "Size", "ParticleSize"); AddSlider(m, "Amount", "ParticleAmount")
-    m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(m, "Brightness (0-10)", "FullBrightBrightness")
+    m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(m, "Time Mode (0-23)", "FullBrightTime")
     m = CreateModule("SATURATION", "SaturationEnabled", "Visuals"); AddSlider(m, "Intensity (0-50)", "SaturationValue")
     m = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(m, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(m, "Color", "JumpCircleEffectColor")
     m = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(m, "Hours (0-23)", "TimeChangerHours")
@@ -517,14 +627,29 @@ local function GetKillauraTarget()
     return t
 end
 
--- ВЫНОСИМ ПОИСК ЦЕЛЕЙ ИЗ RENDERSTEPPED ДЛЯ ФПС
 task.spawn(function()
-    while task.wait(0.1) do
-        if Cfg.AimbotEnabled or Cfg.TargetHudEnabled or Cfg.TargetESPSquareEnabled or Cfg.TargetStrafeOrbitEnabled or Cfg.ArrowsEnabled then
-            SharedTarget = GetTarget()
-        else SharedTarget = nil end
-        
+    while task.wait(0.2) do
+        if Cfg.AimbotEnabled or Cfg.TargetHudEnabled or Cfg.TargetESPSquareEnabled or Cfg.TargetStrafeOrbitEnabled or Cfg.ArrowsEnabled then SharedTarget = GetTarget() else SharedTarget = nil end
         if Cfg.KillAuraEnabled then SharedKaTarget = GetKillauraTarget() else SharedKaTarget = nil end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(3) do 
+        if Cfg.AntiFlingEnabled then
+            local newCache = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character then
+                    local parts = {}
+                    local desc = p.Character:GetDescendants()
+                    for j = 1, #desc do if desc[j]:IsA("BasePart") then table.insert(parts, desc[j]) end end
+                    if #parts > 0 then newCache[p] = parts end
+                end
+            end
+            AntiFlingCache = newCache
+        else
+            if next(AntiFlingCache) ~= nil then AntiFlingCache = {} end
+        end
     end
 end)
 
@@ -544,11 +669,8 @@ local function CreateJumpCircle(pos)
     local tI = TweenInfo.new(0.8, Enum.EasingStyle.Quart, Enum.EasingDirection.Out); TweenService:Create(p, tI, {Size = Vector3.new(0.1, Cfg.JumpCircleMaximumSize, Cfg.JumpCircleMaximumSize), Transparency = 1}):Play(); task.delay(0.8, function() p:Destroy() end)
 end
 
-local HatPart = Instance.new("Part", workspace); HatPart.Name = "Gemini_ChinaHat"; HatPart.CanCollide = false; HatPart.Anchored = true; HatPart.Transparency = 1
-local HatMesh = Instance.new("SpecialMesh", HatPart); HatMesh.MeshType = "FileMesh"; HatMesh.MeshId = "rbxassetid://1033714"
-
 local TargetHUD = Instance.new("Frame", GeminiGui); TargetHUD.Size = UDim2.new(0, 220, 0, 70); TargetHUD.Position = Cfg.TargetHudPosition; TargetHUD.BackgroundColor3 = Color3.fromRGB(15, 15, 15); TargetHUD.Visible = false; TargetHUD.Active = true; TargetHUD.Draggable = true; table.insert(ThemeObjects.Backgrounds, TargetHUD)
-TargetHUD.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then Cfg.TargetHudPosition = TargetHUD.Position; SaveConfig() end end)
+TargetHUD.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then Cfg.TargetHudPosition = TargetHUD.Position; SaveLocalMAIN() end end)
 local TargetHUD_Glow = Instance.new("Frame", TargetHUD); TargetHUD_Glow.Size = UDim2.new(1, 4, 1, 4); TargetHUD_Glow.Position = UDim2.new(0, -2, 0, -2); TargetHUD_Glow.BackgroundColor3 = Color3.fromRGB(0, 255, 255); TargetHUD_Glow.BackgroundTransparency = 0.8; TargetHUD_Glow.ZIndex = TargetHUD.ZIndex - 1; Instance.new("UICorner", TargetHUD_Glow).CornerRadius = UDim.new(0, 15)
 local cornerHUD = Instance.new("UICorner", TargetHUD); cornerHUD.CornerRadius = UDim.new(0, 12)
 local strokeHUD = Instance.new("UIStroke", TargetHUD); strokeHUD.Color = Color3.new(0, 0, 0); strokeHUD.Thickness = 2; strokeHUD.Transparency = 0; table.insert(ThemeObjects.Strokes, strokeHUD)
@@ -584,6 +706,7 @@ local lastAttackTime = 0; local lastStrafeJumpTime = 0; local nextStrafeJumpDela
 local lastEspTargetUserId = nil; local lastEspTargetHealth = nil; local lastDamageTimeESP = 0; local lastRenderedEspThickness = nil
 local wasThirdPerson = false; local AnimLagAccumulator = 0; local WasAnimLagging = false
 
+-- // ИСПРАВЛЕНО: ЖЕСТКИЙ ANTI FLING (БЕЗ ДИСТАНЦИЙ)
 table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     local char = LocalPlayer.Character
     if not char then return end
@@ -592,6 +715,16 @@ table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
         for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then if OrigNoClipStates[part] == nil then OrigNoClipStates[part] = part.CanCollide end; part.CanCollide = false end end
     elseif not Cfg.NoClipEnabled and next(OrigNoClipStates) ~= nil then
         for part, state in pairs(OrigNoClipStates) do if part and part.Parent then part.CanCollide = state end end; table.clear(OrigNoClipStates)
+    end
+
+    if Cfg.AntiFlingEnabled then
+        for plr, parts in pairs(AntiFlingCache) do
+            if plr.Character and parts[1] and parts[1].Parent then
+                for i = 1, #parts do
+                    parts[i].CanCollide = false
+                end
+            end
+        end
     end
     
     if Cfg.VelocityEnabled then
@@ -619,13 +752,12 @@ table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     end
 end))
 
--- // НЕВИДИМЫЙ ХИТБОКС ГОЛОВЫ
 task.spawn(function()
-    while task.wait(0.2) do
-        if Cfg.HitboxEnabled then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer then
-                    pcall(function()
+    while task.wait(0.5) do
+        pcall(function() 
+            if Cfg.HitboxEnabled then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer then
                         local plChar = player.Character
                         if plChar then
                             local head = plChar:FindFirstChild("Head")
@@ -659,36 +791,24 @@ task.spawn(function()
                                 end
                             end
                         end
-                    end)
+                    end
                 end
-            end
-        else
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local head = player.Character:FindFirstChild("Head")
-                    if head and OrigPartData[head] and head.Size ~= OrigPartData[head].Size then
-                        head.Size = OrigPartData[head].Size; head.Transparency = OrigPartData[head].Trans; head.CanCollide = OrigPartData[head].CanCollide; head.Massless = OrigPartData[head].Massless
-                        local face = head:FindFirstChildOfClass("Decal"); if face and OrigPartData[face] then face.Transparency = OrigPartData[face].Trans end
-                        local fakeH = player.Character:FindFirstChild("Gemini_FakeHead"); if fakeH then fakeH:Destroy() end
+            else
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local head = player.Character:FindFirstChild("Head")
+                        if head and OrigPartData[head] and head.Size ~= OrigPartData[head].Size then
+                            head.Size = OrigPartData[head].Size; head.Transparency = OrigPartData[head].Trans; head.CanCollide = OrigPartData[head].CanCollide; head.Massless = OrigPartData[head].Massless
+                            local face = head:FindFirstChildOfClass("Decal"); if face and OrigPartData[face] then face.Transparency = OrigPartData[face].Trans end
+                            local fakeH = player.Character:FindFirstChild("Gemini_FakeHead"); if fakeH then fakeH:Destroy() end
+                        end
                     end
                 end
             end
-        end
+        end)
     end
 end)
 
-task.spawn(function()
-    while task.wait(0.5) do
-        if Cfg.WorldColorEnabled then
-            local baseColor = Cfg.WorldColorValue; local trans = math.clamp(Cfg.WorldColorTransparency, 0, 1); local dark = math.clamp(Cfg.WorldColorDarkness, 0, 5)
-            local blendedColor = Color3.fromRGB(128, 128, 128):Lerp(baseColor, trans)
-            Lighting.Ambient = blendedColor; Lighting.OutdoorAmbient = blendedColor; Lighting.ExposureCompensation = -dark
-            if Cfg.WorldColorShader then VibeBloom.Enabled = true; VibeCC.Enabled = true; VibeBlur.Enabled = true; VibeCC.TintColor = Color3.new(1, 1, 1):Lerp(baseColor, 0.4) else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
-        else VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false end
-    end
-end)
-
--- GHOST VARIABLES
 local GhostModel = nil
 local GhostPartsArray = {}
 local GhostHistory = {}
@@ -702,21 +822,17 @@ local function UpdateGhostAppearance()
     local trans = (tonumber(Cfg.ClientSideTransparency) or 50) / 100
     local delTex = Cfg.ClientSideDelTexture
     local gColor = Cfg.ClientSideColor
-    
-    pcall(function() local bc = GhostModel:FindFirstChildOfClass("BodyColors"); if bc then bc:Destroy() end end)
-    
+    local bc = GhostModel:FindFirstChildOfClass("BodyColors"); if bc then bc:Destroy() end
     for i = 1, #GhostPartsArray do
         local p = GhostPartsArray[i].ghost
-        pcall(function()
-            if p:IsA("BasePart") then
-                p.Transparency = trans; p.Color = gColor
-                if delTex then p.Material = Enum.Material.SmoothPlastic; if p:IsA("MeshPart") then p.TextureID = "" end end
-            end
-        end)
+        if p and p:IsA("BasePart") then
+            p.Transparency = trans; p.Color = gColor
+            if delTex then p.Material = Enum.Material.SmoothPlastic; if p:IsA("MeshPart") then p.TextureID = "" end end
+        end
     end
 end
 
--- // ГЛАВНЫЙ ЦИКЛ ОПТИМИЗИРОВАН
+-- // БЫСТРЫЙ RENDER STEPPED
 table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     local char = LocalPlayer.Character
     local target = SharedTarget
@@ -728,33 +844,80 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     local espTarget = Cfg.TargetESPOnlyKillaura and currentKaTarget or target
 
     if Cfg.CustomFovEnabled then Camera.FieldOfView = Cfg.CustomFovValue else Camera.FieldOfView = Cfg.AspectRatioValue end
-    if Cfg.TimeChangerEnabled then Lighting.ClockTime = math.clamp(Cfg.TimeChangerHours, 0, 23) end
-    if Cfg.FullBrightEnabled then Lighting.Brightness = math.clamp(Cfg.FullBrightBrightness, 0, 10) end
     
-    if Cfg.ThirdPersonEnabled then LocalPlayer.CameraMode = Enum.CameraMode.Classic; LocalPlayer.CameraMaxZoomDistance = Cfg.ThirdPersonDistance or 15; LocalPlayer.CameraMinZoomDistance = Cfg.ThirdPersonDistance or 15; wasThirdPerson = true
-    elseif wasThirdPerson then LocalPlayer.CameraMinZoomDistance = 0.5; LocalPlayer.CameraMaxZoomDistance = 400; wasThirdPerson = false end
+    if Cfg.FullBrightEnabled then
+        Lighting.ClockTime = math.clamp(tonumber(Cfg.FullBrightTime) or 12, 0, 23)
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    else
+        if Cfg.WorldColorEnabled then
+            Lighting.Ambient = Cfg.WorldColorValue
+            Lighting.OutdoorAmbient = Cfg.WorldColorValue
+        else
+            Lighting.Ambient = OrigAmbient
+            Lighting.OutdoorAmbient = OrigOutdoorAmbient
+        end
+        if Cfg.TimeChangerEnabled then
+            Lighting.ClockTime = math.clamp(Cfg.TimeChangerHours, 0, 23)
+        end
+    end
     
-    if Cfg.SaturationEnabled then SaturationEffect.Enabled = true; SaturationEffect.Saturation = tonumber(Cfg.SaturationValue) or 1 else SaturationEffect.Enabled = false end
+    if Cfg.SaturationEnabled then
+        SaturationEffect.Enabled = true
+        SaturationEffect.Saturation = (tonumber(Cfg.SaturationValue) or 10) / 10
+    else
+        SaturationEffect.Enabled = false
+    end
+    
+    if Cfg.ThirdPersonEnabled then 
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic; LocalPlayer.CameraMaxZoomDistance = Cfg.ThirdPersonDistance or 15; LocalPlayer.CameraMinZoomDistance = Cfg.ThirdPersonDistance or 15; wasThirdPerson = true
+    elseif wasThirdPerson then 
+        LocalPlayer.CameraMinZoomDistance = 0.5; LocalPlayer.CameraMaxZoomDistance = 400; wasThirdPerson = false 
+    end
     
     if glowGradientBack then glowGradientBack.Rotation = (tick() * 35) % 360 end
     
     if Cfg.WorldParticlesEnabled then
-        WorldStarsContainer.Visible = true; local dtSafe = dt or 0.016 
-        for i = 1, MAX_STARS do
-            local star = StarsData[i]
-            star.pos = star.pos + star.drift * dtSafe; local diff = star.pos - camPos
-            local wx = (diff.X + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE; local wy = (diff.Y + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE; local wz = (diff.Z + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
-            star.pos = camPos + Vector3.new(wx, wy, wz)
-            local screenPos, onScreen = Camera:WorldToViewportPoint(star.pos)
-            if onScreen and screenPos.Z > 1 and screenPos.Z < STAR_RANGE then
-                if not star.gui.Visible then star.gui.Visible = true end
-                local scale = math.clamp(50 / screenPos.Z, 0.1, 2); local currentSize = star.size * scale
-                star.gui.Size = UDim2.fromOffset(currentSize, currentSize); star.gui.Position = UDim2.fromOffset(screenPos.X - currentSize/2, screenPos.Y - currentSize/2)
-                star.gui.Rotation = star.gui.Rotation + star.rotSpeed * dtSafe; star.gui.TextColor3 = Cfg.WorldParticlesColor
-                local fade = 1 - math.clamp(screenPos.Z / STAR_RANGE, 0, 1); star.gui.TextTransparency = 1 - (fade ^ 1.5)
-            else if star.gui.Visible then star.gui.Visible = false end end
+        local targetAmount = math.clamp(tonumber(Cfg.WorldParticlesAmount) or 40, 1, 200)
+        if #StarsData > targetAmount then
+            for i = targetAmount + 1, #StarsData do StarsData[i].part:Destroy(); StarsData[i] = nil end
+        elseif #StarsData < targetAmount then
+            for i = #StarsData + 1, targetAmount do
+                local p = Instance.new("Part")
+                p.Size = Vector3.new(0.05, 0.05, 0.05); p.Transparency = 1; p.CanCollide = false; p.Anchored = true; p.Parent = WorldStarsFolder
+                local bg = Instance.new("BillboardGui", p)
+                bg.AlwaysOnTop = true
+                local tl = Instance.new("TextLabel", bg)
+                tl.Size = UDim2.new(1, 0, 1, 0); tl.BackgroundTransparency = 1; tl.Text = "★"; tl.Font = Enum.Font.GothamBlack; tl.TextScaled = true
+                table.insert(StarsData, { part = p, gui = tl, pos = Vector3.new(math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE), math.random(-STAR_RANGE, STAR_RANGE)), drift = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5).Unit * math.random(2, 6), rotSpeed = math.random(-50, 50), size = math.random(15, 30) })
+            end
         end
-    else if WorldStarsContainer.Visible then WorldStarsContainer.Visible = false end end
+        
+        local dtSafe = dt * 2 
+        for i = 1, #StarsData do
+            local star = StarsData[i]
+            star.pos = star.pos + star.drift * dtSafe
+            local diff = star.pos - camPos
+            local wx = (diff.X + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
+            local wy = (diff.Y + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
+            local wz = (diff.Z + STAR_RANGE) % (STAR_RANGE * 2) - STAR_RANGE
+            star.pos = camPos + Vector3.new(wx, wy, wz)
+            
+            star.part.Position = star.pos
+            star.gui.TextColor3 = Cfg.WorldParticlesColor
+            star.gui.Rotation = star.gui.Rotation + star.rotSpeed * dtSafe
+            
+            local dist = (star.pos - camPos).Magnitude
+            local fade = 1 - math.clamp(dist / STAR_RANGE, 0, 1)
+            star.gui.TextTransparency = 1 - (fade ^ 1.5)
+            star.gui.Parent.Size = UDim2.new(star.size * 0.1, 0, star.size * 0.1, 0)
+        end
+    else
+        if #StarsData > 0 then
+            for i = 1, #StarsData do StarsData[i].part:Destroy() end
+            StarsData = {}
+        end
+    end
 
     if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid
@@ -762,7 +925,18 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         local state = hum:GetState()
         local isAirborne = (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping)
         
-        if Cfg.SpeedEnabled then hum.WalkSpeed = Cfg.WalkSpeedValue end
+        if Cfg.SpeedEnabled then 
+            local speedVal = tonumber(Cfg.WalkSpeedValue) or 16
+            if Cfg.SpeedACMode then
+                hum.WalkSpeed = 16
+                if hum.MoveDirection.Magnitude > 0 then
+                    local extraSpeed = speedVal - 16
+                    if extraSpeed > 0 then hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (extraSpeed * dt)) end
+                end
+            else
+                hum.WalkSpeed = speedVal 
+            end
+        end
         
         if Cfg.AirStrafeEnabled and isAirborne and hum.MoveDirection.Magnitude > 0 then
             local speed = tonumber(Cfg.AirStrafeSpeed) or 30; local currentVel = hrp.AssemblyLinearVelocity
@@ -777,7 +951,9 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         
         if Cfg.StrafeEnabled and hum.MoveDirection.Magnitude > 0 and not (Cfg.AirStrafeEnabled and isAirborne) then 
             local currentSpeed = Cfg.SpeedEnabled and Cfg.WalkSpeedValue or hum.WalkSpeed; local instantVel = hum.MoveDirection.Unit * currentSpeed; hrp.AssemblyLinearVelocity = Vector3.new(instantVel.X, hrp.AssemblyLinearVelocity.Y, instantVel.Z) 
-        elseif Cfg.StrafeEnabled and hum.MoveDirection.Magnitude == 0 then hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) end
+        elseif Cfg.StrafeEnabled and hum.MoveDirection.Magnitude == 0 then 
+            hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) 
+        end
         
         if Cfg.SpiderEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char, ChamsFolder, Chams3DFolder}; rayParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -790,29 +966,22 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
 
-        -- ОПТИМИЗИРОВАННЫЙ VIEW HANDS (ТОЛЬКО РУКИ)
         if Cfg.ViewHandsEnabled then
-            for i = 1, #ViewHandsParts do
-                ViewHandsParts[i].LocalTransparencyModifier = 0
-            end
+            for i = 1, #ViewHandsParts do ViewHandsParts[i].LocalTransparencyModifier = 0 end
         end
 
-        -- CLIENT SIDE GHOST ОПТИМИЗИРОВАН
         if Cfg.ClientSideEnabled then
             if currentGhostCharRef ~= char or (lastGhostDelTex ~= nil and lastGhostDelTex ~= Cfg.ClientSideDelTexture) then
                 if GhostModel then GhostModel:Destroy() end; GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = char; lastGhostDelTex = Cfg.ClientSideDelTexture
             end
-            
             if not GhostModel or GhostModel.Parent ~= Chams3DFolder then
                 char.Archivable = true; GhostModel = char:Clone(); GhostModel.Name = "Gemini_Ghost"; GhostModel.Parent = Chams3DFolder; GhostPartsArray = {}
                 local gh = GhostModel:FindFirstChildOfClass("Humanoid"); if gh then gh:Destroy() end
                 local gHrp = GhostModel:FindFirstChild("HumanoidRootPart"); if gHrp then gHrp:Destroy() end
-                
                 for _, v in ipairs(GhostModel:GetDescendants()) do
                     if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
                     if v:IsA("BasePart") then v.Anchored = true; v.CanCollide = false; v.CanQuery = false; v.CanTouch = false; v.Massless = true end
                 end
-                
                 for _, realPart in ipairs(char:GetDescendants()) do
                     if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
                         local ghostPart = nil
@@ -823,19 +992,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                 end
                 lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = Cfg.ClientSideTransparency; UpdateGhostAppearance()
             end
-
             local currentTrans = tonumber(Cfg.ClientSideTransparency) or 50
             if lastGhostColor ~= Cfg.ClientSideColor or lastGhostTrans ~= currentTrans then lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = currentTrans; UpdateGhostAppearance() end
-
             local currentPose = { t = tick(), parts = {} }
             for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; currentPose.parts[p.real] = p.real.CFrame end
             table.insert(GhostHistory, currentPose)
             while #GhostHistory > 0 and tick() - GhostHistory[1].t > 2 do table.remove(GhostHistory, 1) end
-            
-            local ping = 0; pcall(function() ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-            local targetTime = tick() - math.clamp(ping / 1000, 0, 2); local targetPose = GhostHistory[#GhostHistory]
+            local targetTime = tick() - 0.1; local targetPose = GhostHistory[#GhostHistory]
             for i = #GhostHistory, 1, -1 do if GhostHistory[i].t <= targetTime then targetPose = GhostHistory[i]; break end end
-            
             if targetPose then for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; p.ghost.CFrame = targetPose.parts[p.real] end end
         else
             if GhostModel then GhostModel:Destroy(); GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = nil end
@@ -843,14 +1007,16 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     end
 
     local localHrp = char and char:FindFirstChild("HumanoidRootPart")
+    
     local allPlayers = Players:GetPlayers()
     for i = 1, #allPlayers do
         local player = allPlayers[i]
         if player ~= LocalPlayer then
-            local plChar = player.Character; local isFriend = FriendsList[LowerNameCache[player.Name]]; local espCache = GetEspElements(player)
+            local plChar = player.Character
+            local isFriend = FriendsList[LowerNameCache[player.Name]]
+            local espCache = GetEspElements(player)
             local hasHRP = plChar and plChar:FindFirstChild("HumanoidRootPart")
             
-            -- Оптимизация 3D Box/Chams ESP
             if isFriend then
                 if not EspHiddenState[player] then espCache.Box3D.Parent = nil; EspHiddenState[player] = true end
                 local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
@@ -865,7 +1031,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                 if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end 
             end
 
-            -- Оптимизация 2D ESP
             if Cfg.Esp2DBoxEnabled and hasHRP and not isFriend then
                 local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
@@ -887,10 +1052,13 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                         local hum = plChar:FindFirstChild("Humanoid")
                         if hum then local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0.01, 1); espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0); espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0); espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0); espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0) end
                     end
-                else if espCache.Box2D.Visible then espCache.Box2D.Visible = false end end
-            else if espCache.Box2D.Visible then espCache.Box2D.Visible = false end end
+                elseif espCache.Box2D.Visible then 
+                    espCache.Box2D.Visible = false 
+                end
+            elseif espCache.Box2D.Visible then 
+                espCache.Box2D.Visible = false 
+            end
 
-            -- Оптимизация Arrows ESP
             if Cfg.ArrowsEnabled and hasHRP and localHrp and not isFriend then
                 local targetHRP = plChar.HumanoidRootPart; local dist = (targetHRP.Position - localHrp.Position).Magnitude
                 if dist <= (tonumber(Cfg.ArrowsDistance) or 100) then
@@ -901,8 +1069,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                     local relativeToCam = camCFrame:PointToObjectSpace(targetHRP.Position); local angle = math.atan2(relativeToCam.X, -relativeToCam.Z)
                     local center = Camera.ViewportSize / 2; local radius = 150; local x = center.X + math.sin(angle) * radius; local y = center.Y - math.cos(angle) * radius
                     espCache.Arrow.Position = UDim2.new(0, x, 0, y); espCache.ArrowSym.Rotation = math.deg(angle)
-                else if espCache.Arrow.Visible then espCache.Arrow.Visible = false end end
-            else if espCache.Arrow.Visible then espCache.Arrow.Visible = false end end
+                elseif espCache.Arrow.Visible then 
+                    espCache.Arrow.Visible = false 
+                end
+            elseif espCache.Arrow.Visible then 
+                espCache.Arrow.Visible = false 
+            end
         end
     end
     
@@ -921,7 +1093,9 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         local currentBarColor = normColor; local timeSinceDmgHud = tick() - lastDamageTimeHUD; if timeSinceDmgHud < 0.3 then currentBarColor = dmgColor:Lerp(normColor, timeSinceDmgHud / 0.3) end
         barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, currentBarColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, currentBarColor)})
         if currentTween then currentTween:Cancel() end; currentTween = TweenService:Create(HealthBar, tweenInfo, {Size = UDim2.new(healthPercent, 0, 1, 0)}); currentTween:Play(); HealthText.Text = string.format("HP: %.1f", hum.Health)
-    else if TargetHUD.Visible then TargetHUD.Visible = false; lastTargetUserId = nil; lastTargetHealth = nil; if currentTween then currentTween:Cancel() end end end
+    elseif TargetHUD.Visible then 
+        TargetHUD.Visible = false; lastTargetUserId = nil; lastTargetHealth = nil; if currentTween then currentTween:Cancel() end 
+    end
 
     if Cfg.TargetESPSquareEnabled and espTarget and espTarget.Character and espTarget.Character:FindFirstChild("HumanoidRootPart") then
         local espHum = espTarget.Character:FindFirstChild("Humanoid")
@@ -936,8 +1110,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                 if updateThickness then c[3].Thickness = Cfg.TargetESPBorderThickness; c[4].Thickness = Cfg.TargetESPBorderThickness; c[5].Thickness = Cfg.TargetESPBorderThickness + 4.5; c[6].Thickness = Cfg.TargetESPBorderThickness + 4.5; c[7].Thickness = Cfg.TargetESPBorderThickness + 11; c[8].Thickness = Cfg.TargetESPBorderThickness + 11; end
                 c[3].Color = currentEspColor; c[4].Color = currentEspColor; c[5].Color = currentEspColor; c[6].Color = currentEspColor; c[7].Color = currentEspColor; c[8].Color = currentEspColor
             end
-        else if ESPMain.Visible then ESPMain.Visible = false end end
-    else if ESPMain.Visible then ESPMain.Visible = false; lastEspTargetUserId = nil; lastEspTargetHealth = nil end end
+        elseif ESPMain.Visible then 
+            ESPMain.Visible = false 
+        end
+    elseif ESPMain.Visible then 
+        ESPMain.Visible = false; lastEspTargetUserId = nil; lastEspTargetHealth = nil 
+    end
 
     if Cfg.TargetStrafeOrbitEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and localHrp then
         local angle = tick() * Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * Cfg.TargetStrafeOrbitRadius; localHrp.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
@@ -963,12 +1141,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
 
                 if Cfg.KillAuraNoCamRotation then
                     local savedVel = hrp.AssemblyLinearVelocity
-                    char.Humanoid.AutoRotate = false; hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    char.Humanoid.AutoRotate = false; hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
                     hrp.AssemblyLinearVelocity = savedVel
                     didRotateHRP = true 
                 else 
                     local savedVel = hrp.AssemblyLinearVelocity
-                    Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, targetPart.Position), Cfg.AimbotSmoothness); hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, hrp.Position.Y, targetPart.Position.Z))
+                    Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, targetPart.Position), Cfg.AimbotSmoothness); hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
                     hrp.AssemblyLinearVelocity = savedVel
                 end
                 
@@ -1022,6 +1200,17 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     end
 end))
 
+-- // INFINITE JUMP LOGIC
+table.insert(Connections, UserInputService.JumpRequest:Connect(function()
+    if Cfg.InfJumpEnabled then
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end
+    end
+end))
+
 local BindListFrame = Instance.new("Frame", GeminiGui)
 BindListFrame.Size = UDim2.new(0, 180, 0, 30); BindListFrame.Position = Cfg.BindListPosition; BindListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20); BindListFrame.Visible = false
 Instance.new("UICorner", BindListFrame).CornerRadius = UDim.new(0, 6); table.insert(ThemeObjects.Backgrounds, BindListFrame)
@@ -1033,16 +1222,16 @@ local dragging, dragInput, dragStart, startPos
 BindListFrame.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; dragStart = input.Position; startPos = BindListFrame.Position end end)
 BindListFrame.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
 UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then local delta = input.Position - dragStart; BindListFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
-UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then if dragging then dragging = false; Cfg.BindListPosition = BindListFrame.Position; SaveConfig() end end end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then if dragging then dragging = false; Cfg.BindListPosition = BindListFrame.Position; SaveLocalMAIN() end end end)
 
 local function UpdateKeybindList()
     local t = Themes[Cfg.UITheme] or Themes.Dark
     for _, child in pairs(BLContainer:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
     local activeCount = 0
-    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ViewHandsEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modules = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "InfJumpEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "AntiFlingEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ViewHandsEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     for _, key in ipairs(modules) do
         local bindKey = key .. "Bind"
-        if Cfg[key] == true and Cfg[bindKey] ~= "None" then
+        if Cfg[key] == true and Cfg[bindKey] and Cfg[bindKey] ~= "None" then
             activeCount = activeCount + 1
             local label = Instance.new("TextLabel", BLContainer); label.Size = UDim2.new(1, 0, 0, 18); label.BackgroundTransparency = 1; label.Text = " " .. key:gsub("Enabled", ""):upper() .. " [" .. tostring(Cfg[bindKey]):upper() .. "]"; label.TextColor3 = t.textSec; label.TextSize = 13; label.Font = TARGET_FONT; label.TextXAlignment = Enum.TextXAlignment.Left
         end
@@ -1057,7 +1246,7 @@ local globalMobileDragging = false
 local function UpdateMobileBinds()
     if not isMobile then return end
     local t = Themes[Cfg.UITheme] or Themes.Dark
-    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ViewHandsEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
+    local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "InfJumpEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "AntiFlingEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ViewHandsEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if Cfg[bindKey] and tostring(Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
@@ -1073,36 +1262,26 @@ local function UpdateMobileBinds()
             btn.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if not globalMobileDragging then globalMobileDragging = true; mDragging = true; isTap = true; dragStartPos = input.Position; btnStartPos = btn.Position; btn.ZIndex = 100 end end end)
             btn.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then mDragInput = input end end)
             UserInputService.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - dragStartPos; if delta.Magnitude > 8 then isTap = false end; btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + delta.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + delta.Y) end end)
-            UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if mDragging then mDragging = false; globalMobileDragging = false; btn.ZIndex = 1; if isTap then if _G.ToggleFuncs[key] then _G.ToggleFuncs[key]() end else Cfg["MobilePos_"..key] = {XScale = btn.Position.X.Scale, XOffset = btn.Position.X.Offset, YScale = btn.Position.Y.Scale, YOffset = btn.Position.Y.Offset, isUDim2 = true}; SaveConfig() end end end end)
+            UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if mDragging then mDragging = false; globalMobileDragging = false; btn.ZIndex = 1; if isTap then if _G.ToggleFuncs[key] then _G.ToggleFuncs[key]() end else Cfg["MobilePos_"..key] = {XScale = btn.Position.X.Scale, XOffset = btn.Position.X.Offset, YScale = btn.Position.Y.Scale, YOffset = btn.Position.Y.Offset, isUDim2 = true}; SaveLocalMAIN() end end end end)
         else btn.Text = bindLetter; btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg; btn.TextColor3 = t.text end
     end
 end
-task.spawn(function() while task.wait(0.5) do UpdateKeybindList(); UpdateMobileBinds() end end)
+task.spawn(function() while task.wait(1) do pcall(UpdateKeybindList); pcall(UpdateMobileBinds) end end)
 
 local function UpdateViewHandsParts(char)
     ViewHandsParts = {}
     if not char then return end
-    
-    local armNames = {
-        ["Left Arm"] = true, ["Right Arm"] = true,
-        ["LeftHand"] = true, ["RightHand"] = true,
-        ["LeftLowerArm"] = true, ["RightLowerArm"] = true,
-        ["LeftUpperArm"] = true, ["RightUpperArm"] = true
-    }
-    
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and armNames[p.Name] then
-            table.insert(ViewHandsParts, p)
-        end
-    end
+    local armNames = { ["Left Arm"] = true, ["Right Arm"] = true, ["LeftHand"] = true, ["RightHand"] = true, ["LeftLowerArm"] = true, ["RightLowerArm"] = true, ["LeftUpperArm"] = true, ["RightUpperArm"] = true }
+    for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") and armNames[p.Name] then table.insert(ViewHandsParts, p) end end
 end
 
 local function ConnectJumpAndHands(char)
+    local armNames = { ["Left Arm"] = true, ["Right Arm"] = true, ["LeftHand"] = true, ["RightHand"] = true, ["LeftLowerArm"] = true, ["RightLowerArm"] = true, ["LeftUpperArm"] = true, ["RightUpperArm"] = true }
     local hum = char:WaitForChild("Humanoid")
     hum.Jumping:Connect(function() lastRealJumpTime = tick(); if Cfg.JumpVisualCirclesEnabled then CreateJumpCircle(char.HumanoidRootPart.Position) end end)
     UpdateViewHandsParts(char)
-    char.DescendantAdded:Connect(function() UpdateViewHandsParts(char) end)
-    char.DescendantRemoving:Connect(function() UpdateViewHandsParts(char) end)
+    char.DescendantAdded:Connect(function(desc) if desc:IsA("BasePart") and armNames[desc.Name] then UpdateViewHandsParts(char) end end)
+    char.DescendantRemoving:Connect(function(desc) if desc:IsA("BasePart") and armNames[desc.Name] then UpdateViewHandsParts(char) end end)
 end
 LocalPlayer.CharacterAdded:Connect(ConnectJumpAndHands); if LocalPlayer.Character then ConnectJumpAndHands(LocalPlayer.Character) end
 
@@ -1111,7 +1290,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         if tick() - lastAttackTime < 0.1 then return end
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
-            local hitChar = res.Instance:FindFirstAncestorOfClass("Model"); local p = Players:GetPlayerFromCharacter(hitChar)
+            local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
             if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character and not FriendsList[LowerNameCache[hitChar.Name]] then 
                 if Cfg.DamageParticlesEnabled then local pAmt = tonumber(Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(res.Position) end end
                 if Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(Cfg.HitSoundMode), 1, 6); local sId = HitSounds[sIdx]; local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = sId; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
@@ -1143,19 +1322,57 @@ do
             local i = Instance.new("Frame", UI.fScr); i.Size = UDim2.new(1, 0, 0, 20); i.BackgroundTransparency = 1
             local b = Instance.new("TextButton", i); b.Size = UDim2.new(0, 20, 0, 20); b.BackgroundColor3 = th.accent; b.TextColor3 = Color3.new(1, 0.2, 0.2); b.Text = "-"; b.Font = TARGET_FONT; b.TextSize = 14; Instance.new("UICorner", b).CornerRadius = UDim.new(0,4)
             local l = Instance.new("TextLabel", i); l.Size = UDim2.new(1, -25, 1, 0); l.Position = UDim2.new(0, 25, 0, 0); l.BackgroundTransparency = 1; l.Text = fname; l.TextColor3 = th.textSec; l.Font = TARGET_FONT; l.TextSize = 12; l.TextXAlignment = "Left"
-            b.MouseButton1Click:Connect(function() FriendsList[fname] = nil; for _, tp in ipairs(Players:GetPlayers()) do if string.lower(tp.Name) == fname then if tp.Character and tp.Character:FindFirstChild("FriendHighlight") then tp.Character.FriendHighlight:Destroy() end break end end; SaveConfig(); RefreshFriends(); ShowNotify("Friend Removed: " .. fname, false) end)
+            b.MouseButton1Click:Connect(function() FriendsList[fname] = nil; for _, tp in ipairs(Players:GetPlayers()) do if string.lower(tp.Name) == fname then if tp.Character and tp.Character:FindFirstChild("FriendHighlight") then tp.Character.FriendHighlight:Destroy() end break end end; SaveLocalMAIN(); RefreshFriends(); ShowNotify("Friend Removed: " .. fname, false) end)
         end
     end
-    UI.fAdd.MouseButton1Click:Connect(function() local t = UI.fInp.Text:gsub("%s+", ""); if t ~= "" and t ~= "Username" then local lt = LowerNameCache[t]; FriendsList[lt] = true; UI.fInp.Text = "Username"; SaveConfig(); RefreshFriends(); ShowNotify("Friend Added: " .. lt, true) end end)
-    local lastF = ""; task.spawn(function() while task.wait(0.5) do local c = HttpService:JSONEncode(FriendsList); if c ~= lastF then lastF = c; RefreshFriends() end end end)
+    UI.fAdd.MouseButton1Click:Connect(function() local t = UI.fInp.Text:gsub("%s+", ""); if t ~= "" and t ~= "Username" then local lt = LowerNameCache[t]; FriendsList[lt] = true; UI.fInp.Text = "Username"; SaveLocalMAIN(); RefreshFriends(); ShowNotify("Friend Added: " .. lt, true) end end)
+    local lastF = ""; task.spawn(function() while task.wait(1) do local c = HttpService:JSONEncode(FriendsList); if c ~= lastF then lastF = c; RefreshFriends() end end end)
+
+    UI.expF = mkMisc("EXPORT CONFIG")
+    UI.expLbl = Instance.new("TextBox", UI.expF); UI.expLbl.Size = UDim2.new(1, -10, 0, 25); UI.expLbl.Position = UDim2.new(0, 5, 0, 35); UI.expLbl.BackgroundColor3 = Color3.fromRGB(15,15,15); UI.expLbl.TextColor3 = Color3.new(1,1,1); UI.expLbl.Font = TARGET_FONT; UI.expLbl.TextSize = 14; UI.expLbl.Text = _G.CurrentConfigID; UI.expLbl.ClearTextOnFocus = false; UI.expLbl.TextEditable = false; Instance.new("UICorner", UI.expLbl).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.expLbl)
+    UI.expGenBtn = Instance.new("TextButton", UI.expF); UI.expGenBtn.Size = UDim2.new(1, -10, 0, 30); UI.expGenBtn.Position = UDim2.new(0, 5, 0, 65); UI.expGenBtn.BackgroundColor3 = Color3.fromRGB(40,40,40); UI.expGenBtn.TextColor3 = Color3.new(1,1,1); UI.expGenBtn.Font = TARGET_FONT; UI.expGenBtn.TextSize = 14; UI.expGenBtn.Text = "GENERATE CFG"; Instance.new("UICorner", UI.expGenBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.expGenBtn); table.insert(ThemeObjects.Texts, UI.expGenBtn)
+    UI.expCopyBtn = Instance.new("TextButton", UI.expF); UI.expCopyBtn.Size = UDim2.new(0.6, 0, 0, 20); UI.expCopyBtn.Position = UDim2.new(0.2, 0, 0, 100); UI.expCopyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40); UI.expCopyBtn.TextColor3 = Color3.new(1,1,1); UI.expCopyBtn.Font = TARGET_FONT; UI.expCopyBtn.TextSize = 12; UI.expCopyBtn.Text = "COPY"; Instance.new("UICorner", UI.expCopyBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.expCopyBtn); table.insert(ThemeObjects.Texts, UI.expCopyBtn)
+
+    UI.expGenBtn.MouseButton1Click:Connect(function()
+        UI.expGenBtn.Text = "GENERATING..."
+        task.spawn(function()
+            local newID = ExportConfigToCloud()
+            _G.CurrentConfigID = newID
+            UI.expLbl.Text = newID
+            UI.expGenBtn.Text = "GENERATE CFG"
+            ShowNotify("Generated: " .. newID, true)
+        end)
+    end)
+    UI.expCopyBtn.MouseButton1Click:Connect(function() if setclipboard then setclipboard(UI.expLbl.Text); ShowNotify("Copied to clipboard!", true) else ShowNotify("Executor doesn't support copy", false) end end)
+
+    UI.impF = mkMisc("IMPORT CONFIG")
+    UI.impInp = Instance.new("TextBox", UI.impF); UI.impInp.Size = UDim2.new(1, -75, 0, 30); UI.impInp.Position = UDim2.new(0, 5, 0, 35); UI.impInp.BackgroundColor3 = Color3.fromRGB(15,15,15); UI.impInp.TextColor3 = Color3.new(1,1,1); UI.impInp.Font = TARGET_FONT; UI.impInp.TextSize = 12; UI.impInp.Text = ""; UI.impInp.PlaceholderText = "Paste ID here"; UI.impInp.ClearTextOnFocus = false; Instance.new("UICorner", UI.impInp).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.impInp)
+    UI.impPasteBtn = Instance.new("TextButton", UI.impF); UI.impPasteBtn.Size = UDim2.new(0, 60, 0, 30); UI.impPasteBtn.Position = UDim2.new(1, -65, 0, 35); UI.impPasteBtn.BackgroundColor3 = Color3.fromRGB(40,40,40); UI.impPasteBtn.TextColor3 = Color3.new(1,1,1); UI.impPasteBtn.Font = TARGET_FONT; UI.impPasteBtn.TextSize = 12; UI.impPasteBtn.Text = "PASTE"; Instance.new("UICorner", UI.impPasteBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.impPasteBtn); table.insert(ThemeObjects.Texts, UI.impPasteBtn)
+    UI.impLoadBtn = Instance.new("TextButton", UI.impF); UI.impLoadBtn.Size = UDim2.new(1, -10, 0, 40); UI.impLoadBtn.Position = UDim2.new(0, 5, 0, 75); UI.impLoadBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); UI.impLoadBtn.TextColor3 = Color3.new(1,1,1); UI.impLoadBtn.Font = TARGET_FONT; UI.impLoadBtn.TextSize = 14; UI.impLoadBtn.Text = "LOAD CONFIG"; Instance.new("UICorner", UI.impLoadBtn).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.InputBackgrounds, UI.impLoadBtn); table.insert(ThemeObjects.Texts, UI.impLoadBtn)
+
+    UI.impPasteBtn.MouseButton1Click:Connect(function() if getclipboard then local cb = getclipboard(); if cb and type(cb) == "string" and cb ~= "" then UI.impInp.Text = cb end end end)
+
+    UI.impLoadBtn.MouseButton1Click:Connect(function()
+        local txt = UI.impInp.Text:gsub("%s+", "")
+        if txt ~= "" then
+            UI.impLoadBtn.Text = "LOADING..."
+            task.spawn(function()
+                local success = LoadConfig(txt)
+                if success then _G.CurrentConfigID = txt; UI.expLbl.Text = txt; ShowNotify("Config Loaded Successfully!", true) else ShowNotify("Invalid key / Config not found", false) end
+                UI.impLoadBtn.Text = "LOAD CONFIG"
+            end)
+        end
+    end)
 
     UI.kC = mkMisc("")
     UI.kBtn = Instance.new("TextButton", UI.kC); UI.kBtn.Size = UDim2.new(1, -20, 0, 40); UI.kBtn.Position = UDim2.new(0, 10, 0.5, -20); UI.kBtn.Text = "KILL SCRIPT"; UI.kBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); UI.kBtn.TextColor3 = Color3.new(1,1,1); UI.kBtn.Font = TARGET_FONT; UI.kBtn.TextSize = 16; Instance.new("UICorner", UI.kBtn)
     UI.kBtn.MouseButton1Click:Connect(function() 
         for _, c in pairs(Connections) do c:Disconnect() end 
         GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy();
-        if SaturationEffect then SaturationEffect:Destroy() end; if VibeBloom then VibeBloom:Destroy() end; if VibeCC then VibeCC:Destroy() end; if VibeBlur then VibeBlur:Destroy() end
+        CleanLighting("GeminiSaturation"); CleanLighting("GeminiVibeBloom"); CleanLighting("GeminiVibeCC"); CleanLighting("GeminiVibeBlur"); CleanLighting("GeminiVibeAtmosphere"); CleanLighting("GeminiVibeSky")
+        Lighting.Ambient = OrigAmbient; Lighting.OutdoorAmbient = OrigOutdoorAmbient; Lighting.FogColor = OrigFogColor; Lighting.FogEnd = OrigFogEnd
         if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
+        if workspace:FindFirstChild("Gemini_WorldStars") then workspace.Gemini_WorldStars:Destroy() end
     end)
 
     UI.tC = mkMisc("UI THEME (CYCLE)")
@@ -1173,8 +1390,16 @@ do
     end
 
     local ThemesList = {"Dark", "Light", "Gray", "Glass"}
-    UI.tBtn.MouseButton1Click:Connect(function() local idx = table.find(ThemesList, Cfg.UITheme) or 1; idx = idx + 1; if idx > #ThemesList then idx = 1 end; Cfg.UITheme = ThemesList[idx]; UI.tBtn.Text = "Theme: " .. Cfg.UITheme; SaveConfig(); ApplyTheme() end)
+    UI.tBtn.MouseButton1Click:Connect(function() local idx = table.find(ThemesList, Cfg.UITheme) or 1; idx = idx + 1; if idx > #ThemesList then idx = 1 end; Cfg.UITheme = ThemesList[idx]; UI.tBtn.Text = "Theme: " .. Cfg.UITheme; SaveLocalMAIN(); ApplyTheme() end)
+    
+    table.insert(_G.RefreshUIFunctions, function() UI.tBtn.Text = "Theme: " .. Cfg.UITheme; ApplyTheme() end)
     ApplyTheme()
 end
 
-SwitchCategory("Combat")
+task.spawn(function()
+    local loaded = LoadConfig(_G.CurrentConfigID)
+    if not loaded and _G.CurrentConfigID ~= "MAIN" then LoadConfig("MAIN") end
+    UpdateWorldShader()
+end)
+
+SwitchCategory("Movement")
