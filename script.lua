@@ -1,5 +1,33 @@
+_G.GeminiUnloaded = false
+
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Teams = game:GetService("Teams")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- // СОХРАНЕНИЕ ОРИГИНАЛЬНОГО СОСТОЯНИЯ ИГРЫ
+local OrigState = {
+    FOV = Camera.FieldOfView,
+    CamMode = LocalPlayer.CameraMode,
+    MaxZoom = LocalPlayer.CameraMaxZoomDistance,
+    MinZoom = LocalPlayer.CameraMinZoomDistance,
+    Lighting = {
+        Ambient = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+        FogColor = Lighting.FogColor,
+        FogEnd = Lighting.FogEnd,
+        ClockTime = Lighting.ClockTime
+    }
+}
 
 -- // 1. ЖЕСТКАЯ ОЧИСТКА
 for _, v in ipairs(CoreGui:GetChildren()) do
@@ -9,7 +37,6 @@ if workspace:FindFirstChild("Gemini_3D_Chams") then pcall(function() workspace.G
 if workspace:FindFirstChild("Gemini_ChinaHat") then pcall(function() workspace.Gemini_ChinaHat:Destroy() end) end
 if workspace:FindFirstChild("Gemini_WorldStars") then pcall(function() workspace.Gemini_WorldStars:Destroy() end) end
 
-local Lighting = game:GetService("Lighting")
 local function CleanLighting(name) if Lighting:FindFirstChild(name) then Lighting[name]:Destroy() end end
 CleanLighting("GeminiSaturation")
 CleanLighting("GeminiVibeBloom")
@@ -17,15 +44,6 @@ CleanLighting("GeminiVibeCC")
 CleanLighting("GeminiVibeBlur")
 CleanLighting("GeminiVibeAtmosphere")
 CleanLighting("GeminiVibeSky")
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local Stats = game:GetService("Stats")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
 local HttpReq = nil
 pcall(function()
@@ -72,10 +90,13 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
+-- Получение команд сервера для динамических настроек
+local ServerTeams = Teams:GetChildren()
+
 -- Конфиг
 _G.Cfg = {
     UITheme = "Dark",
-    AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotEnabledBind = "None",
+    AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotWallCheck = false, AimbotTeamCheck = false, AimbotEnabledBind = "None",
     TargetHudEnabled = false, TargetHudEnabledBind = "None", TargetHudNormalColor = Color3.fromRGB(0, 255, 100), TargetHudDamageColor = Color3.fromRGB(255, 0, 0), TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50), TargetHudOnlyKillaura = false,
     KillAuraEnabled = false, KillAuraNoCamRotation = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
     CriticalsEnabled = false, CriticalsNoKillStrafeJump = false, CriticalsOnlyKillAura = false, CriticalsEnabledBind = "None",
@@ -92,13 +113,17 @@ _G.Cfg = {
     AnimLagEnabled = false, AnimLagFPS = 5, AnimLagEnabledBind = "None",
     HitSoundEnabled = false, HitSoundMode = 1, HitSoundEnabledBind = "None",
     TargetESPSquareEnabled = false, TargetESPSquareSize = 110, TargetESPBorderThickness = 6.5, TargetESPSquareColor = Color3.new(1, 1, 1), TargetESPDamageColorEnabled = false, TargetESPDamageColor = Color3.fromRGB(255, 0, 0), TargetESPRotationSpeed = 1, TargetESPSquareEnabledBind = "None", TargetESPOnlyKillaura = false,
-    Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxEnabledBind = "None",
-    Esp2DBoxNametagsEnabled = false, Esp2DBoxNametagsScale = 14, Esp2DBoxHealthBarEnabled = false, Esp2DBoxHealthBarBorder = 1,
+    
+    Esp2DBoxEnabled = false, Esp2DBoxSize = 1, Esp2DBoxColor = Color3.fromRGB(0, 255, 200), Esp2DBoxRounding = 4, Esp2DBoxFillEnabled = false, Esp2DBoxFillColor = Color3.fromRGB(0, 255, 200), Esp2DBoxFillTrans = 0.5, Esp2DBoxEnabledBind = "None",
+    Esp2DBoxNametagsEnabled = false, Esp2DBoxNametagsScale = 14, Esp2DBoxHealthBarEnabled = false, Esp2DBoxHealthBarBorder = 1, Esp2DBoxTeamCheck = false,
+    
     ArrowsEnabled = false, ArrowsDistance = 100, ArrowsColor = Color3.fromRGB(255, 0, 0), ArrowsEnabledBind = "None", ArrowsSize = 22, ArrowsShowDistance = false,
     TargetStrafeOrbitEnabled = false, TargetStrafeOrbitRadius = 5, TargetStrafeOrbitSpeed = 15, TargetStrafeOrbitEnabledBind = "None",
     ChinaHatAccessoryEnabled = false, ChinaHatAccessoryColor = Color3.fromRGB(255, 0, 0), ChinaHatHeightOffset = 0.8, ChinaHatWidthScale = 3, ChinaHatHeightScale = 2, ChinaHatTransparency = 0, ChinaHatAccessoryEnabledBind = "None",
     JumpVisualCirclesEnabled = false, JumpCircleMaximumSize = 12, JumpCircleEffectColor = Color3.fromRGB(0, 255, 255), JumpVisualCirclesEnabledBind = "None",
-    ChamsEnabled = false, ChamsColor = Color3.new(1, 0, 0), ChamsOutlineColor = Color3.new(1, 1, 1), ChamsFillTransparency = 0.5, ChamsEnabledBind = "None",
+    
+    ChamsEnabled = false, ChamsColor = Color3.new(1, 0, 0), ChamsFillTransparency = 0, ChamsOutlineColor = Color3.new(1, 1, 1), ChamsOutlineTransparency = 1, ChamsWallhack = false, ChamsTeamCheck = false, ChamsEnabledBind = "None",
+    
     DamageParticlesEnabled = false, ParticleColor = Color3.fromRGB(255, 255, 255), ParticleSize = 4, ParticleAmount = 8, DamageParticlesEnabledBind = "None",
     WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesAmount = 40, WorldParticlesEnabledBind = "None",
     SaturationEnabled = false, SaturationValue = 10, SaturationEnabledBind = "None",
@@ -193,7 +218,7 @@ local function LoadConfig(id)
             local newFriends = {}
             if type(data.SavedFriends) == "table" then for k, v in pairs(data.SavedFriends) do newFriends[string.lower(k)] = v end end
             for k, v in pairs(data) do
-                if k ~= "SavedFriends" and (Cfg[k] ~= nil or string.match(k, "^MobilePos_")) then 
+                if k ~= "SavedFriends" and (Cfg[k] ~= nil or string.match(k, "^MobilePos_") or string.match(k, "Ignore_")) then 
                     if type(v) == "table" and v.isColor then Cfg[k] = Color3.new(v.R, v.G, v.B)
                     elseif type(v) == "table" and v.isUDim2 then Cfg[k] = UDim2.new(v.XScale, v.XOffset, v.YScale, v.YOffset)
                     else Cfg[k] = v end
@@ -211,8 +236,10 @@ end
 if hookmetamethod then
     local OldIndex = nil
     OldIndex = hookmetamethod(game, "__index", function(self, key)
+        if _G.GeminiUnloaded then return OldIndex(self, key) end
+        
         if key == "CFrame" or key == "Hit" or key == "Target" or key == "UnitRay" then
-            if not checkcaller() and Cfg.KillAuraEnabled and Cfg.KillAuraNoCamRotation and SharedKaTarget then
+            if Cfg.KillAuraEnabled and Cfg.KillAuraNoCamRotation and SharedKaTarget and not checkcaller() then
                 if typeof(self) == "Instance" then
                     local eChar = SharedKaTarget.Character
                     local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
@@ -232,23 +259,29 @@ if hookmetamethod then
 
     local OldNameCall = nil
     OldNameCall = hookmetamethod(game, "__namecall", function(self, ...)
+        if _G.GeminiUnloaded then return OldNameCall(self, ...) end
+        
+        if not Cfg.KillAuraEnabled or not Cfg.KillAuraNoCamRotation or not SharedKaTarget then
+            return OldNameCall(self, ...)
+        end
+        
+        if checkcaller() then return OldNameCall(self, ...) end
+
         local method = getnamecallmethod()
         if method == "ViewportPointToRay" or method == "ScreenPointToRay" or method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
-            if not checkcaller() and Cfg.KillAuraEnabled and Cfg.KillAuraNoCamRotation and SharedKaTarget then
-                local eChar = SharedKaTarget.Character
-                local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
-                if targetPart then
-                    local args = {...}; local origin = workspace.CurrentCamera.CFrame.Position
-                    if self:IsA("Camera") and (method == "ViewportPointToRay" or method == "ScreenPointToRay") then return Ray.new(origin, (targetPart.Position - origin).Unit)
-                    elseif method == "Raycast" and self == workspace then
-                        local rayOrigin = args[1] or origin; local rayDir = args[2]
-                        if rayDir then args[2] = (targetPart.Position - rayOrigin).Unit * (rayDir.Magnitude or 1000) end
-                        return OldNameCall(self, unpack(args))
-                    elseif self == workspace then
-                        local oldRay = args[1]
-                        if oldRay then args[1] = Ray.new(oldRay.Origin, (targetPart.Position - oldRay.Origin).Unit * (oldRay.Direction.Magnitude or 1000)) end
-                        return OldNameCall(self, unpack(args))
-                    end
+            local eChar = SharedKaTarget.Character
+            local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
+            if targetPart then
+                local args = {...}; local origin = workspace.CurrentCamera.CFrame.Position
+                if self:IsA("Camera") and (method == "ViewportPointToRay" or method == "ScreenPointToRay") then return Ray.new(origin, (targetPart.Position - origin).Unit)
+                elseif method == "Raycast" and self == workspace then
+                    local rayOrigin = args[1] or origin; local rayDir = args[2]
+                    if rayDir then args[2] = (targetPart.Position - rayOrigin).Unit * (rayDir.Magnitude or 1000) end
+                    return OldNameCall(self, unpack(args))
+                elseif self == workspace then
+                    local oldRay = args[1]
+                    if oldRay then args[1] = Ray.new(oldRay.Origin, (targetPart.Position - oldRay.Origin).Unit * (oldRay.Direction.Magnitude or 1000)) end
+                    return OldNameCall(self, unpack(args))
                 end
             end
         end
@@ -274,11 +307,6 @@ VibeAtmo.Name = "GeminiVibeAtmosphere"; VibeAtmo.Density = 0; VibeAtmo.Offset = 
 
 local VibeSky = Instance.new("Sky", Lighting)
 VibeSky.Name = "GeminiVibeSky"; VibeSky.SkyboxBk = "rbxassetid://600886090"; VibeSky.SkyboxDn = "rbxassetid://600886090"; VibeSky.SkyboxFt = "rbxassetid://600886090"; VibeSky.SkyboxLf = "rbxassetid://600886090"; VibeSky.SkyboxRt = "rbxassetid://600886090"; VibeSky.SkyboxUp = "rbxassetid://600886090"
-
-local OrigFogColor = Lighting.FogColor
-local OrigFogEnd = Lighting.FogEnd
-local OrigAmbient = Lighting.Ambient
-local OrigOutdoorAmbient = Lighting.OutdoorAmbient
 
 local lastWorldColor, lastWorldTrans, lastWorldDark, lastWorldShader, lastWorldState = nil, nil, nil, nil, nil
 local function UpdateWorldShader()
@@ -312,11 +340,11 @@ local function UpdateWorldShader()
         if lastWorldState ~= false then
             lastWorldState = false
             if not Cfg.FullBrightEnabled then
-                Lighting.Ambient = OrigAmbient
-                Lighting.OutdoorAmbient = OrigOutdoorAmbient
+                Lighting.Ambient = OrigState.Lighting.Ambient
+                Lighting.OutdoorAmbient = OrigState.Lighting.OutdoorAmbient
             end
-            Lighting.FogColor = OrigFogColor
-            Lighting.FogEnd = OrigFogEnd
+            Lighting.FogColor = OrigState.Lighting.FogColor
+            Lighting.FogEnd = OrigState.Lighting.FogEnd
             VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false
             VibeAtmo.Density = 0
         end
@@ -369,10 +397,12 @@ end
 local function GetEspElements(player)
     if not EspCache[player] then
         local cache = {}
-        local esp2DBox = Instance.new("Frame", Esp2DFolder); esp2DBox.Name = player.Name .. "_2DBox"; esp2DBox.BackgroundTransparency = 1; esp2DBox.Visible = false; Instance.new("UICorner", esp2DBox).CornerRadius = UDim.new(0, 4)
+        local esp2DBox = Instance.new("Frame", Esp2DFolder); esp2DBox.Name = player.Name .. "_2DBox"; esp2DBox.BackgroundTransparency = 1; esp2DBox.Visible = false
+        local boxCorner = Instance.new("UICorner", esp2DBox); boxCorner.CornerRadius = UDim.new(0, 4)
         local mainStroke = Instance.new("UIStroke", esp2DBox); mainStroke.Name = "MainStroke"; mainStroke.Thickness = 1.5; mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         local grad = Instance.new("UIGradient", mainStroke); grad.Name = "StrokeGradient"; grad.Rotation = 45
-        local glowFrame = Instance.new("Frame", esp2DBox); glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1; Instance.new("UICorner", glowFrame).CornerRadius = UDim.new(0, 4)
+        local glowFrame = Instance.new("Frame", esp2DBox); glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1
+        local glowCorner = Instance.new("UICorner", glowFrame); glowCorner.CornerRadius = UDim.new(0, 4)
         local outerGlow = Instance.new("UIStroke", glowFrame); outerGlow.Name = "OuterGlow"; outerGlow.Thickness = 5; outerGlow.Transparency = 0.7; outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         
         local nameTag = Instance.new("TextLabel", esp2DBox); nameTag.Name = "Nametag"; nameTag.BackgroundTransparency = 1; nameTag.Font = TARGET_FONT; nameTag.TextColor3 = Color3.new(1, 1, 1); nameTag.TextStrokeTransparency = 0
@@ -383,11 +413,11 @@ local function GetEspElements(player)
         local hbGrad = Instance.new("UIGradient", hbGradientFrame); hbGrad.Name = "HealthBarGradient"; hbGrad.Rotation = 90
         hbGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 0)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))})
         
-        cache.Box2D = esp2DBox; cache.BoxStroke = mainStroke; cache.BoxGrad = grad; cache.BoxGlow = outerGlow; cache.NameTag = nameTag; cache.HealthBack = hbBack; cache.HealthFill = hbFill; cache.HealthGradF = hbGradientFrame
+        cache.Box2D = esp2DBox; cache.BoxCorner = boxCorner; cache.BoxStroke = mainStroke; cache.BoxGrad = grad; cache.GlowCorner = glowCorner; cache.BoxGlow = outerGlow; cache.NameTag = nameTag; cache.HealthBack = hbBack; cache.HealthFill = hbFill; cache.HealthGradF = hbGradientFrame
+        cache.LastColor = nil 
 
-        local boxESP = Instance.new("Part", Chams3DFolder); boxESP.Name = player.Name .. "_3DBox"; boxESP.Size = Vector3.new(4.5, 6, 1.5); boxESP.Transparency = 1; boxESP.CanCollide = false; boxESP.Anchored = true
-        local hl = Instance.new("Highlight", boxESP); hl.Name = "HL"; hl.Adornee = boxESP; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        cache.Box3D = boxESP; cache.ChamsHighlight = hl
+        local chamsHL = Instance.new("Highlight", Chams3DFolder); chamsHL.Name = player.Name .. "_Chams"; chamsHL.Enabled = false
+        cache.ChamsHighlight = chamsHL
 
         local arrowUI = Instance.new("Frame", ArrowsFolder); arrowUI.Name = player.Name .. "_Arrow"; arrowUI.Size = UDim2.new(0, 40, 0, 40); arrowUI.BackgroundTransparency = 1; arrowUI.AnchorPoint = Vector2.new(0.5, 0.5); arrowUI.Visible = false
         local arrowSym = Instance.new("TextLabel", arrowUI); arrowSym.Name = "Symbol"; arrowSym.Size = UDim2.new(1, 0, 1, 0); arrowSym.BackgroundTransparency = 1; arrowSym.Text = "▲"; arrowSym.Font = Enum.Font.GothamBlack; arrowSym.TextStrokeTransparency = 0; arrowSym.AnchorPoint = Vector2.new(0.5, 0.5); arrowSym.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -402,7 +432,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
     if EspCache[player] then
         if EspCache[player].Box2D then EspCache[player].Box2D:Destroy() end
-        if EspCache[player].Box3D then EspCache[player].Box3D:Destroy() end
+        if EspCache[player].ChamsHighlight then EspCache[player].ChamsHighlight:Destroy() end
         if EspCache[player].Arrow then EspCache[player].Arrow:Destroy() end
         EspCache[player] = nil; EspHiddenState[player] = nil
     end
@@ -556,43 +586,176 @@ local function AddColorBtn(parent, text, key)
     return b
 end
 
+-- // ИНИЦИАЛИЗАЦИЯ ИНТЕРФЕЙСА //
 do
     local m
-    m = CreateModule("AIMBOT", "AimbotEnabled", "Combat"); AddSlider(m, "Smooth", "AimbotSmoothness"); AddSlider(m, "MaxDist", "AimbotMaxDistance")
-    m = CreateModule("KILL AURA", "KillAuraEnabled", "Combat"); AddToggle(m, "No Cam Rotate", "KillAuraNoCamRotation"); AddToggle(m, "Kill Strafe", "KillStrafeEnabled"); AddSlider(m, "Strafe Speed", "KillStrafeSpeed"); AddSlider(m, "Strafe Distance", "KillStrafeDistance"); AddSlider(m, "Range", "KillAuraRange"); AddSlider(m, "Click Range", "KillAuraClickRange"); AddSlider(m, "Delay (0.1s)", "KillAuraSpeed")
-    m = CreateModule("CRITICALS", "CriticalsEnabled", "Combat"); AddToggle(m, "No Kill Strafe Jump", "CriticalsNoKillStrafeJump"); AddToggle(m, "Only with Kill Aura", "CriticalsOnlyKillAura")
-    m = CreateModule("HITBOX", "HitboxEnabled", "Combat"); AddSlider(m, "Size Multiplier", "HitboxSize"); AddToggle(m, "Only Killaura", "HitboxOnlyKillaura")
-    m = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat"); AddSlider(m, "Radius", "TargetStrafeOrbitRadius"); AddSlider(m, "Speed", "TargetStrafeOrbitSpeed")
     
-    m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement"); AddSlider(m, "WalkSpeed", "WalkSpeedValue"); AddToggle(m, "AC Mode (Fake Lag)", "SpeedACMode")
+    -- COMBAT
+    m = CreateModule("AIMBOT", "AimbotEnabled", "Combat")
+    AddToggle(m, "Wall Check", "AimbotWallCheck")
+    AddToggle(m, "Team Check", "AimbotTeamCheck")
+    for _, team in ipairs(ServerTeams) do
+        local configKey = "AimbotIgnore_" .. team.Name
+        Cfg[configKey] = Cfg[configKey] or false
+        AddToggle(m, "Ignore \"" .. team.Name .. "\" Team", configKey)
+    end
+    AddSlider(m, "Smooth", "AimbotSmoothness")
+    AddSlider(m, "MaxDist", "AimbotMaxDistance")
+    
+    m = CreateModule("KILL AURA", "KillAuraEnabled", "Combat")
+    AddToggle(m, "No Cam Rotate", "KillAuraNoCamRotation")
+    AddToggle(m, "Kill Strafe", "KillStrafeEnabled")
+    AddSlider(m, "Strafe Speed", "KillStrafeSpeed")
+    AddSlider(m, "Strafe Distance", "KillStrafeDistance")
+    AddSlider(m, "Range", "KillAuraRange")
+    AddSlider(m, "Click Range", "KillAuraClickRange")
+    AddSlider(m, "Delay (0.1s)", "KillAuraSpeed")
+    
+    m = CreateModule("CRITICALS", "CriticalsEnabled", "Combat")
+    AddToggle(m, "No Kill Strafe Jump", "CriticalsNoKillStrafeJump")
+    AddToggle(m, "Only with Kill Aura", "CriticalsOnlyKillAura")
+    
+    m = CreateModule("HITBOX", "HitboxEnabled", "Combat")
+    AddToggle(m, "Only Killaura", "HitboxOnlyKillaura")
+    AddSlider(m, "Size Multiplier", "HitboxSize")
+    
+    m = CreateModule("TARGET STRAFE", "TargetStrafeOrbitEnabled", "Combat")
+    AddSlider(m, "Radius", "TargetStrafeOrbitRadius")
+    AddSlider(m, "Speed", "TargetStrafeOrbitSpeed")
+    
+    -- MOVEMENT
+    m = CreateModule("PLAYER SPEED", "SpeedEnabled", "Movement")
+    AddToggle(m, "AC Mode (Fake Lag)", "SpeedACMode")
+    AddSlider(m, "WalkSpeed", "WalkSpeedValue")
+    
     m = CreateModule("INFINITE JUMP", "InfJumpEnabled", "Movement")
     
-    m = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement"); AddSlider(m, "Horizontal %", "VelocityHorizontal"); AddSlider(m, "Vertical %", "VelocityVertical")
+    m = CreateModule("VELOCITY (ANTI-KB)", "VelocityEnabled", "Movement")
+    AddSlider(m, "Horizontal %", "VelocityHorizontal")
+    AddSlider(m, "Vertical %", "VelocityVertical")
+    
     m = CreateModule("HARD STRAFE", "StrafeEnabled", "Movement")
-    m = CreateModule("AIR STRAFE", "AirStrafeEnabled", "Movement"); AddSlider(m, "Speed", "AirStrafeSpeed")
+    
+    m = CreateModule("AIR STRAFE", "AirStrafeEnabled", "Movement")
+    AddSlider(m, "Speed", "AirStrafeSpeed")
+    
     m = CreateModule("ANTI FLING", "AntiFlingEnabled", "Movement")
     m = CreateModule("NOCLIP", "NoClipEnabled", "Movement")
-    m = CreateModule("SPIDER", "SpiderEnabled", "Movement"); AddSlider(m, "Speed", "SpiderSpeed")
-    m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement"); AddSlider(m, "Range (Angle)", "JitterRange"); AddSlider(m, "Speed (Freq)", "JitterSpeed"); AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterSpinAtJump", "JitterSpinSpeed")
-    m = CreateModule("ANIM LAG", "AnimLagEnabled", "Movement"); AddSlider(m, "Anim FPS (1-60)", "AnimLagFPS")
+    
+    m = CreateModule("SPIDER", "SpiderEnabled", "Movement")
+    AddSlider(m, "Speed", "SpiderSpeed")
+    
+    m = CreateModule("JITTER (ANTI-AIM)", "JitterEnabled", "Movement")
+    AddToggle(m, "Spin At Jump", "JitterSpinAtJump")
+    AddSlider(m, "Range (Angle)", "JitterRange")
+    AddSlider(m, "Speed (Freq)", "JitterSpeed")
+    AddSlider(m, "Spin Speed", "JitterSpinSpeed")
+    AddSlider(m, "Yaw Mode (1=Fwd, 2=Bwd)", "JitterYawMode")
+    
+    m = CreateModule("ANIM LAG", "AnimLagEnabled", "Movement")
+    AddSlider(m, "Anim FPS (1-60)", "AnimLagFPS")
 
-    m = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals"); AddColorBtn(m, "Normal HB color", "TargetHudNormalColor"); AddColorBtn(m, "Damage HB color", "TargetHudDamageColor"); AddToggle(m, "Only Killaura", "TargetHudOnlyKillaura")
-    m = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals"); AddSlider(m, "Size", "TargetESPSquareSize"); AddSlider(m, "Border", "TargetESPBorderThickness"); AddColorBtn(m, "[COLOR] Target ESP", "TargetESPSquareColor"); AddToggle(m, "Damage Color Flash", "TargetESPDamageColorEnabled"); AddColorBtn(m, "[COLOR] Damage Color", "TargetESPDamageColor"); AddToggle(m, "Only Killaura", "TargetESPOnlyKillaura")
-    m = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals"); AddSlider(m, "Size Multiplier", "Esp2DBoxSize"); AddColorBtn(m, "[COLOR] Box Color", "Esp2DBoxColor"); AddToggle(m, "Nametags", "Esp2DBoxNametagsEnabled"); AddSlider(m, "Nametags Scale", "Esp2DBoxNametagsScale"); AddToggle(m, "Healthbar", "Esp2DBoxHealthBarEnabled"); AddSlider(m, "Bar Border", "Esp2DBoxHealthBarBorder")
-    m = CreateModule("ARROWS", "ArrowsEnabled", "Visuals"); AddSlider(m, "Range", "ArrowsDistance"); AddSlider(m, "Size", "ArrowsSize"); AddToggle(m, "Show Distance", "ArrowsShowDistance"); AddColorBtn(m, "Arrow Color", "ArrowsColor")
-    m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals"); AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor"); AddSlider(m, "Amount (1-200)", "WorldParticlesAmount")
-    m = CreateModule("CLIENT SIDE (GHOST)", "ClientSideEnabled", "Visuals"); AddSlider(m, "Transparency (0-100)", "ClientSideTransparency"); AddColorBtn(m, "Ghost Color", "ClientSideColor"); AddToggle(m, "Del Texture", "ClientSideDelTexture")
-    m = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals"); AddSlider(m, "Head Offset", "ChinaHatHeightOffset"); AddSlider(m, "Width", "ChinaHatWidthScale"); AddSlider(m, "Height", "ChinaHatHeightScale"); AddSlider(m, "Transparency", "ChinaHatTransparency"); AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
-    m = CreateModule("VIEW HANDS", "ViewHandsEnabled", "Visuals") 
-    m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals"); AddColorBtn(m, "Color", "ParticleColor"); AddSlider(m, "Size", "ParticleSize"); AddSlider(m, "Amount", "ParticleAmount")
-    m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals"); AddSlider(m, "Time Mode (0-23)", "FullBrightTime")
-    m = CreateModule("SATURATION", "SaturationEnabled", "Visuals"); AddSlider(m, "Intensity (0-50)", "SaturationValue")
-    m = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals"); AddSlider(m, "Max Size", "JumpCircleMaximumSize"); AddColorBtn(m, "Color", "JumpCircleEffectColor")
-    m = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals"); AddSlider(m, "Hours (0-23)", "TimeChangerHours")
-    m = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals"); AddColorBtn(m, "Map Color", "WorldColorValue"); AddSlider(m, "Intensity (0-1)", "WorldColorTransparency"); AddSlider(m, "Darkness (0-5)", "WorldColorDarkness"); AddToggle(m, "Shader (Vibe)", "WorldColorShader")
-    m = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals"); AddSlider(m, "Sound (1-6)", "HitSoundMode")
-    m = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals"); AddSlider(m, "FOV Value", "CustomFovValue")
-    m = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals"); AddSlider(m, "Distance", "ThirdPersonDistance")
+    -- VISUALS
+    m = CreateModule("TARGET HUD", "TargetHudEnabled", "Visuals")
+    AddToggle(m, "Only Killaura", "TargetHudOnlyKillaura")
+    AddColorBtn(m, "Normal HB color", "TargetHudNormalColor")
+    AddColorBtn(m, "Damage HB color", "TargetHudDamageColor")
+    
+    m = CreateModule("Target esp", "TargetESPSquareEnabled", "Visuals")
+    AddToggle(m, "Damage Color Flash", "TargetESPDamageColorEnabled")
+    AddToggle(m, "Only Killaura", "TargetESPOnlyKillaura")
+    AddSlider(m, "Size", "TargetESPSquareSize")
+    AddSlider(m, "Border", "TargetESPBorderThickness")
+    AddColorBtn(m, "[COLOR] Target ESP", "TargetESPSquareColor")
+    AddColorBtn(m, "[COLOR] Damage Color", "TargetESPDamageColor")
+    
+    m = CreateModule("2D BOX ESP", "Esp2DBoxEnabled", "Visuals")
+    AddToggle(m, "Fill Box", "Esp2DBoxFillEnabled")
+    AddToggle(m, "Nametags", "Esp2DBoxNametagsEnabled")
+    AddToggle(m, "Healthbar", "Esp2DBoxHealthBarEnabled")
+    AddToggle(m, "Team Check", "Esp2DBoxTeamCheck")
+    for _, team in ipairs(ServerTeams) do
+        local configKey = "Esp2DBoxIgnore_" .. team.Name
+        Cfg[configKey] = Cfg[configKey] or false
+        AddToggle(m, "Ignore \"" .. team.Name .. "\" Team", configKey)
+    end
+    AddSlider(m, "Size Multiplier", "Esp2DBoxSize")
+    AddSlider(m, "Corner Rounding", "Esp2DBoxRounding")
+    AddSlider(m, "Fill Trans (0-1)", "Esp2DBoxFillTrans")
+    AddSlider(m, "Nametags Scale", "Esp2DBoxNametagsScale")
+    AddSlider(m, "Bar Border", "Esp2DBoxHealthBarBorder")
+    AddColorBtn(m, "Box Stroke Color", "Esp2DBoxColor")
+    AddColorBtn(m, "Fill Color", "Esp2DBoxFillColor")
+    
+    m = CreateModule("CHAMS", "ChamsEnabled", "Visuals")
+    AddToggle(m, "Wallhack (Through Walls)", "ChamsWallhack")
+    AddToggle(m, "Team Check", "ChamsTeamCheck")
+    for _, team in ipairs(ServerTeams) do
+        local configKey = "ChamsIgnore_" .. team.Name
+        Cfg[configKey] = Cfg[configKey] or false
+        AddToggle(m, "Ignore \"" .. team.Name .. "\" Team", configKey)
+    end
+    AddSlider(m, "Fill Transp (0-1)", "ChamsFillTransparency")
+    AddSlider(m, "Outline Transp (0-1)", "ChamsOutlineTransparency")
+    AddColorBtn(m, "Fill Color", "ChamsColor")
+    AddColorBtn(m, "Outline Color", "ChamsOutlineColor")
+
+    m = CreateModule("ARROWS", "ArrowsEnabled", "Visuals")
+    AddToggle(m, "Show Distance", "ArrowsShowDistance")
+    AddSlider(m, "Range", "ArrowsDistance")
+    AddSlider(m, "Size", "ArrowsSize")
+    AddColorBtn(m, "Arrow Color", "ArrowsColor")
+    
+    m = CreateModule("WORLD STARS", "WorldParticlesEnabled", "Visuals")
+    AddSlider(m, "Amount (1-200)", "WorldParticlesAmount")
+    AddColorBtn(m, "[COLOR] Stars Color", "WorldParticlesColor")
+    
+    m = CreateModule("CLIENT SIDE (GHOST)", "ClientSideEnabled", "Visuals")
+    AddToggle(m, "Del Texture", "ClientSideDelTexture")
+    AddSlider(m, "Transparency (0-100)", "ClientSideTransparency")
+    AddColorBtn(m, "Ghost Color", "ClientSideColor")
+    
+    m = CreateModule("CHINA HAT", "ChinaHatAccessoryEnabled", "Visuals")
+    AddSlider(m, "Head Offset", "ChinaHatHeightOffset")
+    AddSlider(m, "Width", "ChinaHatWidthScale")
+    AddSlider(m, "Height", "ChinaHatHeightScale")
+    AddSlider(m, "Transparency", "ChinaHatTransparency")
+    AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
+    
+    m = CreateModule("VIEW HANDS", "ViewHandsEnabled", "Visuals")
+    
+    m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals")
+    AddSlider(m, "Size", "ParticleSize")
+    AddSlider(m, "Amount", "ParticleAmount")
+    AddColorBtn(m, "Color", "ParticleColor")
+    
+    m = CreateModule("FULLBRIGHT", "FullBrightEnabled", "Visuals")
+    AddSlider(m, "Time Mode (0-23)", "FullBrightTime")
+    
+    m = CreateModule("SATURATION", "SaturationEnabled", "Visuals")
+    AddSlider(m, "Intensity (0-50)", "SaturationValue")
+    
+    m = CreateModule("JUMP CIRCLES", "JumpVisualCirclesEnabled", "Visuals")
+    AddSlider(m, "Max Size", "JumpCircleMaximumSize")
+    AddColorBtn(m, "Color", "JumpCircleEffectColor")
+    
+    m = CreateModule("TIME CHANGER", "TimeChangerEnabled", "Visuals")
+    AddSlider(m, "Hours (0-23)", "TimeChangerHours")
+    
+    m = CreateModule("WORLD COLOR", "WorldColorEnabled", "Visuals")
+    AddToggle(m, "Shader (Vibe)", "WorldColorShader")
+    AddSlider(m, "Intensity (0-1)", "WorldColorTransparency")
+    AddSlider(m, "Darkness (0-5)", "WorldColorDarkness")
+    AddColorBtn(m, "Map Color", "WorldColorValue")
+    
+    m = CreateModule("HIT SOUND", "HitSoundEnabled", "Visuals")
+    AddSlider(m, "Sound (1-6)", "HitSoundMode")
+    
+    m = CreateModule("CUSTOM FOV", "CustomFovEnabled", "Visuals")
+    AddSlider(m, "FOV Value", "CustomFovValue")
+    
+    m = CreateModule("THIRD PERSON", "ThirdPersonEnabled", "Visuals")
+    AddSlider(m, "Distance", "ThirdPersonDistance")
 end
 
 -- // CORE LOGIC
@@ -610,8 +773,18 @@ local function GetTarget()
     local myPos = myChar.HumanoidRootPart.Position
     for _, v in ipairs(Players:GetPlayers()) do
         if v ~= LocalPlayer and not FriendsList[LowerNameCache[v.Name]] and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
-            local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
-            if dist < d then d = dist; t = v end
+            
+            local sameTeam = (v.Team == LocalPlayer.Team and v.Team ~= nil)
+            local isIgnoredTeam = v.Team and Cfg["AimbotIgnore_" .. v.Team.Name]
+
+            if (not Cfg.AimbotTeamCheck or not sameTeam) and not isIgnoredTeam then
+                local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
+                if dist < d then
+                    if not Cfg.AimbotWallCheck or IsVisible(v.Character.HumanoidRootPart) then
+                        d = dist; t = v
+                    end
+                end
+            end
         end
     end
     return t
@@ -686,7 +859,7 @@ local HealthBack = Instance.new("Frame", TargetHUD); HealthBack.Size = UDim2.new
 local strokeHB = Instance.new("UIStroke", HealthBack); strokeHB.Color = Color3.fromRGB(60, 60, 60); strokeHB.Thickness = 1; table.insert(ThemeObjects.Strokes, strokeHB)
 local HealthBar = Instance.new("Frame", HealthBack); HealthBar.Size = UDim2.new(1, 0, 1, 0); HealthBar.BackgroundColor3 = Color3.new(1, 1, 1); HealthBar.BorderSizePixel = 0; Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 5); local barGradient = Instance.new("UIGradient", HealthBar)
 
-local lastTargetUserId = nil; local lastTargetHealth = nil; local lastDamageTimeHUD = 0; local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out); local currentTween = nil
+local lastTargetUserId = nil; local lastTargetHealth = nil; local lastDamageTimeHUD = 0; local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out); local currentTween = nil; local lastTargetHudBarColor = nil
 
 local ESPMain = Instance.new("Frame", GeminiGui)
 ESPMain.BackgroundTransparency = 1; ESPMain.AnchorPoint = Vector2.new(0.5, 0.5); ESPMain.Visible = false
@@ -828,56 +1001,16 @@ local function UpdateGhostAppearance()
     for i = 1, #GhostPartsArray do
         local p = GhostPartsArray[i].ghost
         if p and p:IsA("BasePart") then
-            p.Transparency = trans; p.Color = gColor
+            if p.Transparency ~= trans then p.Transparency = trans end
+            if p.Color ~= gColor then p.Color = gColor end
             if delTex then p.Material = Enum.Material.SmoothPlastic; if p:IsA("MeshPart") then p.TextureID = "" end end
         end
     end
 end
 
--- // БЫСТРЫЙ RENDER STEPPED
-table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
+table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
     local char = LocalPlayer.Character
-    local target = SharedTarget
-    local currentKaTarget = SharedKaTarget
-    local camCFrame = Camera.CFrame
-    local camPos = camCFrame.Position
-
-    local hudTarget = Cfg.TargetHudOnlyKillaura and currentKaTarget or target
-    local espTarget = Cfg.TargetESPOnlyKillaura and currentKaTarget or target
-
-    if Cfg.CustomFovEnabled then Camera.FieldOfView = Cfg.CustomFovValue else Camera.FieldOfView = Cfg.AspectRatioValue end
-    
-    if Cfg.FullBrightEnabled then
-        Lighting.ClockTime = math.clamp(tonumber(Cfg.FullBrightTime) or 12, 0, 23)
-        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-    else
-        if Cfg.WorldColorEnabled then
-            Lighting.Ambient = Cfg.WorldColorValue
-            Lighting.OutdoorAmbient = Cfg.WorldColorValue
-        else
-            Lighting.Ambient = OrigAmbient
-            Lighting.OutdoorAmbient = OrigOutdoorAmbient
-        end
-        if Cfg.TimeChangerEnabled then
-            Lighting.ClockTime = math.clamp(Cfg.TimeChangerHours, 0, 23)
-        end
-    end
-    
-    if Cfg.SaturationEnabled then
-        SaturationEffect.Enabled = true
-        SaturationEffect.Saturation = (tonumber(Cfg.SaturationValue) or 10) / 10
-    else
-        SaturationEffect.Enabled = false
-    end
-    
-    if Cfg.ThirdPersonEnabled then 
-        LocalPlayer.CameraMode = Enum.CameraMode.Classic; LocalPlayer.CameraMaxZoomDistance = Cfg.ThirdPersonDistance or 15; LocalPlayer.CameraMinZoomDistance = Cfg.ThirdPersonDistance or 15; wasThirdPerson = true
-    elseif wasThirdPerson then 
-        LocalPlayer.CameraMinZoomDistance = 0.5; LocalPlayer.CameraMaxZoomDistance = 400; wasThirdPerson = false 
-    end
-    
-    if glowGradientBack then glowGradientBack.Rotation = (tick() * 35) % 360 end
+    local camPos = Camera.CFrame.Position
     
     if Cfg.WorldParticlesEnabled then
         local targetAmount = math.clamp(tonumber(Cfg.WorldParticlesAmount) or 40, 1, 200)
@@ -906,7 +1039,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             star.pos = camPos + Vector3.new(wx, wy, wz)
             
             star.part.Position = star.pos
-            star.gui.TextColor3 = Cfg.WorldParticlesColor
+            if star.gui.TextColor3 ~= Cfg.WorldParticlesColor then star.gui.TextColor3 = Cfg.WorldParticlesColor end
             star.gui.Rotation = star.gui.Rotation + star.rotSpeed * dtSafe
             
             local dist = (star.pos - camPos).Magnitude
@@ -921,6 +1054,121 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         end
     end
 
+    if Cfg.ClientSideEnabled and char then
+        if currentGhostCharRef ~= char or (lastGhostDelTex ~= nil and lastGhostDelTex ~= Cfg.ClientSideDelTexture) then
+            if GhostModel then GhostModel:Destroy() end; GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = char; lastGhostDelTex = Cfg.ClientSideDelTexture
+        end
+        if not GhostModel or GhostModel.Parent ~= Chams3DFolder then
+            char.Archivable = true; GhostModel = char:Clone(); GhostModel.Name = "Gemini_Ghost"; GhostModel.Parent = Chams3DFolder; GhostPartsArray = {}
+            local gh = GhostModel:FindFirstChildOfClass("Humanoid"); if gh then gh:Destroy() end
+            local gHrp = GhostModel:FindFirstChild("HumanoidRootPart"); if gHrp then gHrp:Destroy() end
+            for _, v in ipairs(GhostModel:GetDescendants()) do
+                if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
+                if v:IsA("BasePart") then v.Anchored = true; v.CanCollide = false; v.CanQuery = false; v.CanTouch = false; v.Massless = true end
+            end
+            for _, realPart in ipairs(char:GetDescendants()) do
+                if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
+                    local ghostPart = nil
+                    if realPart.Parent == char then ghostPart = GhostModel:FindFirstChild(realPart.Name)
+                    elseif realPart.Parent:IsA("Accessory") then local acc = GhostModel:FindFirstChild(realPart.Parent.Name); if acc then ghostPart = acc:FindFirstChild(realPart.Name) end end
+                    if ghostPart and ghostPart:IsA("BasePart") then table.insert(GhostPartsArray, {real = realPart, ghost = ghostPart}) end
+                end
+            end
+            lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = Cfg.ClientSideTransparency; UpdateGhostAppearance()
+        end
+        local currentTrans = tonumber(Cfg.ClientSideTransparency) or 50
+        if lastGhostColor ~= Cfg.ClientSideColor or lastGhostTrans ~= currentTrans then lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = currentTrans; UpdateGhostAppearance() end
+        local currentPose = { t = tick(), parts = {} }
+        for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; currentPose.parts[p.real] = p.real.CFrame end
+        table.insert(GhostHistory, currentPose)
+        while #GhostHistory > 0 and tick() - GhostHistory[1].t > 2 do table.remove(GhostHistory, 1) end
+        local targetTime = tick() - 0.1; local targetPose = GhostHistory[#GhostHistory]
+        for i = #GhostHistory, 1, -1 do if GhostHistory[i].t <= targetTime then targetPose = GhostHistory[i]; break end end
+        if targetPose then for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; p.ghost.CFrame = targetPose.parts[p.real] end end
+    else
+        if GhostModel then GhostModel:Destroy(); GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = nil end
+    end
+
+    local allPlayers = Players:GetPlayers()
+    for i = 1, #allPlayers do
+        local player = allPlayers[i]
+        if player ~= LocalPlayer then
+            local plChar = player.Character
+            local isFriend = FriendsList[LowerNameCache[player.Name]]
+            local espCache = GetEspElements(player)
+            local hasHRP = plChar and plChar:FindFirstChild("HumanoidRootPart")
+            
+            local sameTeam = (player.Team == LocalPlayer.Team and player.Team ~= nil)
+            local isIgnoredTeam = player.Team and Cfg["ChamsIgnore_" .. player.Team.Name]
+
+            if isFriend then
+                if espCache.ChamsHighlight.Enabled then espCache.ChamsHighlight.Enabled = false end
+                local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
+                if not friendHighlight and plChar then friendHighlight = Instance.new("Highlight", plChar); friendHighlight.Name = "FriendHighlight"; friendHighlight.FillColor = Color3.fromRGB(0, 255, 0); friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0); friendHighlight.FillTransparency = 0.8; friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded end
+            elseif Cfg.ChamsEnabled and hasHRP and (not Cfg.ChamsTeamCheck or not sameTeam) and not isIgnoredTeam then
+                if plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
+                
+                if espCache.ChamsHighlight.Adornee ~= plChar then espCache.ChamsHighlight.Adornee = plChar end
+                if not espCache.ChamsHighlight.Enabled then espCache.ChamsHighlight.Enabled = true end
+                
+                if espCache.ChamsHighlight.FillColor ~= Cfg.ChamsColor then espCache.ChamsHighlight.FillColor = Cfg.ChamsColor end
+                if espCache.ChamsHighlight.FillTransparency ~= Cfg.ChamsFillTransparency then espCache.ChamsHighlight.FillTransparency = Cfg.ChamsFillTransparency end
+                
+                if espCache.ChamsHighlight.OutlineColor ~= Cfg.ChamsOutlineColor then espCache.ChamsHighlight.OutlineColor = Cfg.ChamsOutlineColor end
+                if espCache.ChamsHighlight.OutlineTransparency ~= Cfg.ChamsOutlineTransparency then espCache.ChamsHighlight.OutlineTransparency = Cfg.ChamsOutlineTransparency end
+                
+                local targetDepth = Cfg.ChamsWallhack and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+                if espCache.ChamsHighlight.DepthMode ~= targetDepth then espCache.ChamsHighlight.DepthMode = targetDepth end
+            else
+                if espCache.ChamsHighlight.Enabled then espCache.ChamsHighlight.Enabled = false end
+                if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end 
+            end
+        end
+    end
+end))
+
+-- // БЫСТРЫЙ RENDER STEPPED
+table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
+    local char = LocalPlayer.Character
+    local target = SharedTarget
+    local currentKaTarget = SharedKaTarget
+    local camCFrame = Camera.CFrame
+    local camPos = camCFrame.Position
+
+    local hudTarget = Cfg.TargetHudOnlyKillaura and currentKaTarget or target
+    local espTarget = Cfg.TargetESPOnlyKillaura and currentKaTarget or target
+
+    if Cfg.CustomFovEnabled then if Camera.FieldOfView ~= Cfg.CustomFovValue then Camera.FieldOfView = Cfg.CustomFovValue end else if Camera.FieldOfView ~= Cfg.AspectRatioValue then Camera.FieldOfView = Cfg.AspectRatioValue end end
+    
+    if Cfg.FullBrightEnabled then
+        Lighting.ClockTime = math.clamp(tonumber(Cfg.FullBrightTime) or 12, 0, 23)
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    else
+        if Cfg.WorldColorEnabled then
+            if Lighting.Ambient ~= Cfg.WorldColorValue then Lighting.Ambient = Cfg.WorldColorValue end
+            if Lighting.OutdoorAmbient ~= Cfg.WorldColorValue then Lighting.OutdoorAmbient = Cfg.WorldColorValue end
+        end
+        if Cfg.TimeChangerEnabled then
+            Lighting.ClockTime = math.clamp(Cfg.TimeChangerHours, 0, 23)
+        end
+    end
+    
+    if Cfg.SaturationEnabled then
+        if not SaturationEffect.Enabled then SaturationEffect.Enabled = true end
+        SaturationEffect.Saturation = (tonumber(Cfg.SaturationValue) or 10) / 10
+    else
+        if SaturationEffect.Enabled then SaturationEffect.Enabled = false end
+    end
+    
+    if Cfg.ThirdPersonEnabled then 
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic; LocalPlayer.CameraMaxZoomDistance = Cfg.ThirdPersonDistance or 15; LocalPlayer.CameraMinZoomDistance = Cfg.ThirdPersonDistance or 15; wasThirdPerson = true
+    elseif wasThirdPerson then 
+        LocalPlayer.CameraMinZoomDistance = OrigState.MinZoom; LocalPlayer.CameraMaxZoomDistance = OrigState.MaxZoom; wasThirdPerson = false 
+    end
+    
+    if glowGradientBack then glowGradientBack.Rotation = (tick() * 35) % 360 end
+    
     if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid
         local hrp = char.HumanoidRootPart
@@ -971,41 +1219,6 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         if Cfg.ViewHandsEnabled then
             for i = 1, #ViewHandsParts do ViewHandsParts[i].LocalTransparencyModifier = 0 end
         end
-
-        if Cfg.ClientSideEnabled then
-            if currentGhostCharRef ~= char or (lastGhostDelTex ~= nil and lastGhostDelTex ~= Cfg.ClientSideDelTexture) then
-                if GhostModel then GhostModel:Destroy() end; GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = char; lastGhostDelTex = Cfg.ClientSideDelTexture
-            end
-            if not GhostModel or GhostModel.Parent ~= Chams3DFolder then
-                char.Archivable = true; GhostModel = char:Clone(); GhostModel.Name = "Gemini_Ghost"; GhostModel.Parent = Chams3DFolder; GhostPartsArray = {}
-                local gh = GhostModel:FindFirstChildOfClass("Humanoid"); if gh then gh:Destroy() end
-                local gHrp = GhostModel:FindFirstChild("HumanoidRootPart"); if gHrp then gHrp:Destroy() end
-                for _, v in ipairs(GhostModel:GetDescendants()) do
-                    if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-                    if v:IsA("BasePart") then v.Anchored = true; v.CanCollide = false; v.CanQuery = false; v.CanTouch = false; v.Massless = true end
-                end
-                for _, realPart in ipairs(char:GetDescendants()) do
-                    if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
-                        local ghostPart = nil
-                        if realPart.Parent == char then ghostPart = GhostModel:FindFirstChild(realPart.Name)
-                        elseif realPart.Parent:IsA("Accessory") then local acc = GhostModel:FindFirstChild(realPart.Parent.Name); if acc then ghostPart = acc:FindFirstChild(realPart.Name) end end
-                        if ghostPart and ghostPart:IsA("BasePart") then table.insert(GhostPartsArray, {real = realPart, ghost = ghostPart}) end
-                    end
-                end
-                lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = Cfg.ClientSideTransparency; UpdateGhostAppearance()
-            end
-            local currentTrans = tonumber(Cfg.ClientSideTransparency) or 50
-            if lastGhostColor ~= Cfg.ClientSideColor or lastGhostTrans ~= currentTrans then lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = currentTrans; UpdateGhostAppearance() end
-            local currentPose = { t = tick(), parts = {} }
-            for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; currentPose.parts[p.real] = p.real.CFrame end
-            table.insert(GhostHistory, currentPose)
-            while #GhostHistory > 0 and tick() - GhostHistory[1].t > 2 do table.remove(GhostHistory, 1) end
-            local targetTime = tick() - 0.1; local targetPose = GhostHistory[#GhostHistory]
-            for i = #GhostHistory, 1, -1 do if GhostHistory[i].t <= targetTime then targetPose = GhostHistory[i]; break end end
-            if targetPose then for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; p.ghost.CFrame = targetPose.parts[p.real] end end
-        else
-            if GhostModel then GhostModel:Destroy(); GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = nil end
-        end
     end
 
     local localHrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1019,21 +1232,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             local espCache = GetEspElements(player)
             local hasHRP = plChar and plChar:FindFirstChild("HumanoidRootPart")
             
-            if isFriend then
-                if not EspHiddenState[player] then espCache.Box3D.Parent = nil; EspHiddenState[player] = true end
-                local friendHighlight = plChar and plChar:FindFirstChild("FriendHighlight")
-                if not friendHighlight and plChar then friendHighlight = Instance.new("Highlight", plChar); friendHighlight.Name = "FriendHighlight"; friendHighlight.FillColor = Color3.fromRGB(0, 255, 0); friendHighlight.OutlineColor = Color3.fromRGB(0, 200, 0); friendHighlight.FillTransparency = 0.8; friendHighlight.DepthMode = Enum.HighlightDepthMode.Occluded end
-            elseif Cfg.ChamsEnabled and hasHRP then
-                if EspHiddenState[player] then espCache.Box3D.Parent = Chams3DFolder; EspHiddenState[player] = false end
-                if plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end
-                espCache.Box3D.CFrame = plChar.HumanoidRootPart.CFrame
-                espCache.ChamsHighlight.FillColor = Cfg.ChamsColor; espCache.ChamsHighlight.OutlineColor = Cfg.ChamsOutlineColor; espCache.ChamsHighlight.FillTransparency = Cfg.ChamsFillTransparency; espCache.ChamsHighlight.OutlineTransparency = 0
-            else
-                if not EspHiddenState[player] then espCache.Box3D.Parent = nil; EspHiddenState[player] = true end
-                if plChar and plChar:FindFirstChild("FriendHighlight") then plChar.FriendHighlight:Destroy() end 
-            end
+            local sameTeam = (player.Team == LocalPlayer.Team and player.Team ~= nil)
+            local isIgnoredTeam = player.Team and Cfg["Esp2DBoxIgnore_" .. player.Team.Name]
 
-            if Cfg.Esp2DBoxEnabled and hasHRP and not isFriend then
+            if Cfg.Esp2DBoxEnabled and hasHRP and not isFriend and (not Cfg.Esp2DBoxTeamCheck or not sameTeam) and not isIgnoredTeam then
                 local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
                     local head = plChar:FindFirstChild("Head"); local topPos = head and head.Position + Vector3.new(0, 1, 0) or hrp.Position + Vector3.new(0, 3, 0); local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
@@ -1042,12 +1244,30 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                     
                     if not espCache.Box2D.Visible then espCache.Box2D.Visible = true end
                     espCache.Box2D.Size = UDim2.new(0, width, 0, finalHeight); espCache.Box2D.Position = UDim2.new(0, pos.X - width/2, 0, pos.Y - finalHeight/2)
-                    espCache.BoxStroke.Color = Cfg.Esp2DBoxColor; espCache.BoxGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Cfg.Esp2DBoxColor), ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(Cfg.Esp2DBoxColor, 0.5))}); espCache.BoxGrad.Rotation = (tick() * 50) % 360; espCache.BoxGlow.Color = Cfg.Esp2DBoxColor 
                     
-                    espCache.NameTag.Visible = Cfg.Esp2DBoxNametagsEnabled == true
-                    if Cfg.Esp2DBoxNametagsEnabled then espCache.NameTag.TextSize = tonumber(Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5); espCache.NameTag.Text = player.DisplayName end
+                    local roundedRadius = UDim.new(0, tonumber(Cfg.Esp2DBoxRounding) or 4)
+                    if espCache.BoxCorner.CornerRadius.Offset ~= roundedRadius.Offset then espCache.BoxCorner.CornerRadius = roundedRadius; espCache.GlowCorner.CornerRadius = roundedRadius end
                     
-                    espCache.HealthBack.Visible = Cfg.Esp2DBoxHealthBarEnabled == true
+                    if Cfg.Esp2DBoxFillEnabled then
+                        local fTrans = tonumber(Cfg.Esp2DBoxFillTrans) or 0.5
+                        if espCache.Box2D.BackgroundTransparency ~= fTrans then espCache.Box2D.BackgroundTransparency = fTrans end
+                        if espCache.Box2D.BackgroundColor3 ~= Cfg.Esp2DBoxFillColor then espCache.Box2D.BackgroundColor3 = Cfg.Esp2DBoxFillColor end
+                    else
+                        if espCache.Box2D.BackgroundTransparency ~= 1 then espCache.Box2D.BackgroundTransparency = 1 end
+                    end
+
+                    if espCache.LastColor ~= Cfg.Esp2DBoxColor then
+                        espCache.LastColor = Cfg.Esp2DBoxColor
+                        espCache.BoxStroke.Color = Cfg.Esp2DBoxColor
+                        espCache.BoxGlow.Color = Cfg.Esp2DBoxColor 
+                        espCache.BoxGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Cfg.Esp2DBoxColor), ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(Cfg.Esp2DBoxColor, 0.5))})
+                    end
+                    espCache.BoxGrad.Rotation = (tick() * 50) % 360 
+                    
+                    if espCache.NameTag.Visible ~= (Cfg.Esp2DBoxNametagsEnabled == true) then espCache.NameTag.Visible = (Cfg.Esp2DBoxNametagsEnabled == true) end
+                    if Cfg.Esp2DBoxNametagsEnabled then espCache.NameTag.TextSize = tonumber(Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5); if espCache.NameTag.Text ~= player.DisplayName then espCache.NameTag.Text = player.DisplayName end end
+                    
+                    if espCache.HealthBack.Visible ~= (Cfg.Esp2DBoxHealthBarEnabled == true) then espCache.HealthBack.Visible = (Cfg.Esp2DBoxHealthBarEnabled == true) end
                     if Cfg.Esp2DBoxHealthBarEnabled then
                         local border = tonumber(Cfg.Esp2DBoxHealthBarBorder) or 1
                         espCache.HealthBack.BorderSizePixel = border; espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0); espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0)
@@ -1066,8 +1286,9 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
                 if dist <= (tonumber(Cfg.ArrowsDistance) or 100) then
                     if not espCache.Arrow.Visible then espCache.Arrow.Visible = true end
                     local arrColor = Cfg.ArrowsColor or Color3.fromRGB(255, 0, 0); local arrSize = tonumber(Cfg.ArrowsSize) or 22
-                    espCache.ArrowSym.TextColor3 = arrColor; espCache.ArrowSym.TextSize = arrSize
-                    if Cfg.ArrowsShowDistance then espCache.ArrowDist.Visible = true; espCache.ArrowDist.Text = math.floor(dist) .. "m"; espCache.ArrowDist.TextColor3 = arrColor else espCache.ArrowDist.Visible = false end
+                    if espCache.ArrowSym.TextColor3 ~= arrColor then espCache.ArrowSym.TextColor3 = arrColor end
+                    if espCache.ArrowSym.TextSize ~= arrSize then espCache.ArrowSym.TextSize = arrSize end
+                    if Cfg.ArrowsShowDistance then espCache.ArrowDist.Visible = true; espCache.ArrowDist.Text = math.floor(dist) .. "m"; if espCache.ArrowDist.TextColor3 ~= arrColor then espCache.ArrowDist.TextColor3 = arrColor end else espCache.ArrowDist.Visible = false end
                     local relativeToCam = camCFrame:PointToObjectSpace(targetHRP.Position); local angle = math.atan2(relativeToCam.X, -relativeToCam.Z)
                     local center = Camera.ViewportSize / 2; local radius = 150; local x = center.X + math.sin(angle) * radius; local y = center.Y - math.cos(angle) * radius
                     espCache.Arrow.Position = UDim2.new(0, x, 0, y); espCache.ArrowSym.Rotation = math.deg(angle)
@@ -1093,7 +1314,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
         if lastTargetHealth and hum.Health < lastTargetHealth then lastDamageTimeHUD = tick(); TargetIcon.ImageColor3 = Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0); TweenService:Create(TargetIcon, TweenInfo.new(1, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {ImageColor3 = Color3.new(1, 1, 1)}):Play() end
         lastTargetHealth = hum.Health; local normColor = Cfg.TargetHudNormalColor or Color3.fromRGB(0, 255, 100); local dmgColor = Cfg.TargetHudDamageColor or Color3.fromRGB(255, 0, 0)
         local currentBarColor = normColor; local timeSinceDmgHud = tick() - lastDamageTimeHUD; if timeSinceDmgHud < 0.3 then currentBarColor = dmgColor:Lerp(normColor, timeSinceDmgHud / 0.3) end
-        barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, currentBarColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, currentBarColor)})
+        if lastTargetHudBarColor ~= currentBarColor then lastTargetHudBarColor = currentBarColor; barGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, currentBarColor:Lerp(Color3.new(0, 0, 0), 0.2)), ColorSequenceKeypoint.new(1, currentBarColor)}) end
         if currentTween then currentTween:Cancel() end; currentTween = TweenService:Create(HealthBar, tweenInfo, {Size = UDim2.new(healthPercent, 0, 1, 0)}); currentTween:Play(); HealthText.Text = string.format("HP: %.1f", hum.Health)
     elseif TargetHUD.Visible then 
         TargetHUD.Visible = false; lastTargetUserId = nil; lastTargetHealth = nil; if currentTween then currentTween:Cancel() end 
@@ -1419,13 +1640,62 @@ do
 
     UI.kC = mkMisc("")
     UI.kBtn = Instance.new("TextButton", UI.kC); UI.kBtn.Size = UDim2.new(1, -20, 0, 40); UI.kBtn.Position = UDim2.new(0, 10, 0.5, -20); UI.kBtn.Text = "KILL SCRIPT"; UI.kBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20); UI.kBtn.TextColor3 = Color3.new(1,1,1); UI.kBtn.Font = TARGET_FONT; UI.kBtn.TextSize = 16; Instance.new("UICorner", UI.kBtn)
+    
     UI.kBtn.MouseButton1Click:Connect(function() 
-        for _, c in pairs(Connections) do c:Disconnect() end 
-        GeminiGui:Destroy(); HatPart:Destroy(); ChamsFolder:Destroy();
+        _G.GeminiUnloaded = true 
+        
+        for _, c in pairs(Connections) do pcall(function() c:Disconnect() end) end 
+        
+        Lighting.Ambient = OrigState.Lighting.Ambient
+        Lighting.OutdoorAmbient = OrigState.Lighting.OutdoorAmbient
+        Lighting.FogColor = OrigState.Lighting.FogColor
+        Lighting.FogEnd = OrigState.Lighting.FogEnd
+        Lighting.ClockTime = OrigState.Lighting.ClockTime
         CleanLighting("GeminiSaturation"); CleanLighting("GeminiVibeBloom"); CleanLighting("GeminiVibeCC"); CleanLighting("GeminiVibeBlur"); CleanLighting("GeminiVibeAtmosphere"); CleanLighting("GeminiVibeSky")
-        Lighting.Ambient = OrigAmbient; Lighting.OutdoorAmbient = OrigOutdoorAmbient; Lighting.FogColor = OrigFogColor; Lighting.FogEnd = OrigFogEnd
+        
+        Camera.FieldOfView = OrigState.FOV
+        LocalPlayer.CameraMode = OrigState.CamMode
+        LocalPlayer.CameraMaxZoomDistance = OrigState.MaxZoom
+        LocalPlayer.CameraMinZoomDistance = OrigState.MinZoom
+        
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = 16
+        end
+        
+        for head, data in pairs(OrigPartData) do
+            if head and head.Parent then
+                head.Size = data.Size
+                head.Transparency = data.Trans
+                head.CanCollide = data.CanCollide
+                head.Massless = data.Massless
+                local face = head:FindFirstChildOfClass("Decal")
+                if face and OrigPartData[face] then face.Transparency = OrigPartData[face].Trans end
+            end
+        end
+        
+        for part, state in pairs(OrigNoClipStates) do
+            if part and part.Parent then part.CanCollide = state end
+        end
+        
+        for _, v in ipairs(Players:GetPlayers()) do
+            if v.Character then
+                if v.Character:FindFirstChild("Gemini_FakeHead") then v.Character.Gemini_FakeHead:Destroy() end
+                if v.Character:FindFirstChild("FriendHighlight") then v.Character.FriendHighlight:Destroy() end
+            end
+        end
+
+        pcall(function() GeminiGui:Destroy() end)
+        pcall(function() HatPart:Destroy() end)
+        pcall(function() ChamsFolder:Destroy() end)
+        pcall(function() Chams3DFolder:Destroy() end)
+        pcall(function() WorldStarsFolder:Destroy() end)
         if workspace:FindFirstChild("Gemini_3D_Chams") then workspace.Gemini_3D_Chams:Destroy() end
         if workspace:FindFirstChild("Gemini_WorldStars") then workspace.Gemini_WorldStars:Destroy() end
+        
+        _G.Cfg = nil
+        _G.ToggleFuncs = nil
+        _G.RefreshUIFunctions = nil
     end)
 
     UI.tC = mkMisc("UI THEME (CYCLE)")
@@ -1455,4 +1725,4 @@ task.spawn(function()
     UpdateWorldShader()
 end)
 
-SwitchCategory("Movement")
+SwitchCategory("Combat")
