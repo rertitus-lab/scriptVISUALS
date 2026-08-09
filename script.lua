@@ -36,6 +36,7 @@ end
 if workspace:FindFirstChild("Gemini_3D_Chams") then pcall(function() workspace.Gemini_3D_Chams:Destroy() end) end
 if workspace:FindFirstChild("Gemini_ChinaHat") then pcall(function() workspace.Gemini_ChinaHat:Destroy() end) end
 if workspace:FindFirstChild("Gemini_WorldStars") then pcall(function() workspace.Gemini_WorldStars:Destroy() end) end
+pcall(function() RunService:UnbindFromRenderStep("Gemini_MainRender") end)
 
 local function CleanLighting(name) if Lighting:FindFirstChild(name) then Lighting[name]:Destroy() end end
 CleanLighting("GeminiSaturation")
@@ -82,6 +83,8 @@ local LowerNameCache = setmetatable({}, {__index = function(t, k) local v = stri
 local EspCache = {} 
 local EspHiddenState = {} 
 local ViewHandsParts = {} 
+local CurrentArmJoints = {}
+local OrigMotorC0 = {}
 local AntiFlingCache = {}
 
 local SharedTarget = nil
@@ -90,7 +93,8 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
--- Получение команд сервера для динамических настроек
+local swayCFrame = CFrame.new()
+
 local ServerTeams = Teams:GetChildren()
 
 -- Конфиг
@@ -128,7 +132,9 @@ _G.Cfg = {
     WorldParticlesEnabled = false, WorldParticlesColor = Color3.fromRGB(255, 255, 255), WorldParticlesAmount = 40, WorldParticlesEnabledBind = "None",
     SaturationEnabled = false, SaturationValue = 10, SaturationEnabledBind = "None",
     ClientSideEnabled = false, ClientSideTransparency = 50, ClientSideColor = Color3.fromRGB(255, 100, 100), ClientSideDelTexture = false, ClientSideEnabledBind = "None",
-    ViewHandsEnabled = false, ViewHandsEnabledBind = "None",
+    
+    ViewHandsEnabled = false, ViewHandsCameraLock = false, ViewHandsOffsetX = 0, ViewHandsOffsetY = 0, ViewHandsOffsetZ = 0, ViewHandsEnabledBind = "None",
+    
     WorldColorEnabled = false, WorldColorValue = Color3.fromRGB(150, 50, 255), WorldColorTransparency = 0.5, WorldColorDarkness = 1, WorldColorShader = false, WorldColorEnabledBind = "None",
     AspectRatioValue = 80,
     CustomFovEnabled = false, CustomFovValue = 100, CustomFovEnabledBind = "None",
@@ -723,6 +729,10 @@ do
     AddColorBtn(m, "Hat Color", "ChinaHatAccessoryColor")
     
     m = CreateModule("VIEW HANDS", "ViewHandsEnabled", "Visuals")
+    AddToggle(m, "Lock in Camera FOV", "ViewHandsCameraLock")
+    AddSlider(m, "Offset X (Linear)", "ViewHandsOffsetX")
+    AddSlider(m, "Offset Y (Linear)", "ViewHandsOffsetY")
+    AddSlider(m, "Offset Z (Distance)", "ViewHandsOffsetZ")
     
     m = CreateModule("HIT PARTICLES", "DamageParticlesEnabled", "Visuals")
     AddSlider(m, "Size", "ParticleSize")
@@ -1114,7 +1124,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
                 if espCache.ChamsHighlight.FillColor ~= Cfg.ChamsColor then espCache.ChamsHighlight.FillColor = Cfg.ChamsColor end
                 if espCache.ChamsHighlight.FillTransparency ~= Cfg.ChamsFillTransparency then espCache.ChamsHighlight.FillTransparency = Cfg.ChamsFillTransparency end
                 
-                if espCache.ChamsHighlight.OutlineColor ~= Cfg.ChamsOutlineColor then espCache.ChamsHighlight.OutlineColor = Cfg.ChamsOutlineColor end
+                if espCache.ChamsHighlight.OutlineColor ~= Cfg.ChamsOutlineColor then espCache.ChamsOutlineColor = Cfg.ChamsOutlineColor end
                 if espCache.ChamsHighlight.OutlineTransparency ~= Cfg.ChamsOutlineTransparency then espCache.ChamsHighlight.OutlineTransparency = Cfg.ChamsOutlineTransparency end
                 
                 local targetDepth = Cfg.ChamsWallhack and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
@@ -1127,8 +1137,8 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
     end
 end))
 
--- // БЫСТРЫЙ RENDER STEPPED
-table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
+-- // БЫСТРЫЙ RENDER STEPPED: BindToRenderStep С ПРИОРИТЕТОМ 201 ДЛЯ ФИКСА ДЕРГАНИЯ
+RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
     local char = LocalPlayer.Character
     local target = SharedTarget
     local currentKaTarget = SharedKaTarget
@@ -1216,8 +1226,67 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
 
-        if Cfg.ViewHandsEnabled then
+        -- // ПОЛНОСТЬЮ НОВАЯ ЛОГИКА VIEW HANDS С ИНЕРЦИЕЙ И ФИКСОМ ДЖИТТЕРА
+        local isFirstPerson = char:FindFirstChild("Head") and (camCFrame.Position - char.Head.Position).Magnitude <= 1.5
+
+        if Cfg.ViewHandsEnabled and isFirstPerson then
+            local xOff = tonumber(Cfg.ViewHandsOffsetX) or 0
+            local yOff = tonumber(Cfg.ViewHandsOffsetY) or 0
+            local zOff = tonumber(Cfg.ViewHandsOffsetZ) or 0
+            local head = char:FindFirstChild("Head")
+            
+            -- Делаем руки видимыми
             for i = 1, #ViewHandsParts do ViewHandsParts[i].LocalTransparencyModifier = 0 end
+            
+            -- Математика реалистичности (Camera Sway)
+            local mouseDelta = UserInputService:GetMouseDelta()
+            local targetSway = CFrame.Angles(
+                math.clamp(-mouseDelta.Y * 0.0015, -0.12, 0.12),
+                math.clamp(-mouseDelta.X * 0.0015, -0.12, 0.12),
+                0
+            )
+            -- Плавно интерполируем текущий сдвиг к целевому (создает эффект веса рук)
+            swayCFrame = swayCFrame:Lerp(targetSway, math.clamp(dt * 12, 0, 1))
+
+            for i = 1, #CurrentArmJoints do
+                local j = CurrentArmJoints[i]
+                if OrigMotorC0[j] then
+                    local origC0 = OrigMotorC0[j]
+                    local torso = j.Part0
+                    
+                    if torso and head then
+                        if Cfg.ViewHandsCameraLock then
+                            local headOffsetLocal = torso.CFrame:ToObjectSpace(head.CFrame)
+                            local headToShoulder = headOffsetLocal:Inverse() * origC0
+                            
+                            -- Добавляем swayCFrame к финальной позиции для реалистичного отставания
+                            local targetWorld = camCFrame * swayCFrame * CFrame.new(xOff, yOff, zOff) * headToShoulder
+                            
+                            -- ФИКС ДЕРГАНИЯ: Вместо жесткого приравнивания, мы применяем сверхбыстрый Lerp. 
+                            -- Это сглаживает рассинхрон между анимацией торса и обновлением камеры.
+                            local targetC0 = torso.CFrame:ToObjectSpace(targetWorld)
+                            j.C0 = j.C0:Lerp(targetC0, math.clamp(dt * 45, 0, 1))
+                        else
+                            -- Без лока камеры, просто смещение
+                            local right = camCFrame.RightVector * xOff
+                            local up = camCFrame.UpVector * yOff
+                            local fwd = camCFrame.LookVector * zOff
+                            local localOffset = torso.CFrame:VectorToObjectSpace(right + up + fwd)
+                            local targetC0 = CFrame.new(origC0.Position + localOffset) * origC0.Rotation
+                            
+                            j.C0 = j.C0:Lerp(targetC0, math.clamp(dt * 45, 0, 1))
+                        end
+                    end
+                end
+            end
+        else
+            -- Возврат в обычное состояние с плавным затуханием (чтобы руки не прыгали при отключении)
+            for i = 1, #CurrentArmJoints do
+                local j = CurrentArmJoints[i]
+                if OrigMotorC0[j] and j.C0 ~= OrigMotorC0[j] then 
+                    j.C0 = j.C0:Lerp(OrigMotorC0[j], math.clamp(dt * 15, 0, 1))
+                end
+            end
         end
     end
 
@@ -1421,7 +1490,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function(dt)
     if not Cfg.KillAuraEnabled and Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and localHrp then
         Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, target.Character.Head.Position), Cfg.AimbotSmoothness)
     end
-end))
+end)
 
 -- // INFINITE JUMP LOGIC
 table.insert(Connections, UserInputService.JumpRequest:Connect(function()
@@ -1493,9 +1562,33 @@ task.spawn(function() while task.wait(1) do pcall(UpdateKeybindList); pcall(Upda
 
 local function UpdateViewHandsParts(char)
     ViewHandsParts = {}
+    CurrentArmJoints = {}
     if not char then return end
     local armNames = { ["Left Arm"] = true, ["Right Arm"] = true, ["LeftHand"] = true, ["RightHand"] = true, ["LeftLowerArm"] = true, ["RightLowerArm"] = true, ["LeftUpperArm"] = true, ["RightUpperArm"] = true }
-    for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") and armNames[p.Name] then table.insert(ViewHandsParts, p) end end
+    for _, p in ipairs(char:GetDescendants()) do 
+        if p:IsA("BasePart") and armNames[p.Name] then table.insert(ViewHandsParts, p) end 
+    end
+    
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        if hum.RigType == Enum.HumanoidRigType.R15 then
+            local r = char:FindFirstChild("RightUpperArm") and char.RightUpperArm:FindFirstChild("RightShoulder")
+            local l = char:FindFirstChild("LeftUpperArm") and char.LeftUpperArm:FindFirstChild("LeftShoulder")
+            if r then table.insert(CurrentArmJoints, r) end
+            if l then table.insert(CurrentArmJoints, l) end
+        else
+            local t = char:FindFirstChild("Torso")
+            if t then
+                local r = t:FindFirstChild("Right Shoulder")
+                local l = t:FindFirstChild("Left Shoulder")
+                if r then table.insert(CurrentArmJoints, r) end
+                if l then table.insert(CurrentArmJoints, l) end
+            end
+        end
+        for _, j in ipairs(CurrentArmJoints) do
+            if not OrigMotorC0[j] then OrigMotorC0[j] = j.C0 end
+        end
+    end
 end
 
 local function ConnectJumpAndHands(char)
@@ -1684,7 +1777,12 @@ do
                 if v.Character:FindFirstChild("FriendHighlight") then v.Character.FriendHighlight:Destroy() end
             end
         end
+        
+        for j, c0 in pairs(OrigMotorC0) do
+            if j and j.Parent then j.C0 = c0 end
+        end
 
+        pcall(function() RunService:UnbindFromRenderStep("Gemini_MainRender") end)
         pcall(function() GeminiGui:Destroy() end)
         pcall(function() HatPart:Destroy() end)
         pcall(function() ChamsFolder:Destroy() end)
@@ -1725,4 +1823,4 @@ task.spawn(function()
     UpdateWorldShader()
 end)
 
-SwitchCategory("Combat")
+SwitchCategory("Visuals")
