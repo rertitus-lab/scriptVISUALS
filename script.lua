@@ -12,11 +12,10 @@ local Teams = game:GetService("Teams")
 local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
--- // СОХРАНЕНИЕ ОРИГИНАЛЬНОГО СОСТОЯНИЯ ИГРЫ
+-- // СОХРАНЕНИЕ ОРИГИНАЛЬНОГО СОСТОЯНИЯ ИГРЫ (Берем динамически)
 local OrigState = {
-    FOV = Camera.FieldOfView,
+    FOV = workspace.CurrentCamera.FieldOfView,
     CamMode = LocalPlayer.CameraMode,
     MaxZoom = LocalPlayer.CameraMaxZoomDistance,
     MinZoom = LocalPlayer.CameraMinZoomDistance,
@@ -238,19 +237,23 @@ local function LoadConfig(id)
     return false
 end
 
--- // ОПТИМИЗИРОВАННЫЙ SILENT AIM HOOK
+-- // ИСПРАВЛЕННЫЙ SILENT AIM HOOK
 if hookmetamethod then
     local OldIndex = nil
     OldIndex = hookmetamethod(game, "__index", function(self, key)
         if _G.GeminiUnloaded then return OldIndex(self, key) end
         
         if key == "CFrame" or key == "Hit" or key == "Target" or key == "UnitRay" then
-            if Cfg.KillAuraEnabled and Cfg.KillAuraNoCamRotation and SharedKaTarget and not checkcaller() then
+            -- Убрано условие Cfg.KillAuraNoCamRotation, чтобы Mouse.Hit всегда летел в цель
+            if Cfg.KillAuraEnabled and SharedKaTarget and not checkcaller() then
                 if typeof(self) == "Instance" then
                     local eChar = SharedKaTarget.Character
                     local targetPart = eChar and eChar:FindFirstChild("HumanoidRootPart")
                     if targetPart then
-                        if key == "CFrame" and self:IsA("Camera") then return CFrame.lookAt(OldIndex(self, key).Position, targetPart.Position)
+                        if key == "CFrame" and self:IsA("Camera") then 
+                            if Cfg.KillAuraNoCamRotation then
+                                return CFrame.lookAt(OldIndex(self, key).Position, targetPart.Position)
+                            end
                         elseif self:IsA("Mouse") then
                             if key == "Hit" then return CFrame.new(targetPart.Position) end
                             if key == "Target" then return targetPart end
@@ -267,7 +270,7 @@ if hookmetamethod then
     OldNameCall = hookmetamethod(game, "__namecall", function(self, ...)
         if _G.GeminiUnloaded then return OldNameCall(self, ...) end
         
-        if not Cfg.KillAuraEnabled or not Cfg.KillAuraNoCamRotation or not SharedKaTarget then
+        if not Cfg.KillAuraEnabled or not SharedKaTarget then
             return OldNameCall(self, ...)
         end
         
@@ -364,10 +367,6 @@ local Themes = {
     Gray = { name = "Gray", bg = Color3.fromRGB(50, 50, 50), trans = 0.2, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(200,200,200), inputBg = Color3.fromRGB(70,70,70), accent = Color3.fromRGB(80,80,80) },
     Glass = { name = "Glass", bg = Color3.fromRGB(10, 10, 10), trans = 0.65, stroke = Color3.fromRGB(80, 80, 80), text = Color3.new(1,1,1), textSec = Color3.fromRGB(220,220,220), inputBg = Color3.fromRGB(30,30,30), accent = Color3.fromRGB(50,50,50) }
 }
-
-table.insert(Connections, Camera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
-    if Cfg.CustomFovEnabled and Camera.FieldOfView ~= Cfg.CustomFovValue then Camera.FieldOfView = Cfg.CustomFovValue end 
-end))
 
 local HitSounds = { "rbxassetid://140604838213617", "rbxassetid://130201387574815", "rbxassetid://135478009117226", "rbxassetid://96735711388006", "rbxassetid://126048302910782", "rbxassetid://7255642553" }
 
@@ -770,6 +769,7 @@ end
 
 -- // CORE LOGIC
 local function IsVisible(targetPart)
+    local Camera = workspace.CurrentCamera; if not Camera then return false end
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
     local origin = Camera.CFrame.Position; local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
@@ -1019,6 +1019,7 @@ local function UpdateGhostAppearance()
 end
 
 table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
+    local Camera = workspace.CurrentCamera; if not Camera then return end
     local char = LocalPlayer.Character
     local camPos = Camera.CFrame.Position
     
@@ -1124,7 +1125,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
                 if espCache.ChamsHighlight.FillColor ~= Cfg.ChamsColor then espCache.ChamsHighlight.FillColor = Cfg.ChamsColor end
                 if espCache.ChamsHighlight.FillTransparency ~= Cfg.ChamsFillTransparency then espCache.ChamsHighlight.FillTransparency = Cfg.ChamsFillTransparency end
                 
-                if espCache.ChamsHighlight.OutlineColor ~= Cfg.ChamsOutlineColor then espCache.ChamsOutlineColor = Cfg.ChamsOutlineColor end
+                if espCache.ChamsHighlight.OutlineColor ~= Cfg.ChamsOutlineColor then espCache.ChamsHighlight.OutlineColor = Cfg.ChamsOutlineColor end
                 if espCache.ChamsHighlight.OutlineTransparency ~= Cfg.ChamsOutlineTransparency then espCache.ChamsHighlight.OutlineTransparency = Cfg.ChamsOutlineTransparency end
                 
                 local targetDepth = Cfg.ChamsWallhack and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
@@ -1137,8 +1138,9 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
     end
 end))
 
--- // БЫСТРЫЙ RENDER STEPPED: BindToRenderStep С ПРИОРИТЕТОМ 201 ДЛЯ ФИКСА ДЕРГАНИЯ
+-- // БЫСТРЫЙ RENDER STEPPED: BindToRenderStep С ПРИОРИТЕТОМ 201 ДЛЯ ФИКСА ДЕРГАНИЯ И ESP
 RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
+    local Camera = workspace.CurrentCamera; if not Camera then return end
     local char = LocalPlayer.Character
     local target = SharedTarget
     local currentKaTarget = SharedKaTarget
@@ -1226,7 +1228,6 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
 
-        -- // ПОЛНОСТЬЮ НОВАЯ ЛОГИКА VIEW HANDS С ИНЕРЦИЕЙ И ФИКСОМ ДЖИТТЕРА
         local isFirstPerson = char:FindFirstChild("Head") and (camCFrame.Position - char.Head.Position).Magnitude <= 1.5
 
         if Cfg.ViewHandsEnabled and isFirstPerson then
@@ -1235,17 +1236,14 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             local zOff = tonumber(Cfg.ViewHandsOffsetZ) or 0
             local head = char:FindFirstChild("Head")
             
-            -- Делаем руки видимыми
             for i = 1, #ViewHandsParts do ViewHandsParts[i].LocalTransparencyModifier = 0 end
             
-            -- Математика реалистичности (Camera Sway)
             local mouseDelta = UserInputService:GetMouseDelta()
             local targetSway = CFrame.Angles(
                 math.clamp(-mouseDelta.Y * 0.0015, -0.12, 0.12),
                 math.clamp(-mouseDelta.X * 0.0015, -0.12, 0.12),
                 0
             )
-            -- Плавно интерполируем текущий сдвиг к целевому (создает эффект веса рук)
             swayCFrame = swayCFrame:Lerp(targetSway, math.clamp(dt * 12, 0, 1))
 
             for i = 1, #CurrentArmJoints do
@@ -1258,16 +1256,10 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                         if Cfg.ViewHandsCameraLock then
                             local headOffsetLocal = torso.CFrame:ToObjectSpace(head.CFrame)
                             local headToShoulder = headOffsetLocal:Inverse() * origC0
-                            
-                            -- Добавляем swayCFrame к финальной позиции для реалистичного отставания
                             local targetWorld = camCFrame * swayCFrame * CFrame.new(xOff, yOff, zOff) * headToShoulder
-                            
-                            -- ФИКС ДЕРГАНИЯ: Вместо жесткого приравнивания, мы применяем сверхбыстрый Lerp. 
-                            -- Это сглаживает рассинхрон между анимацией торса и обновлением камеры.
                             local targetC0 = torso.CFrame:ToObjectSpace(targetWorld)
                             j.C0 = j.C0:Lerp(targetC0, math.clamp(dt * 45, 0, 1))
                         else
-                            -- Без лока камеры, просто смещение
                             local right = camCFrame.RightVector * xOff
                             local up = camCFrame.UpVector * yOff
                             local fwd = camCFrame.LookVector * zOff
@@ -1280,7 +1272,6 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                 end
             end
         else
-            -- Возврат в обычное состояние с плавным затуханием (чтобы руки не прыгали при отключении)
             for i = 1, #CurrentArmJoints do
                 local j = CurrentArmJoints[i]
                 if OrigMotorC0[j] and j.C0 ~= OrigMotorC0[j] then 
@@ -1307,7 +1298,9 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             if Cfg.Esp2DBoxEnabled and hasHRP and not isFriend and (not Cfg.Esp2DBoxTeamCheck or not sameTeam) and not isIgnoredTeam then
                 local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
-                    local head = plChar:FindFirstChild("Head"); local topPos = head and head.Position + Vector3.new(0, 1, 0) or hrp.Position + Vector3.new(0, 3, 0); local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
+                    local head = plChar:FindFirstChild("Head"); 
+                    local topPos = head and head.Position + Vector3.new(0, 1.2, 0) or hrp.Position + Vector3.new(0, 3.5, 0); 
+                    local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
                     local topScreen = Camera:WorldToViewportPoint(topPos); local bottomScreen = Camera:WorldToViewportPoint(bottomPos)
                     local height = math.abs(bottomScreen.Y - topScreen.Y); local baseMultiplier = tonumber(Cfg.Esp2DBoxSize) or 1; local finalHeight = height * baseMultiplier; local width = (height / 1.5) * baseMultiplier 
                     
@@ -1409,11 +1402,12 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
         ESPMain.Visible = false; lastEspTargetUserId = nil; lastEspTargetHealth = nil 
     end
 
+    local didRotateHRP = false
+
     if Cfg.TargetStrafeOrbitEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and localHrp then
         local angle = tick() * Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * Cfg.TargetStrafeOrbitRadius; localHrp.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
+        didRotateHRP = true 
     end
-
-    local didRotateHRP = false
     
     if Cfg.KillAuraEnabled and char and localHrp and currentKaTarget and currentKaTarget.Character then
         local targetPart = currentKaTarget.Character:FindFirstChild("HumanoidRootPart")
@@ -1438,15 +1432,24 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                     didRotateHRP = true 
                 else 
                     local savedVel = hrp.AssemblyLinearVelocity
-                    Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, targetPart.Position), Cfg.AimbotSmoothness); hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
+                    char.Humanoid.AutoRotate = false
+                    Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, targetPart.Position), math.clamp(Cfg.AimbotSmoothness or 1, 0, 1))
+                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
                     hrp.AssemblyLinearVelocity = savedVel
+                    didRotateHRP = true 
                 end
                 
                 if dist <= (Cfg.KillAuraClickRange or 15) then
                     local attackDelay = (Cfg.KillAuraSpeed / 10)
                     if tick() - lastAttackTime > attackDelay then
                         lastAttackTime = tick()
-                        task.spawn(function() VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1) end)
+                        task.spawn(function() 
+                            -- Кликаем ТОЧНО в центр экрана, чтобы лучи летели в центр камеры (на врага)
+                            local center = Camera.ViewportSize / 2
+                            VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1)
+                            task.wait(0.01)
+                            VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, false, game, 1) 
+                        end)
                         if Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(Cfg.HitSoundMode), 1, 6); local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
                         if Cfg.DamageParticlesEnabled then local pAmt = tonumber(Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(targetPart.Position) end end
                     end
@@ -1488,7 +1491,7 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
     end
 
     if not Cfg.KillAuraEnabled and Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and localHrp then
-        Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, target.Character.Head.Position), Cfg.AimbotSmoothness)
+        Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, target.Character.Head.Position), math.clamp(Cfg.AimbotSmoothness or 1, 0, 1))
     end
 end)
 
@@ -1604,6 +1607,8 @@ LocalPlayer.CharacterAdded:Connect(ConnectJumpAndHands); if LocalPlayer.Characte
 UserInputService.InputBegan:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         if tick() - lastAttackTime < 0.1 then return end
+        local Camera = workspace.CurrentCamera
+        if not Camera then return end
         local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
         if res and res.Instance then
             local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
@@ -1746,7 +1751,8 @@ do
         Lighting.ClockTime = OrigState.Lighting.ClockTime
         CleanLighting("GeminiSaturation"); CleanLighting("GeminiVibeBloom"); CleanLighting("GeminiVibeCC"); CleanLighting("GeminiVibeBlur"); CleanLighting("GeminiVibeAtmosphere"); CleanLighting("GeminiVibeSky")
         
-        Camera.FieldOfView = OrigState.FOV
+        local Camera = workspace.CurrentCamera
+        if Camera then Camera.FieldOfView = OrigState.FOV end
         LocalPlayer.CameraMode = OrigState.CamMode
         LocalPlayer.CameraMaxZoomDistance = OrigState.MaxZoom
         LocalPlayer.CameraMinZoomDistance = OrigState.MinZoom
