@@ -13,7 +13,7 @@ local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 
--- // СОХРАНЕНИЕ ОРИГИНАЛЬНОГО СОСТОЯНИЯ ИГРЫ (Берем динамически)
+-- // СОХРАНЕНИЕ ОРИГИНАЛЬНОГО СОСТОЯНИЯ ИГРЫ
 local OrigState = {
     FOV = workspace.CurrentCamera.FieldOfView,
     CamMode = LocalPlayer.CameraMode,
@@ -24,7 +24,8 @@ local OrigState = {
         OutdoorAmbient = Lighting.OutdoorAmbient,
         FogColor = Lighting.FogColor,
         FogEnd = Lighting.FogEnd,
-        ClockTime = Lighting.ClockTime
+        ClockTime = Lighting.ClockTime,
+        GlobalShadows = Lighting.GlobalShadows
     }
 }
 
@@ -92,7 +93,15 @@ local lastRealJumpTime = 0
 local lastKillStrafeJumpTime = 0
 local lastCriticalJumpTime = 0
 
+-- НОВЫЕ ПЕРЕМЕННЫЕ АНИМАЦИИ РУК
 local swayCFrame = CFrame.new()
+local currentBob = CFrame.new()
+local currentJumpOffset = CFrame.new()
+local targetSway = CFrame.new()
+local targetBob = CFrame.new()
+local targetJumpOffset = CFrame.new()
+local walkTime = 0
+local idleTime = 0
 
 local ServerTeams = Teams:GetChildren()
 
@@ -237,14 +246,13 @@ local function LoadConfig(id)
     return false
 end
 
--- // ИСПРАВЛЕННЫЙ SILENT AIM HOOK
+-- // SILENT AIM HOOK
 if hookmetamethod then
     local OldIndex = nil
     OldIndex = hookmetamethod(game, "__index", function(self, key)
         if _G.GeminiUnloaded then return OldIndex(self, key) end
         
         if key == "CFrame" or key == "Hit" or key == "Target" or key == "UnitRay" then
-            -- Убрано условие Cfg.KillAuraNoCamRotation, чтобы Mouse.Hit всегда летел в цель
             if Cfg.KillAuraEnabled and SharedKaTarget and not checkcaller() then
                 if typeof(self) == "Instance" then
                     local eChar = SharedKaTarget.Character
@@ -313,9 +321,6 @@ VibeBlur.Name = "GeminiVibeBlur"; VibeBlur.Size = 2; VibeBlur.Enabled = false
 
 local VibeAtmo = Instance.new("Atmosphere", Lighting)
 VibeAtmo.Name = "GeminiVibeAtmosphere"; VibeAtmo.Density = 0; VibeAtmo.Offset = 0.25; VibeAtmo.Glare = 0; VibeAtmo.Haze = 1
-
-local VibeSky = Instance.new("Sky", Lighting)
-VibeSky.Name = "GeminiVibeSky"; VibeSky.SkyboxBk = "rbxassetid://600886090"; VibeSky.SkyboxDn = "rbxassetid://600886090"; VibeSky.SkyboxFt = "rbxassetid://600886090"; VibeSky.SkyboxLf = "rbxassetid://600886090"; VibeSky.SkyboxRt = "rbxassetid://600886090"; VibeSky.SkyboxUp = "rbxassetid://600886090"
 
 local lastWorldColor, lastWorldTrans, lastWorldDark, lastWorldShader, lastWorldState = nil, nil, nil, nil, nil
 local function UpdateWorldShader()
@@ -1138,7 +1143,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
     end
 end))
 
--- // БЫСТРЫЙ RENDER STEPPED: BindToRenderStep С ПРИОРИТЕТОМ 201 ДЛЯ ФИКСА ДЕРГАНИЯ И ESP
+-- // РЕНДЕР СТЕП
 RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
     local Camera = workspace.CurrentCamera; if not Camera then return end
     local char = LocalPlayer.Character
@@ -1156,10 +1161,15 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
         Lighting.ClockTime = math.clamp(tonumber(Cfg.FullBrightTime) or 12, 0, 23)
         Lighting.Ambient = Color3.fromRGB(255, 255, 255)
         Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        Lighting.GlobalShadows = false
     else
+        Lighting.GlobalShadows = OrigState.Lighting.GlobalShadows
         if Cfg.WorldColorEnabled then
             if Lighting.Ambient ~= Cfg.WorldColorValue then Lighting.Ambient = Cfg.WorldColorValue end
             if Lighting.OutdoorAmbient ~= Cfg.WorldColorValue then Lighting.OutdoorAmbient = Cfg.WorldColorValue end
+        else
+            Lighting.Ambient = OrigState.Lighting.Ambient
+            Lighting.OutdoorAmbient = OrigState.Lighting.OutdoorAmbient
         end
         if Cfg.TimeChangerEnabled then
             Lighting.ClockTime = math.clamp(Cfg.TimeChangerHours, 0, 23)
@@ -1186,6 +1196,7 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
         local hrp = char.HumanoidRootPart
         local state = hum:GetState()
         local isAirborne = (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping)
+        local isMoving = hum.MoveDirection.Magnitude > 0
         
         if Cfg.SpeedEnabled then 
             local speedVal = tonumber(Cfg.WalkSpeedValue) or 16
@@ -1228,6 +1239,7 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
 
+        -- // ФИНАЛЬНЫЙ ФИКС РУК: ЖИВАЯ МАТЕМАТИКА БЕЗ ЗАСТЫВАНИЙ
         local isFirstPerson = char:FindFirstChild("Head") and (camCFrame.Position - char.Head.Position).Magnitude <= 1.5
 
         if Cfg.ViewHandsEnabled and isFirstPerson then
@@ -1238,13 +1250,36 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             
             for i = 1, #ViewHandsParts do ViewHandsParts[i].LocalTransparencyModifier = 0 end
             
+            local velocity = hrp.AssemblyLinearVelocity
+            local flatSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+            
+            idleTime = idleTime + dt
+            local idleBob = CFrame.new(math.cos(idleTime * 1.5) * 0.01, math.sin(idleTime * 3) * 0.015, 0)
+            
+            if isMoving and flatSpeed > 1 and not isAirborne then
+                local speedMult = math.clamp(flatSpeed / 16, 0.5, 1.5)
+                walkTime = walkTime + dt * (10 * speedMult)
+                local bX = math.cos(walkTime * 0.5) * (0.15 * speedMult)
+                local bY = math.sin(walkTime) * (0.12 * speedMult)
+                local bRoll = math.sin(walkTime * 0.5) * (0.05 * speedMult)
+                targetBob = CFrame.new(bX, bY, 0) * CFrame.Angles(0, 0, bRoll)
+            else
+                targetBob = CFrame.new()
+            end
+            currentBob = currentBob:Lerp(targetBob, 1 - math.exp(-12 * dt))
+            
+            local vY = velocity.Y
+            local clampedY = math.clamp(vY / 50, -1, 1)
+            targetJumpOffset = CFrame.new(0, -clampedY * 0.5, clampedY * 0.15) * CFrame.Angles(math.rad(clampedY * 25), 0, 0)
+            currentJumpOffset = currentJumpOffset:Lerp(targetJumpOffset, 1 - math.exp(-15 * dt))
+            
             local mouseDelta = UserInputService:GetMouseDelta()
-            local targetSway = CFrame.Angles(
-                math.clamp(-mouseDelta.Y * 0.0015, -0.12, 0.12),
-                math.clamp(-mouseDelta.X * 0.0015, -0.12, 0.12),
-                0
+            targetSway = CFrame.Angles(
+                math.clamp(-mouseDelta.Y * 0.002, -0.15, 0.15),
+                math.clamp(-mouseDelta.X * 0.0025, -0.15, 0.15),
+                math.clamp(-mouseDelta.X * 0.0015, -0.1, 0.1)
             )
-            swayCFrame = swayCFrame:Lerp(targetSway, math.clamp(dt * 12, 0, 1))
+            swayCFrame = swayCFrame:Lerp(targetSway, 1 - math.exp(-10 * dt))
 
             for i = 1, #CurrentArmJoints do
                 local j = CurrentArmJoints[i]
@@ -1253,20 +1288,22 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                     local torso = j.Part0
                     
                     if torso and head then
+                        local visualOffset = swayCFrame * currentJumpOffset * currentBob * idleBob * CFrame.new(xOff, yOff, zOff)
+                        
                         if Cfg.ViewHandsCameraLock then
-                            local headOffsetLocal = torso.CFrame:ToObjectSpace(head.CFrame)
-                            local headToShoulder = headOffsetLocal:Inverse() * origC0
-                            local targetWorld = camCFrame * swayCFrame * CFrame.new(xOff, yOff, zOff) * headToShoulder
-                            local targetC0 = torso.CFrame:ToObjectSpace(targetWorld)
-                            j.C0 = j.C0:Lerp(targetC0, math.clamp(dt * 45, 0, 1))
-                        else
-                            local right = camCFrame.RightVector * xOff
-                            local up = camCFrame.UpVector * yOff
-                            local fwd = camCFrame.LookVector * zOff
-                            local localOffset = torso.CFrame:VectorToObjectSpace(right + up + fwd)
-                            local targetC0 = CFrame.new(origC0.Position + localOffset) * origC0.Rotation
+                            -- Проецируем C0 в пространство камеры через голову, не ломая Transform (анимации)
+                            local headOffset = head.CFrame:Inverse() * torso.CFrame
+                            local targetC0 = torso.CFrame:Inverse() * camCFrame * visualOffset * headOffset * origC0
                             
-                            j.C0 = j.C0:Lerp(targetC0, math.clamp(dt * 45, 0, 1))
+                            j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-25 * dt))
+                        else
+                            local right = camCFrame.RightVector * visualOffset.X
+                            local up = camCFrame.UpVector * visualOffset.Y
+                            local fwd = camCFrame.LookVector * visualOffset.Z
+                            local localOffset = torso.CFrame:VectorToObjectSpace(right + up + fwd)
+                            
+                            local targetC0 = CFrame.new(origC0.Position + localOffset) * origC0.Rotation * visualOffset.Rotation
+                            j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-20 * dt))
                         end
                     end
                 end
@@ -1275,7 +1312,7 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             for i = 1, #CurrentArmJoints do
                 local j = CurrentArmJoints[i]
                 if OrigMotorC0[j] and j.C0 ~= OrigMotorC0[j] then 
-                    j.C0 = j.C0:Lerp(OrigMotorC0[j], math.clamp(dt * 15, 0, 1))
+                    j.C0 = j.C0:Lerp(OrigMotorC0[j], 1 - math.exp(-15 * dt))
                 end
             end
         end
@@ -1444,7 +1481,6 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                     if tick() - lastAttackTime > attackDelay then
                         lastAttackTime = tick()
                         task.spawn(function() 
-                            -- Кликаем ТОЧНО в центр экрана, чтобы лучи летели в центр камеры (на врага)
                             local center = Camera.ViewportSize / 2
                             VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1)
                             task.wait(0.01)
@@ -1749,6 +1785,7 @@ do
         Lighting.FogColor = OrigState.Lighting.FogColor
         Lighting.FogEnd = OrigState.Lighting.FogEnd
         Lighting.ClockTime = OrigState.Lighting.ClockTime
+        Lighting.GlobalShadows = OrigState.Lighting.GlobalShadows
         CleanLighting("GeminiSaturation"); CleanLighting("GeminiVibeBloom"); CleanLighting("GeminiVibeCC"); CleanLighting("GeminiVibeBlur"); CleanLighting("GeminiVibeAtmosphere"); CleanLighting("GeminiVibeSky")
         
         local Camera = workspace.CurrentCamera
