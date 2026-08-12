@@ -108,6 +108,7 @@ local ServerTeams = Teams:GetChildren()
 -- Конфиг
 _G.Cfg = {
     UITheme = "Dark",
+    MobileBindsEnabled = true,
     AimbotEnabled = false, AimbotMaxDistance = 1000, AimbotSmoothness = 1, AimbotWallCheck = false, AimbotTeamCheck = false, AimbotEnabledBind = "None",
     TargetHudEnabled = false, TargetHudEnabledBind = "None", TargetHudNormalColor = Color3.fromRGB(0, 255, 100), TargetHudDamageColor = Color3.fromRGB(255, 0, 0), TargetHudPosition = UDim2.new(0.5, 50, 0.5, 50), TargetHudOnlyKillaura = false,
     KillAuraEnabled = false, KillAuraNoCamRotation = false, KillStrafeEnabled = false, KillStrafeSpeed = 20, KillStrafeDistance = 1, KillAuraRange = 25, KillAuraClickRange = 15, KillAuraSpeed = 1, KillAuraEnabledBind = "None",
@@ -526,11 +527,49 @@ local SVGradientH = Instance.new("UIGradient", SatValBox); local SatValOverlay =
 local HueBox = Instance.new("Frame", CPFrame); HueBox.Size = UDim2.new(0, 200, 0, 15); HueBox.Position = UDim2.new(0, 10, 0, 170); HueBox.ZIndex = 21; local HueGradient = Instance.new("UIGradient", HueBox); HueGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(1,0,0)), ColorSequenceKeypoint.new(0.16, Color3.new(1,1,0)), ColorSequenceKeypoint.new(0.33, Color3.new(0,1,0)), ColorSequenceKeypoint.new(0.5, Color3.new(0,1,1)), ColorSequenceKeypoint.new(0.66, Color3.new(0,0,1)), ColorSequenceKeypoint.new(0.83, Color3.new(1,0,1)), ColorSequenceKeypoint.new(1, Color3.new(1,0,0))})
 local SVIndicator = Instance.new("Frame", SatValBox); SVIndicator.Size = UDim2.new(0, 4, 0, 4); SVIndicator.BackgroundColor3 = Color3.new(1,1,1); SVIndicator.ZIndex = 25; SVIndicator.BorderSizePixel = 1
 local curKey, h, s, v = "", 0, 1, 1
-local function UpdateRGB() local color = Color3.fromHSV(h, s, v); if Cfg[curKey] ~= nil then Cfg[curKey] = color end; SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1)); SaveLocalMAIN(); UpdateWorldShader() end
+
+local function UpdateRGB() 
+    local color = Color3.fromHSV(h, s, v)
+    if Cfg[curKey] ~= nil then Cfg[curKey] = color end
+    SVGradientH.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(h, 1, 1))
+    SaveLocalMAIN(); UpdateWorldShader() 
+end
+
 local SVTrigger = Instance.new("TextButton", SatValBox); SVTrigger.Size = UDim2.new(1, 0, 1, 0); SVTrigger.BackgroundTransparency = 1; SVTrigger.Text = ""; SVTrigger.ZIndex = 26
 local HueTrigger = Instance.new("TextButton", HueBox); HueTrigger.Size = UDim2.new(1, 0, 1, 0); HueTrigger.BackgroundTransparency = 1; HueTrigger.Text = ""; HueTrigger.ZIndex = 26
-HueTrigger.MouseButton1Down:Connect(function() local move; move = UserInputService.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then h = math.clamp((input.Position.X - HueBox.AbsolutePosition.X) / HueBox.AbsoluteSize.X, 0, 1); UpdateRGB() end end); UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end) end)
-SVTrigger.MouseButton1Down:Connect(function() local move; move = UserInputService.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then s = math.clamp((input.Position.X - SatValBox.AbsolutePosition.X) / SatValBox.AbsoluteSize.X, 0, 1); v = math.clamp((input.Position.Y - SatValBox.AbsolutePosition.Y) / SatValBox.AbsoluteSize.Y, 0, 1); SVIndicator.Position = UDim2.new(s, -2, v, -2); UpdateRGB() end end); UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end) end)
+
+local function bindColorPicker(trigger, box, isHue)
+    trigger.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local move, release
+            local function update(pos)
+                if isHue then
+                    h = math.clamp((pos.X - box.AbsolutePosition.X) / box.AbsoluteSize.X, 0, 1)
+                else
+                    s = math.clamp((pos.X - box.AbsolutePosition.X) / box.AbsoluteSize.X, 0, 1)
+                    v = math.clamp((pos.Y - box.AbsolutePosition.Y) / box.AbsoluteSize.Y, 0, 1)
+                    SVIndicator.Position = UDim2.new(s, -2, v, -2)
+                end
+                UpdateRGB()
+            end
+            update(input.Position)
+            move = UserInputService.InputChanged:Connect(function(input2)
+                if input2.UserInputType == Enum.UserInputType.MouseMovement or input2.UserInputType == Enum.UserInputType.Touch then
+                    update(input2.Position)
+                end
+            end)
+            release = UserInputService.InputEnded:Connect(function(input3)
+                if input3.UserInputType == Enum.UserInputType.MouseButton1 or input3.UserInputType == Enum.UserInputType.Touch then
+                    if move then move:Disconnect() end
+                    if release then release:Disconnect() end
+                end
+            end)
+        end
+    end)
+end
+bindColorPicker(HueTrigger, HueBox, true)
+bindColorPicker(SVTrigger, SatValBox, false)
+
 local ApplyBtn = Instance.new("TextButton", CPFrame); ApplyBtn.Size = UDim2.new(0, 200, 0, 30); ApplyBtn.Position = UDim2.new(0, 10, 0, 200); ApplyBtn.Text = "APPLY"; ApplyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); ApplyBtn.TextColor3 = Color3.new(1,1,1); ApplyBtn.ZIndex = 25; ApplyBtn.Font = TARGET_FONT; table.insert(ThemeObjects.InputBackgrounds, ApplyBtn); table.insert(ThemeObjects.Texts, ApplyBtn); ApplyBtn.MouseButton1Click:Connect(function() CPFrame.Visible = false; SaveLocalMAIN() end)
 
 local function IsKeyMatch(inputKeyCode, bindStr)
@@ -1239,7 +1278,6 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
             if touching then hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, tonumber(Cfg.SpiderSpeed) or 45, hrp.AssemblyLinearVelocity.Z) end
         end
 
-        -- // ФИНАЛЬНЫЙ ФИКС РУК: ЖИВАЯ МАТЕМАТИКА БЕЗ ЗАСТЫВАНИЙ
         local isFirstPerson = char:FindFirstChild("Head") and (camCFrame.Position - char.Head.Position).Magnitude <= 1.5
 
         if Cfg.ViewHandsEnabled and isFirstPerson then
@@ -1291,17 +1329,14 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                         local visualOffset = swayCFrame * currentJumpOffset * currentBob * idleBob * CFrame.new(xOff, yOff, zOff)
                         
                         if Cfg.ViewHandsCameraLock then
-                            -- Проецируем C0 в пространство камеры через голову, не ломая Transform (анимации)
                             local headOffset = head.CFrame:Inverse() * torso.CFrame
                             local targetC0 = torso.CFrame:Inverse() * camCFrame * visualOffset * headOffset * origC0
-                            
                             j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-25 * dt))
                         else
                             local right = camCFrame.RightVector * visualOffset.X
                             local up = camCFrame.UpVector * visualOffset.Y
                             local fwd = camCFrame.LookVector * visualOffset.Z
                             local localOffset = torso.CFrame:VectorToObjectSpace(right + up + fwd)
-                            
                             local targetC0 = CFrame.new(origC0.Position + localOffset) * origC0.Rotation * visualOffset.Rotation
                             j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-20 * dt))
                         end
@@ -1480,12 +1515,19 @@ RunService:BindToRenderStep("Gemini_MainRender", 201, function(dt)
                     local attackDelay = (Cfg.KillAuraSpeed / 10)
                     if tick() - lastAttackTime > attackDelay then
                         lastAttackTime = tick()
-                        task.spawn(function() 
-                            local center = Camera.ViewportSize / 2
-                            VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1)
-                            task.wait(0.01)
-                            VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, false, game, 1) 
-                        end)
+                        
+                        if isMobile then
+                            local tool = char:FindFirstChildOfClass("Tool")
+                            if tool then tool:Activate() end
+                        else
+                            task.spawn(function() 
+                                local center = Camera.ViewportSize / 2
+                                VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1)
+                                task.wait(0.01)
+                                VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, false, game, 1) 
+                            end)
+                        end
+                        
                         if Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(Cfg.HitSoundMode), 1, 6); local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
                         if Cfg.DamageParticlesEnabled then local pAmt = tonumber(Cfg.ParticleAmount) or 8; for i = 1, pAmt do CreateStar(targetPart.Position) end end
                     end
@@ -1574,27 +1616,70 @@ end
 local MobileButtonsFrame = Instance.new("Frame", GeminiGui); MobileButtonsFrame.Size = UDim2.new(1, 0, 1, 0); MobileButtonsFrame.BackgroundTransparency = 1; MobileButtonsFrame.Visible = isMobile; MobileButtonsFrame.ZIndex = 50
 local globalMobileDragging = false
 
+-- // ФИКС 1 и 2: Исправлено чтение UDim2 из кэша и добавлена блокировка перетаскивания "кнопка на кнопке"
 local function UpdateMobileBinds()
     if not isMobile then return end
+    MobileButtonsFrame.Visible = (Cfg.MobileBindsEnabled == true)
+    if not Cfg.MobileBindsEnabled then return end
+    
     local t = Themes[Cfg.UITheme] or Themes.Dark
     local modulesList = {"AimbotEnabled", "KillAuraEnabled", "HitboxEnabled", "CriticalsEnabled", "SpeedEnabled", "InfJumpEnabled", "VelocityEnabled", "StrafeEnabled", "AirStrafeEnabled", "NoClipEnabled", "AntiFlingEnabled", "SpiderEnabled", "JitterEnabled", "AnimLagEnabled", "HitSoundEnabled", "TargetHudEnabled", "TargetESPSquareEnabled", "Esp2DBoxEnabled", "ArrowsEnabled", "TargetStrafeOrbitEnabled", "ChinaHatAccessoryEnabled", "JumpVisualCirclesEnabled", "ChamsEnabled", "DamageParticlesEnabled", "WorldParticlesEnabled", "SaturationEnabled", "ClientSideEnabled", "ViewHandsEnabled", "ClickFriendEnabled", "DeleteFriendEnabled", "WorldColorEnabled", "CustomFovEnabled", "ThirdPersonEnabled", "TimeChangerEnabled", "FullBrightEnabled"}
     local activeModules = {}
     for _, key in ipairs(modulesList) do local bindKey = key .. "Bind"; if Cfg[bindKey] and tostring(Cfg[bindKey]) ~= "None" then activeModules[key] = tostring(Cfg[bindKey]):upper() end end
     for _, child in pairs(MobileButtonsFrame:GetChildren()) do if not activeModules[child.Name] then child:Destroy() end end
+    
     for key, bindLetter in pairs(activeModules) do
         local btn = MobileButtonsFrame:FindFirstChild(key)
         if not btn then
             btn = Instance.new("TextButton", MobileButtonsFrame); btn.Name = key; btn.Size = UDim2.new(0, 50, 0, 50)
-            local savedPos = Cfg["MobilePos_"..key]; if savedPos then btn.Position = UDim2.new(savedPos.XScale, savedPos.XOffset, savedPos.YScale, savedPos.YOffset) else btn.Position = UDim2.new(0.8, math.random(-50, 50), 0.5, math.random(-50, 50)) end
-            btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg; btn.TextColor3 = t.text; btn.Font = TARGET_FONT; btn.TextSize = 22; btn.Text = bindLetter; Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
-            local str = Instance.new("UIStroke", btn); str.Color = Color3.fromRGB(0, 255, 255); str.Thickness = 2
-            local mDragging = false; local dragStartPos = nil; local btnStartPos = nil; local mDragInput = nil; local isTap = true
             
-            btn.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if not globalMobileDragging then globalMobileDragging = true; mDragging = true; isTap = true; dragStartPos = input.Position; btnStartPos = btn.Position; btn.ZIndex = 100 end end end)
-            btn.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then mDragInput = input end end)
-            UserInputService.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - dragStartPos; if delta.Magnitude > 8 then isTap = false end; btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + delta.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + delta.Y) end end)
-            UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then if mDragging then mDragging = false; globalMobileDragging = false; btn.ZIndex = 1; if isTap then if _G.ToggleFuncs[key] then _G.ToggleFuncs[key]() end else Cfg["MobilePos_"..key] = {XScale = btn.Position.X.Scale, XOffset = btn.Position.X.Offset, YScale = btn.Position.Y.Scale, YOffset = btn.Position.Y.Offset, isUDim2 = true}; SaveLocalMAIN() end end end end)
-        else btn.Text = bindLetter; btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 180, 0) or t.inputBg; btn.TextColor3 = t.text end
+            local savedPos = Cfg["MobilePos_"..key]
+            if typeof(savedPos) == "UDim2" then 
+                btn.Position = savedPos 
+            elseif type(savedPos) == "table" and savedPos.XScale then 
+                btn.Position = UDim2.new(savedPos.XScale, savedPos.XOffset, savedPos.YScale, savedPos.YOffset)
+            else 
+                btn.Position = UDim2.new(0.8, math.random(-50, 50), 0.5, math.random(-50, 50)) 
+            end
+            
+            btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 150, 0) or t.inputBg; btn.TextColor3 = t.text; btn.Font = TARGET_FONT; btn.TextSize = 22; btn.Text = bindLetter; Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+            local str = Instance.new("UIStroke", btn); str.Color = t.stroke; str.Thickness = 2
+            
+            local mDragging = false; local dragStartPos = nil; local btnStartPos = nil; local isTap = true
+            
+            btn.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if not globalMobileDragging then
+                        globalMobileDragging = true
+                        mDragging = true; isTap = true; dragStartPos = input.Position; btnStartPos = btn.Position; btn.ZIndex = 100
+                    end
+                end
+            end)
+            btn.InputChanged:Connect(function(input)
+                if mDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+                    local delta = input.Position - dragStartPos
+                    if delta.Magnitude > 10 then isTap = false end
+                    btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + delta.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + delta.Y)
+                end
+            end)
+            btn.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if mDragging then
+                        mDragging = false; globalMobileDragging = false; btn.ZIndex = 1
+                        if isTap then
+                            if _G.ToggleFuncs[key] then _G.ToggleFuncs[key]() end
+                            btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 150, 0) or t.inputBg
+                        else
+                            Cfg["MobilePos_"..key] = btn.Position
+                            SaveLocalMAIN()
+                        end
+                    end
+                end
+            end)
+        else 
+            btn.Text = bindLetter; btn.BackgroundColor3 = Cfg[key] and Color3.fromRGB(0, 150, 0) or t.inputBg; btn.TextColor3 = t.text
+            local str = btn:FindFirstChildOfClass("UIStroke"); if str then str.Color = t.stroke end
+        end
     end
 end
 task.spawn(function() while task.wait(1) do pcall(UpdateKeybindList); pcall(UpdateMobileBinds) end end)
@@ -1666,6 +1751,35 @@ do
     end
 
     local UI = {}
+    
+    -- // ФИКС 3: Сделана ОГРОМНАЯ кнопка для мобильных биндов, соответствующая теме
+    UI.mB = mkMisc("MOBILE UI")
+    UI.mBBtn = Instance.new("TextButton", UI.mB)
+    UI.mBBtn.Size = UDim2.new(1, -20, 0, 40)
+    UI.mBBtn.Position = UDim2.new(0, 10, 0.5, -20)
+    UI.mBBtn.BackgroundColor3 = Cfg.MobileBindsEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(40, 40, 40)
+    UI.mBBtn.TextColor3 = Color3.new(1,1,1)
+    UI.mBBtn.Font = TARGET_FONT
+    UI.mBBtn.TextSize = 14
+    UI.mBBtn.Text = "SHOW ON-SCREEN BINDS: " .. (Cfg.MobileBindsEnabled and "ON" or "OFF")
+    Instance.new("UICorner", UI.mBBtn).CornerRadius = UDim.new(0,4)
+    table.insert(ThemeObjects.InputBackgrounds, UI.mBBtn)
+    table.insert(ThemeObjects.Texts, UI.mBBtn)
+
+    UI.mBBtn.MouseButton1Click:Connect(function()
+        Cfg.MobileBindsEnabled = not Cfg.MobileBindsEnabled
+        local isOn = Cfg.MobileBindsEnabled
+        UI.mBBtn.Text = "SHOW ON-SCREEN BINDS: " .. (isOn and "ON" or "OFF")
+        local t = Themes[Cfg.UITheme] or Themes.Dark
+        UI.mBBtn.BackgroundColor3 = isOn and Color3.fromRGB(0, 150, 0) or t.accent
+        SaveLocalMAIN()
+        UpdateMobileBinds()
+    end)
+    table.insert(_G.RefreshUIFunctions, function()
+        UI.mBBtn.Text = "SHOW ON-SCREEN BINDS: " .. (Cfg.MobileBindsEnabled and "ON" or "OFF")
+        local t = Themes[Cfg.UITheme] or Themes.Dark
+        UI.mBBtn.BackgroundColor3 = Cfg.MobileBindsEnabled and Color3.fromRGB(0, 150, 0) or t.accent
+    end)
     
     UI.fF = mkMisc("FRIENDS MANAGER")
     UI.fInp = Instance.new("TextBox", UI.fF); UI.fInp.Size = UDim2.new(1, -40, 0, 24); UI.fInp.Position = UDim2.new(0, 5, 0, 25); UI.fInp.BackgroundColor3 = Color3.fromRGB(15, 15, 15); UI.fInp.TextColor3 = Color3.new(1,1,1); UI.fInp.Font = TARGET_FONT; UI.fInp.TextSize = 12; UI.fInp.Text = "Username"; UI.fInp.ClearTextOnFocus = true; Instance.new("UICorner", UI.fInp).CornerRadius = UDim.new(0,4); table.insert(ThemeObjects.Inputs, UI.fInp)
@@ -1850,6 +1964,7 @@ do
         for _, obj in ipairs(ThemeObjects.SecondaryTexts) do if obj and obj.Parent then obj.TextColor3 = t.textSec end end
         for _, obj in ipairs(ThemeObjects.Inputs) do if obj and obj.Parent then obj.BackgroundColor3 = t.inputBg; obj.TextColor3 = t.text end end
         for _, obj in ipairs(ThemeObjects.InputBackgrounds) do if obj and obj.Parent then obj.BackgroundColor3 = t.accent end end
+        if UI.mBBtn then UI.mBBtn.BackgroundColor3 = Cfg.MobileBindsEnabled and Color3.fromRGB(0, 150, 0) or t.accent end
         UpdateKeybindList(); RefreshFriends(); SwitchCategory(currentCat)
     end
 
