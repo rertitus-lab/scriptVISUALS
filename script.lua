@@ -1871,11 +1871,18 @@ Startup:Mark("library.ready")
 do
     local PAUSE, SPEED, GAP = 0.75, 34, 28
     local SCAN_BUDGET, MAX_PENDING, MAX_ACTIVE = 24, 64, 128
+    local SCAN_INTERVAL = 0.1
+    local styles = {"FontFace", "TextSize", "TextColor3", "TextTransparency", "TextStrokeColor3", "TextStrokeTransparency", "RichText", "TextYAlignment", "LineHeight", "TextDirection"}
+    local styleProperties, scanProperties = {}, {}
+    for _, property in ipairs(styles) do styleProperties[property] = true end
+    for _, property in ipairs({"Text", "FontFace", "TextSize", "RichText", "Visible", "Parent", "AbsoluteSize", "TextWrapped", "TextScaled", "AutomaticSize"}) do scanProperties[property] = true end
     function Nova.StartMarquee(window, roots)
         local controller = {
             Entries = {}, Order = {}, Cursor = 1, Active = {}, ActiveCount = 0,
             Pending = {}, Head = 1, Tail = 0, Busy = false,
             Alive = true, Pause = PAUSE, ScanBudget = SCAN_BUDGET,
+            Dirty = {}, DirtyHead = 1, DirtyTail = 0, ScanClock = SCAN_INTERVAL,
+            Blockers = {}, Connections = {},
         }
         window.Marquee = controller
         local function eligible(label)
@@ -1890,18 +1897,84 @@ do
                 controller.Active[entry] = nil
                 controller.ActiveCount -= 1
             end
-            if entry.Layer then entry.Layer.Visible = false end
+            if entry.Layer and entry.Layer.Visible then entry.Layer.Visible = false end
             entry.Offset, entry.Hold = 0, PAUSE
+        end
+        function controller:QueueScan(entry)
+            if not self.Alive or entry.ScanQueued or self.Entries[entry.Source] ~= entry then return end
+            entry.ScanQueued = true
+            self.DirtyTail += 1
+            self.Dirty[self.DirtyTail] = entry
+        end
+        local function clearBlocker(entry)
+            local node = entry.Blocker
+            if not node then return end
+            entry.Blocker = nil
+            local record = controller.Blockers[node]
+            if not record then return end
+            record.Entries[entry] = nil
+            if next(record.Entries) == nil then
+                record.Connection:Disconnect()
+                controller.Blockers[node] = nil
+            end
+        end
+        local function setBlocker(entry, node)
+            if entry.Blocker == node then return end
+            clearBlocker(entry)
+            entry.Blocker = node
+            local record = controller.Blockers[node]
+            if not record then
+                record = {Entries = {}}
+                controller.Blockers[node] = record
+                record.Connection = node:GetPropertyChangedSignal(node:IsA("ScreenGui") and "Enabled" or "Visible"):Connect(function()
+                    -- Hidden branches are revisited only when visibility changes.
+                    for blocked in pairs(record.Entries) do
+                        blocked.Blocker = nil
+                        controller:QueueScan(blocked)
+                    end
+                    table.clear(record.Entries)
+                    record.Connection:Disconnect()
+                    controller.Blockers[node] = nil
+                end)
+            end
+            record.Entries[entry] = true
         end
         function controller:Register(label)
             if not self.Alive or not eligible(label) or self.Entries[label] then return end
-            local entry = {Source = label, OriginalGraphemes = label.MaxVisibleGraphemes or -1, Offset = 0, Hold = PAUSE}
+            local entry = {Source = label, OriginalGraphemes = label.MaxVisibleGraphemes or -1, Offset = 0, Hold = PAUSE, StyleDirty = true, Connections = {}}
             self.Entries[label] = entry
             entry.Index = #self.Order + 1
             self.Order[entry.Index] = entry
+            entry.Connections[1] = label.Changed:Connect(function(property)
+                if styleProperties[property] or property == "ZIndex" then entry.StyleDirty = true end
+                if scanProperties[property] then
+                    clearBlocker(entry)
+                    self:QueueScan(entry)
+                end
+            end)
+            -- Reparenting a whole tab changes the ancestry of all its labels.
+            if label.AncestryChanged then
+                entry.Connections[#entry.Connections + 1] = label.AncestryChanged:Connect(function()
+                    clearBlocker(entry)
+                    self:QueueScan(entry)
+                end)
+            end
+            -- Absolute layout changes are not reliably included in Instance.Changed.
+            -- Scrolling/resizing should wake affected captions, rather than wait for
+            -- the low-frequency maintenance pass over parked tabs.
+            for _, property in ipairs({"AbsolutePosition", "AbsoluteSize"}) do
+                entry.Connections[#entry.Connections + 1] = label:GetPropertyChangedSignal(property):Connect(function()
+                    if entry.Blocker then return end
+                    self:QueueScan(entry)
+                end)
+            end
+            self:QueueScan(entry)
         end
         function controller:Remove(entry)
+            if self.Entries[entry.Source] ~= entry then return end
             deactivate(entry)
+            clearBlocker(entry)
+            for _, connection in ipairs(entry.Connections) do connection:Disconnect() end
             if entry.Layer then entry.Layer:Destroy() end
             self.Entries[entry.Source] = nil
             local last = table.remove(self.Order)
@@ -1910,20 +1983,25 @@ do
                 last.Index = entry.Index
             end
         end
-        local function presentation(label)
+        local function presentation(entry)
+            local label = entry.Source
+            local blocker = entry.Blocker
+            if blocker and blocker.Parent and (blocker:IsA("ScreenGui") and not blocker.Enabled or blocker:IsA("GuiObject") and not blocker.Visible) then return false, 1 end
+            clearBlocker(entry)
+            controller.LastPresentationChecks += 1
             local scale, node, visible = 1, label, true
             local pos, size = label.AbsolutePosition, label.AbsoluteSize
             local screen = false
             while node do
                 if node:IsA("GuiObject") then
-                    if not node.Visible then visible = false end
+                    if not node.Visible then setBlocker(entry, node); return false, 1 end
                     if node ~= label and node.ClipsDescendants then
                         local p, s = node.AbsolutePosition, node.AbsoluteSize
                         if pos.X + size.X <= p.X or pos.X >= p.X + s.X or pos.Y + size.Y <= p.Y or pos.Y >= p.Y + s.Y then visible = false end
                     end
                 elseif node:IsA("ScreenGui") then
                     screen = true
-                    if not node.Enabled then visible = false end
+                    if not node.Enabled then setBlocker(entry, node); return false, 1 end
                 end
                 local uiScale = node:FindFirstChildOfClass("UIScale")
                 if uiScale then scale *= uiScale.Scale end
@@ -1983,6 +2061,7 @@ do
                 if self.Alive and self.Entries[entry.Source] == entry and entry.Generation == generation then
                     entry.Width = ok and bounds and math.ceil(bounds.X) or nil
                     entry.Failed = not ok
+                    self:QueueScan(entry)
                 end
                 entry.Measuring = nil
                 self.Busy, self.Worker = false, nil
@@ -1991,13 +2070,12 @@ do
         function controller:Scan(entry)
             local label = entry.Source
             if not label.Parent then self:Remove(entry); return end
-            entry.Visible, entry.Scale = presentation(label)
+            entry.Visible, entry.Scale = presentation(entry)
             if not entry.Visible or not eligible(label) or label.Text == "" then deactivate(entry); return end
             local font, size, text = label.FontFace, label.TextSize, label.Text
-            local fontKey = font.Family .. tostring(font.Weight) .. tostring(font.Style)
-            if entry.Text ~= text or entry.FontKey ~= fontKey or entry.Size ~= size or entry.Rich ~= label.RichText then
+            if entry.Text ~= text or entry.Font ~= font or entry.Size ~= size or entry.Rich ~= label.RichText then
                 deactivate(entry)
-                entry.Text, entry.FontKey, entry.Font, entry.Size, entry.Rich = text, fontKey, font, size, label.RichText
+                entry.Text, entry.Font, entry.Size, entry.Rich = text, font, size, label.RichText
                 entry.Width, entry.Failed = nil, false
                 entry.Generation = (entry.Generation or 0) + 1
             end
@@ -2010,17 +2088,54 @@ do
                 entry.Active, label.MaxVisibleGraphemes = true, 0
                 self.Active[entry] = true
                 self.ActiveCount += 1
+                entry.StyleDirty, entry.LastOffset = true, nil
             end
             if math.abs((entry.ViewWidth or width) - width) > 1 then entry.Offset, entry.Hold = 0, PAUSE end
             entry.ViewWidth = width
-            entry.Layer.Visible = true
+            if not entry.Layer.Visible then entry.Layer.Visible = true end
+            entry.StyleDirty = true
         end
-        local styles = {"FontFace", "TextSize", "TextColor3", "TextTransparency", "TextStrokeColor3", "TextStrokeTransparency", "RichText", "TextYAlignment", "LineHeight", "TextDirection"}
+        local function syncStyle(entry)
+            local label, layer, copies = entry.Source, entry.Layer, entry.Copies
+            local z = label.ZIndex
+            if layer.ZIndex ~= z then layer.ZIndex = z end
+            for _, copy in ipairs(copies) do
+                if copy.Text ~= entry.Text then copy.Text = entry.Text end
+                if copy.ZIndex ~= z + 1 then copy.ZIndex = z + 1 end
+            end
+            for _, property in ipairs(styles) do
+                local value = label[property]
+                controller.LastStyleReads += 1
+                if value ~= nil then
+                    for _, copy in ipairs(copies) do if copy[property] ~= value then copy[property] = value end end
+                end
+            end
+            if entry.CopyWidth ~= entry.Width then
+                local size = UDim2.new(0, entry.Width + 2, 1, 0)
+                for _, copy in ipairs(copies) do copy.Size = size end
+                entry.CopyWidth = entry.Width
+            end
+            entry.StyleDirty = false
+        end
         function controller:Update(dt)
             if not self.Alive or window.Destroyed then return end
             local delta = type(dt) == "number" and dt == dt and math.clamp(dt, 0, 0.2) or 0
-            self.LastScanned = 0
-            for _ = 1, math.min(SCAN_BUDGET, #self.Order) do
+            self.LastScanned, self.LastStyleReads, self.LastPositionWrites, self.LastPresentationChecks = 0, 0, 0, 0
+            self.ScanClock += delta
+            local scanDue = self.ScanClock >= SCAN_INTERVAL or delta == 0
+            if scanDue then self.ScanClock = 0 end
+            while self.LastScanned < SCAN_BUDGET and self.DirtyHead <= self.DirtyTail do
+                local entry = self.Dirty[self.DirtyHead]
+                self.Dirty[self.DirtyHead] = nil
+                self.DirtyHead += 1
+                entry.ScanQueued = false
+                if self.Entries[entry.Source] == entry then
+                    self:Scan(entry)
+                    self.LastScanned += 1
+                end
+            end
+            if self.DirtyHead > self.DirtyTail then self.DirtyHead, self.DirtyTail = 1, 0 end
+            for _ = 1, scanDue and math.min(SCAN_BUDGET - self.LastScanned, #self.Order) or 0 do
                 if #self.Order == 0 then break end
                 if self.Cursor > #self.Order then self.Cursor = 1 end
                 local entry = self.Order[self.Cursor]
@@ -2035,7 +2150,11 @@ do
                 if not label.Parent or not label.Visible or label.Text ~= entry.Text or not eligible(label) then
                     deactivate(entry)
                 else
-                    entry.Layer.ZIndex = label.ZIndex
+                    if scanDue then
+                        entry.Visible, entry.Scale = presentation(entry)
+                        if not entry.Visible then deactivate(entry); continue end
+                    end
+                    if entry.StyleDirty or delta == 0 then syncStyle(entry) end
                     local distance, step = entry.Width + GAP, delta
                     if entry.Hold > 0 then
                         local consumed = math.min(step, entry.Hold)
@@ -2044,16 +2163,12 @@ do
                     end
                     entry.Offset += step * SPEED
                     if entry.Offset >= distance then entry.Offset, entry.Hold = 0, PAUSE end
-                    for i, copy in ipairs(entry.Copies) do
-                        if copy.Text ~= entry.Text then copy.Text = entry.Text end
-                        copy.ZIndex = label.ZIndex + 1
-                        for _, property in ipairs(styles) do
-                            local value = label[property]
-                            if value ~= nil and copy[property] ~= value then copy[property] = value end
+                    if entry.LastOffset ~= entry.Offset then
+                        for i, copy in ipairs(entry.Copies) do
+                            copy.Position = UDim2.fromOffset(-entry.Offset + (i - 1) * distance, 0)
+                            self.LastPositionWrites += 1
                         end
-                        local size = UDim2.new(0, entry.Width + 2, 1, 0)
-                        if copy.Size ~= size then copy.Size = size end
-                        copy.Position = UDim2.fromOffset(-entry.Offset + (i - 1) * distance, 0)
+                        entry.LastOffset = entry.Offset
                     end
                 end
             end
@@ -2062,23 +2177,31 @@ do
             if not self.Alive then return end
             self.Alive = false
             -- A native font request may still be completing; its result is discarded.
-            for _, entry in pairs(self.Entries) do deactivate(entry); if entry.Layer then entry.Layer:Destroy() end end
+            for _, entry in pairs(self.Entries) do
+                deactivate(entry)
+                for _, connection in ipairs(entry.Connections) do connection:Disconnect() end
+                if entry.Layer then entry.Layer:Destroy() end
+            end
+            for _, record in pairs(self.Blockers) do record.Connection:Disconnect() end
+            for _, connection in ipairs(self.Connections) do connection:Disconnect() end
             table.clear(self.Entries)
             table.clear(self.Order)
             table.clear(self.Active)
             table.clear(self.Pending)
+            table.clear(self.Dirty)
+            table.clear(self.Blockers)
             self.Head, self.Tail = 1, 0
         end
         for _, root in ipairs(roots) do
             for _, object in ipairs(root:GetDescendants()) do controller:Register(object) end
-            Nova.U.connect(root.DescendantAdded, function(object) controller:Register(object) end, window.Conns)
+            Nova.U.connect(root.DescendantAdded, function(object) controller:Register(object) end, controller.Connections)
         end
-        Nova.U.connect(Nova.Services.RunService.Heartbeat, function(dt) controller:Update(dt) end, window.Conns)
+        Nova.U.connect(Nova.Services.RunService.Heartbeat, function(dt) controller:Update(dt) end, controller.Connections)
         return controller
     end
 end
 
--- Theme-aware line icons; no external asset IDs are needed for the three feature tabs.
+-- Theme-aware line icons; feature and friend tabs do not need external asset IDs.
 do
     local shapes = {
         ["notification-combat"] = {
@@ -2094,6 +2217,12 @@ do
         ["notification-visuals"] = {
             Lines = {{3,21,16,8},{2,19,14,7},{14,7,16,8},{2,19,3,21},{11,10,14,13},
                 {6,2,6,8},{3,5,9,5},{19,1,19,7},{16,4,22,4},{20,13,20,21},{16,17,24,17}},
+        },
+        ["notification-friends"] = {
+            Heads = {{8,7,3.2},{17,8,2.8}},
+            Lines = {{2,21,2,18},{2,18,3.5,14.5},{3.5,14.5,6,13},{6,13,10,13},
+                {10,13,12.5,14.5},{12.5,14.5,14,18},{14,18,14,21},{2,21,14,21},
+                {16,14,18,14},{18,14,21,16},{21,16,22,19},{22,19,22,21},{18,21,22,21}},
         },
     }
     function Nova.Icons.DrawCustom(img, name)
@@ -2115,8 +2244,7 @@ do
             Nova.U.corner(segment, UDim.new(1,0))
             table.insert(elements, {segment, "BackgroundColor3"})
         end
-        if shape.Head then
-            local h = shape.Head
+        for _, h in ipairs(shape.Heads or (shape.Head and {shape.Head} or {})) do
             local head = Nova.U.new("Frame", {
                 AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(h[1]/24,h[2]/24),
                 Size = UDim2.fromScale(h[3]*2/24,h[3]*2/24), BackgroundTransparency = 1,
@@ -2130,6 +2258,291 @@ do
             for _, item in ipairs(elements) do if item[1].Parent then item[1][item[2]] = img.ImageColor3 end end
         end)
         return true
+    end
+end
+
+-- Platform: Roblox client / Luau; target: event-driven Nova Friend Manager interface.
+do
+    local U, T, F = Nova.U, Nova.Theme, Nova.Font
+    local new, bind, label = U.new, T.bind, Nova.label
+    function Nova.AddFriendManager(window, session)
+        local players = session.Players or Nova.Services.Players
+        local tab = window:Tab({Name = "Friend Manager", Icon = "notification-friends", Columns = 1})
+        -- Saved tab ordering must not insert this new manager above existing tabs.
+        local group = tab.Group
+        local position = group and table.find(group.Tabs, tab)
+        if position and position < #group.Tabs then
+            table.remove(group.Tabs, position)
+            table.insert(group.Tabs, tab)
+            window:_layoutTabs(false)
+        end
+        local serverSection = tab:Section({Title = "Server players", Icon = "notification-friends"})
+        serverSection:Label({Text = "Select a player to exclude them from player-targeted functions."})
+        local friendsSection = tab:Section({Title = "Friends", Icon = "notification-friends"})
+        local controller = {
+            Tab = tab, ServerRows = {}, FriendRows = {}, Connections = {},
+            PlayerConnections = {}, Roster = {}, Alive = true, SelectedUserId = nil,
+        }
+        session.FriendManager = controller
+        local function alive()
+            return controller.Alive and session.Alive and not window.Destroyed
+        end
+        local function connect(signal, fn, bucket)
+            local connection = signal:Connect(fn)
+            table.insert(bucket or controller.Connections, connection)
+            return connection
+        end
+        local function disconnect(bucket)
+            for _, connection in ipairs(bucket or {}) do connection:Disconnect() end
+            if bucket then table.clear(bucket) end
+        end
+        local function release(frame)
+            local objects = frame:GetDescendants()
+            objects[#objects + 1] = frame
+            for _, object in ipairs(objects) do
+                T.registry[object] = nil
+                U.textReg[object] = nil
+                U.cornerReg[object] = nil
+            end
+            frame:Destroy()
+        end
+        local function list(section, name, emptyText, maxRows)
+            local row = section:_row({Name = name, Text = "", Height = 60, Reserve = 0})
+            row.Title.Visible, row.Right.Visible, row.Hover.Visible = false, false, false
+            local scroll = new("ScrollingFrame", {
+                Name = name, Position = UDim2.fromOffset(4, 2), Size = UDim2.new(1, -8, 1, -4),
+                BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.new(),
+                AutomaticCanvasSize = Enum.AutomaticSize.None, ScrollingDirection = Enum.ScrollingDirection.Y,
+                ScrollBarThickness = 3, ScrollBarImageTransparency = 0.45,
+                ClipsDescendants = true, Active = true, Parent = row.Frame,
+            })
+            bind(scroll, "ScrollBarImageColor3", "Accent")
+            U.list(scroll, 4)
+            local empty = label({Parent = scroll, Text = emptyText, Color = "Muted", Size = 13,
+                Box = UDim2.new(1, -8, 0, 52), AlignX = Enum.TextXAlignment.Center, Truncate = true})
+            local result = {Row = row, Scroll = scroll, Empty = empty, MaxRows = maxRows}
+            function result:Resize(count)
+                empty.Visible = count == 0
+                row.Frame.Size = UDim2.new(1, 0, 0, math.max(1, math.min(count, maxRows)) * 56 + 4)
+                scroll.CanvasSize = UDim2.fromOffset(0, math.max(1, count) * 56)
+            end
+            return result
+        end
+        local serverList = list(serverSection, "ServerPlayers", "No other players in this server.", 4)
+        local friendList = list(friendsSection, "Friends", "No friends added yet.", 3)
+        local selection = serverSection:_row({Name = "FriendSelection", Text = "", Height = 76, Reserve = 0})
+        selection.Title.Visible, selection.Right.Visible, selection.Hover.Visible = false, false, false
+        local selectedLabel = label({Parent = selection.Frame, Text = "", Size = 13, Font = F.Semi(),
+            Pos = UDim2.fromOffset(10, 2), Box = UDim2.new(1, -20, 0, 22), Truncate = true})
+        local function actionButton(text, x, primary)
+            local button = new("TextButton", {Name = text, Text = "", AutoButtonColor = false,
+                Position = UDim2.new(x, x == 0 and 10 or 4, 0, 32), Size = UDim2.new(0.5, -14, 0, 34),
+                BorderSizePixel = 0, BackgroundTransparency = primary and 0.08 or 0.25,
+                ZIndex = 3, Parent = selection.Frame})
+            bind(button, "BackgroundColor3", primary and "Accent" or "Surface2")
+            U.corner(button, 9)
+            bind(U.stroke(button, Color3.new(1,1,1), 1, 0.85), "Color", "Glass")
+            label({Parent = button, Text = text, Font = F.Semi(), Size = 13,
+                Box = UDim2.fromScale(1,1), AlignX = Enum.TextXAlignment.Center,
+                Color = primary and "OnAccent" or "Text", Z = 4})
+            connect(button.MouseEnter, function()
+                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0})
+            end)
+            connect(button.MouseLeave, function()
+                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = primary and 0.08 or 0.25})
+            end)
+            return button
+        end
+        controller.AddButton = actionButton("Add", 0, true)
+        controller.CancelButton = actionButton("Cancel", 0.5, false)
+        controller.SelectionRow = selection.Frame
+        controller.SelectedLabel = selectedLabel
+        controller.ServerList, controller.FriendsList = serverList.Scroll, friendList.Scroll
+        local render
+        local function createRow(parent, id, friend)
+            local button = new("TextButton", {Name = "Player_" .. id, Text = "", AutoButtonColor = false,
+                Size = UDim2.new(1, -7, 0, 52), BackgroundTransparency = 0.72,
+                BorderSizePixel = 0, ZIndex = 2, Parent = parent})
+            bind(button, "BackgroundColor3", "Surface2")
+            U.corner(button, 9)
+            local selected = new("Frame", {Name = "Selected", BackgroundTransparency = 0.78,
+                BorderSizePixel = 0, Size = UDim2.fromScale(1,1), Visible = false, ZIndex = 2, Parent = button})
+            bind(selected, "BackgroundColor3", "Accent")
+            U.corner(selected, 9)
+            local avatar = new("ImageLabel", {Name = "Avatar", BackgroundTransparency = 0.3,
+                BorderSizePixel = 0, Position = UDim2.fromOffset(9,7), Size = UDim2.fromOffset(38,38),
+                Image = "rbxthumb://type=AvatarHeadShot&id=" .. id .. "&w=150&h=150", ZIndex = 3, Parent = button})
+            bind(avatar, "BackgroundColor3", "Elevated")
+            U.corner(avatar, UDim.new(1,0))
+            local title = label({Parent = button, Text = "", Font = F.Semi(), Size = 13,
+                Pos = UDim2.fromOffset(58,7), Box = UDim2.new(1,-112,0,19), Truncate = true, Z = 3})
+            local subtitle = label({Parent = button, Text = "", Font = F.Regular(), Size = 11,
+                Pos = UDim2.fromOffset(58,27), Box = UDim2.new(1,-112,0,16), Color = "Muted", Truncate = true, Z = 3})
+            local row = {Button = button, Avatar = avatar, Title = title, Subtitle = subtitle,
+                Selection = selected, UserId = id, Connections = {}}
+            if friend then
+                local remove = new("TextButton", {Name = "RemoveFriend", Text = "", AutoButtonColor = false,
+                    Size = UDim2.fromOffset(30,30), AnchorPoint = Vector2.new(1,0.5),
+                    Position = UDim2.new(1,-9,0.5,0), BackgroundTransparency = 0.65,
+                    BorderSizePixel = 0, ZIndex = 5, Parent = button})
+                bind(remove, "BackgroundColor3", "Elevated")
+                U.corner(remove, 8)
+                label({Parent = remove, Text = "×", Font = F.Semi(), Size = 22,
+                    Box = UDim2.fromScale(1,1), AlignX = Enum.TextXAlignment.Center, Color = "Muted", Z = 6})
+                row.RemoveButton = remove
+                connect(remove.MouseButton1Click, function()
+                    if alive() then session:RemoveFriend(tonumber(id)) end
+                end, row.Connections)
+            else
+                row.Status = label({Parent = button, Text = "", Font = F.Semi(), Size = 10,
+                    Anchor = Vector2.new(1,0.5), Pos = UDim2.new(1,-9,0.5,0),
+                    Box = UDim2.fromOffset(42,18), AlignX = Enum.TextXAlignment.Right, Color = "Accent", Z = 3})
+                connect(button.MouseButton1Click, function()
+                    controller:Select(id)
+                end, row.Connections)
+            end
+            connect(button.MouseEnter, function()
+                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0.35})
+            end, row.Connections)
+            connect(button.MouseLeave, function()
+                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0.72})
+            end, row.Connections)
+            return row
+        end
+        local function removeRow(rows, id)
+            local row = rows[id]
+            if not row then return end
+            disconnect(row.Connections)
+            release(row.Button)
+            rows[id] = nil
+        end
+        local function sorted(records)
+            table.sort(records, function(a,b)
+                local an, bn = tostring(a.DisplayName or a.Name):lower(), tostring(b.DisplayName or b.Name):lower()
+                if an == bn then return tonumber(a.UserId) < tonumber(b.UserId) end
+                return an < bn
+            end)
+            return records
+        end
+        render = function()
+            if not alive() then return end
+            local friendRecords, friendIds = sorted(session:GetFriends()), {}
+            for _, record in ipairs(friendRecords) do friendIds[tostring(record.UserId)] = true end
+            local records = {}
+            for id, player in pairs(controller.Roster) do
+                records[#records + 1] = {UserId = player.UserId, Name = player.Name, DisplayName = player.DisplayName}
+                if not controller.ServerRows[id] then controller.ServerRows[id] = createRow(serverList.Scroll, id, false) end
+            end
+            sorted(records)
+            for id in pairs(controller.ServerRows) do
+                if not controller.Roster[id] then removeRow(controller.ServerRows, id) end
+            end
+            for id in pairs(controller.FriendRows) do
+                if not friendIds[id] then removeRow(controller.FriendRows, id) end
+            end
+            local selectedPlayer = controller.SelectedUserId and controller.Roster[controller.SelectedUserId]
+            if not selectedPlayer or session:IsFriend(selectedPlayer) then controller.SelectedUserId = nil end
+            local searchPlayers, searchFriends = {}, {}
+            for order, record in ipairs(records) do
+                local id = tostring(record.UserId)
+                local row = controller.ServerRows[id]
+                row.Button.LayoutOrder = order
+                row.Title.Text, row.Subtitle.Text = record.DisplayName, "@" .. record.Name
+                row.Status.Text = friendIds[id] and "Added" or ""
+                row.Selection.Visible = controller.SelectedUserId == id
+                searchPlayers[#searchPlayers+1] = record.Name .. " " .. record.DisplayName
+            end
+            for order, record in ipairs(friendRecords) do
+                local id = tostring(record.UserId)
+                local row = controller.FriendRows[id]
+                if not row then row = createRow(friendList.Scroll, id, true); controller.FriendRows[id] = row end
+                local online = controller.Roster[id]
+                row.Button.LayoutOrder = order
+                row.Title.Text = online and online.DisplayName or record.DisplayName or record.Name
+                row.Subtitle.Text = "@" .. (online and online.Name or record.Name) .. (online and " · In server" or " · Offline")
+                searchFriends[#searchFriends+1] = row.Title.Text .. " " .. row.Subtitle.Text
+            end
+            serverList.Row.SearchExtra = function() return "Friend Manager Server players " .. table.concat(searchPlayers, " ") end
+            friendList.Row.SearchExtra = function() return "Friend Manager Friends " .. table.concat(searchFriends, " ") end
+            serverList:Resize(#records)
+            friendList:Resize(#friendRecords)
+            serverSection:SetTitle("Server players · " .. #records)
+            friendsSection:SetTitle("Friends · " .. #friendRecords)
+            selection.SetVisible(controller.SelectedUserId ~= nil)
+            selectedLabel.Text = controller.SelectedUserId and ("Add @" .. selectedPlayer.Name .. " to friends?") or ""
+        end
+        function controller:Select(playerOrId)
+            if not alive() then return false end
+            local id = tostring(typeof(playerOrId) == "Instance" and playerOrId.UserId or playerOrId)
+            local player = self.Roster[id]
+            if not player or session:IsFriend(player) then
+                self.SelectedUserId = nil
+                render()
+                return false
+            end
+            self.SelectedUserId = id
+            render()
+            return true
+        end
+        local function removePlayer(id)
+            disconnect(controller.PlayerConnections[id])
+            controller.PlayerConnections[id] = nil
+            controller.Roster[id] = nil
+        end
+        local function addPlayer(player)
+            if player == players.LocalPlayer then return end
+            local id = tostring(player.UserId)
+            if controller.Roster[id] == player then return end
+            removePlayer(id)
+            controller.Roster[id] = player
+            local bucket = {}
+            controller.PlayerConnections[id] = bucket
+            connect(player:GetPropertyChangedSignal("Name"), render, bucket)
+            connect(player:GetPropertyChangedSignal("DisplayName"), render, bucket)
+        end
+        function controller:Refresh()
+            if not alive() then return end
+            local present = {}
+            for _, player in ipairs(players:GetPlayers()) do
+                if player ~= players.LocalPlayer then present[tostring(player.UserId)] = true; addPlayer(player) end
+            end
+            for id in pairs(self.Roster) do if not present[id] then removePlayer(id) end end
+            render()
+        end
+        connect(controller.AddButton.MouseButton1Click, function()
+            if not alive() then return end
+            local player = controller.SelectedUserId and controller.Roster[controller.SelectedUserId]
+            if not player then return end
+            local ok, message = session:AddFriend(player)
+            if ok then controller.SelectedUserId = nil
+            elseif type(message) == "string" and window.Notify then window:Notify({Title = "Notification", Text = message}) end
+            render()
+        end)
+        connect(controller.CancelButton.MouseButton1Click, function()
+            if not alive() then return end
+            controller.SelectedUserId = nil
+            render()
+        end)
+        connect(players.PlayerAdded, function(player) if alive() then addPlayer(player); render() end end)
+        connect(players.PlayerRemoving, function(player)
+            if alive() then removePlayer(tostring(player.UserId)); render() end
+        end)
+        table.insert(controller.Connections, session:OnFriendsChanged(render))
+        function controller:Destroy()
+            if not self.Alive then return end
+            self.Alive = false
+            disconnect(self.Connections)
+            for _, bucket in pairs(self.PlayerConnections) do disconnect(bucket) end
+            table.clear(self.PlayerConnections)
+            table.clear(self.Roster)
+            for id in pairs(self.ServerRows) do removeRow(self.ServerRows, id) end
+            for id in pairs(self.FriendRows) do removeRow(self.FriendRows, id) end
+            self.SelectedUserId = nil
+        end
+        controller.Disconnect = controller.Destroy
+        table.insert(session.Connections, controller)
+        controller:Refresh()
+        return controller
     end
 end
 
@@ -2741,12 +3154,14 @@ end
 
 local FeatureSchema = {
     { Name = "Aimbot", Key = "AimbotEnabled", Tab = "Combat", Sub = "", Teams = "AimbotIgnore_", Options = {
+        { Kind = "Toggle", Name = "Target Lock", Key = "AimbotTargetLock" },
         { Kind = "Toggle", Name = "Wall Check", Key = "AimbotWallCheck" },
         { Kind = "Toggle", Name = "Team Check", Key = "AimbotTeamCheck" },
         { Kind = "Slider", Name = "Smooth", Key = "AimbotSmoothness" },
         { Kind = "Slider", Name = "MaxDist", Key = "AimbotMaxDistance" },
     } },
     { Name = "Kill Aura", Key = "KillAuraEnabled", Tab = "Combat", Sub = "", Teams = nil, Options = {
+        { Kind = "Toggle", Name = "Target Lock", Key = "KillAuraTargetLock" },
         { Kind = "Toggle", Name = "No Cam Rotate", Key = "KillAuraNoCamRotation" },
         { Kind = "Toggle", Name = "Kill Strafe", Key = "KillStrafeEnabled" },
         { Kind = "Slider", Name = "Strafe Speed", Key = "KillStrafeSpeed" },
@@ -2764,6 +3179,7 @@ local FeatureSchema = {
         { Kind = "Slider", Name = "Size Multiplier", Key = "HitboxSize" },
     } },
     { Name = "Target Strafe", Key = "TargetStrafeOrbitEnabled", Tab = "Movement", Sub = "", Teams = nil, Options = {
+        { Kind = "Toggle", Name = "Target Lock", Key = "TargetStrafeTargetLock" },
         { Kind = "Slider", Name = "Radius", Key = "TargetStrafeOrbitRadius" },
         { Kind = "Slider", Name = "Speed", Key = "TargetStrafeOrbitSpeed" },
     } },
@@ -2868,6 +3284,7 @@ local FeatureSchema = {
         { Kind = "Slider", Name = "Offset Z (Distance)", Key = "ViewHandsOffsetZ" },
     } },
     { Name = "Hit Particles", Key = "DamageParticlesEnabled", Tab = "Visuals", Sub = "Effects", Teams = nil, Options = {
+        { Kind = "Toggle", Name = "On Damage Dealt", Key = "HitParticlesOnDamage" },
         { Kind = "Slider", Name = "Size", Key = "ParticleSize" },
         { Kind = "Slider", Name = "Amount", Key = "ParticleAmount" },
         { Kind = "Color", Name = "Color", Key = "ParticleColor" },
@@ -2895,6 +3312,7 @@ local FeatureSchema = {
         { Kind = "Color", Name = "Map Color", Key = "WorldColorValue" },
     } },
     { Name = "Hit Sound", Key = "HitSoundEnabled", Tab = "Visuals", Sub = "Effects", Teams = nil, Options = {
+        { Kind = "Toggle", Name = "On Damage Dealt", Key = "HitSoundOnDamage" },
         { Kind = "Slider", Name = "Sound", Key = "HitSoundMode" },
     } },
     { Name = "Custom Fov", Key = "CustomFovEnabled", Tab = "Visuals", Sub = "Camera", Teams = nil, Options = {
@@ -2916,6 +3334,12 @@ local FeatureSchema = {
         { Kind = "Slider", Name = "Horizontal offset limit", Key = "SoftCameraMaxOffset" },
         { Kind = "Slider", Name = "Vertical offset limit", Key = "SoftCameraVerticalLimit" },
         { Kind = "Slider", Name = "Return speed", Key = "SoftCameraReturnSpeed" },
+    } },
+    { Name = "No Fall Damage", Key = "NoFallEnabled", Tab = "Movement", Sub = "", Teams = nil, Options = {
+        { Kind = "Toggle", Name = "Client fall scripts", Key = "NoFallClientScripts" },
+        { Kind = "Toggle", Name = "Velocity reset", Key = "NoFallVelocityReset" },
+        { Kind = "Slider", Name = "Minimum fall speed", Key = "NoFallMinSpeed" },
+        { Kind = "Toggle", Name = "Velocity landing notification", Key = "NoFallLandingNotify" },
     } },
 }
 local NumberRanges = {
@@ -2982,6 +3406,7 @@ local NumberRanges = {
     ParticleSpeed = {1, 60, 1},
     TargetHudSide = {1, 2, 0},
     TargetHudHeadDistance = {0, 240, 0},
+    NoFallMinSpeed = {1, 150, 0},
     SoftCameraLag = {0.03, 0.25, 2},
     SoftCameraVerticalSmoothness = {0.12, 0.75, 2},
     SoftCameraVerticalLimit = {2, 12, 1},
@@ -3138,7 +3563,13 @@ local Cfg = {
     SoftCameraMaxOffset = 1.75,
     SoftCameraReturnSpeed = 14,
 
+    Friends = {},
+    HitSoundOnDamage = false, HitParticlesOnDamage = false,
     TargetHudInPlayer = false, TargetHudSide = 1, TargetHudHeadDistance = 24,
+    NoFallEnabled = false, NoFallMinSpeed = 1, NoFallLandingNotify = false,
+    NoFallClientScripts = true, NoFallVelocityReset = false,
+    AimbotTargetLock = false, KillAuraTargetLock = false, TargetStrafeTargetLock = false,
+    LowEndMode = false, LowEndModeBind = "None",
     WorldCubeTexture = 1, WorldCubeSize = 0.45, WorldCubeSpeed = 0.6,
     ParticleThickness = 0.13, ParticleSpeed = 16,
     JumpCircleThickness = 0.15,
@@ -3188,6 +3619,126 @@ local Cfg = {
 }
 
 
+-- Platform: Roblox client / Luau; target: persistent script friends by UserId.
+do
+    local listeners = {}
+    local characters = setmetatable({}, {__mode = "k"})
+    Session.FriendPlayers = setmetatable({}, {__mode = "k"})
+    Session.Players = Players
+    local function identity(value)
+        if typeof(value) == "Instance" and value:IsA("Player") then value = value.UserId end
+        if type(value) == "string" then
+            if not value:match("^%-?%d+$") then return nil end
+            value = tonumber(value)
+        end
+        if type(value) ~= "number" or value ~= value or value == 0 or math.abs(value) > 1e12 or value % 1 ~= 0 then return nil end
+        return tostring(value), value
+    end
+    function Session:ValidateFriends(value)
+        if type(value) ~= "table" then return nil, "Invalid friends list." end
+        local copy, count = {}, 0
+        for key, entry in pairs(value) do
+            count += 1
+            if count > 256 then return nil, "The friends list is limited to 256 players." end
+            local canonical, id = identity(key)
+            if type(key) ~= "string" or canonical ~= key or type(entry) ~= "table"
+                or entry.UserId ~= id or id == LocalPlayer.UserId then return nil, "Invalid friend UserId." end
+            if type(entry.Name) ~= "string" or #entry.Name == 0 or #entry.Name > 100
+                or type(entry.DisplayName) ~= "string" or #entry.DisplayName > 256 then return nil, "Invalid friend name." end
+            for field in pairs(entry) do
+                if field ~= "UserId" and field ~= "Name" and field ~= "DisplayName" then return nil, "Invalid friend record." end
+            end
+            copy[key] = {UserId=id, Name=entry.Name, DisplayName=entry.DisplayName}
+        end
+        return copy
+    end
+    function Session:CopyFriends()
+        local copy = {}
+        for id, entry in pairs(Cfg.Friends) do copy[id] = table.clone(entry) end
+        return copy
+    end
+    function Session:IsFriend(value)
+        local key = identity(value)
+        return key ~= nil and Cfg.Friends[key] ~= nil
+    end
+    function Session:CharacterUserId(character)
+        if not character then return nil end
+        local id = characters[character]
+        if id then return id end
+        local owner = Players:GetPlayerFromCharacter(character)
+        if owner then characters[character] = owner.UserId; return owner.UserId end
+        return nil
+    end
+    function Session:IsFriendCharacter(character)
+        return self:IsFriend(self:CharacterUserId(character))
+    end
+    function Session:GetFriends()
+        local entries = {}
+        for _, entry in pairs(Cfg.Friends) do table.insert(entries, table.clone(entry)) end
+        table.sort(entries, function(a, b)
+            local left, right = a.Name:lower(), b.Name:lower()
+            return left == right and a.UserId < b.UserId or left < right
+        end)
+        return entries
+    end
+    function Session:OnFriendsChanged(callback)
+        local connection = {Connected=true}
+        listeners[connection] = callback
+        function connection:Disconnect() self.Connected = false; listeners[self] = nil end
+        return connection
+    end
+    function Session:FriendsChanged()
+        if not self.Alive then return end
+        table.clear(self.FriendPlayers)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if self:IsFriend(player) then self.FriendPlayers[player] = true end
+        end
+        if self.ApplyFriendExclusions then self:ApplyFriendExclusions() end
+        for connection, callback in pairs(listeners) do
+            if connection.Connected then callback() end
+        end
+    end
+    function Session:AddFriend(player)
+        if not self.Alive then return false, "Session is closed." end
+        if typeof(player) ~= "Instance" or not player:IsA("Player") or player == LocalPlayer
+            or player.Parent ~= Players then return false, "Select a player who is on this server." end
+        local id, number = identity(player)
+        if not id or number == LocalPlayer.UserId then return false, "Invalid player." end
+        if Cfg.Friends[id] then return false, "This player is already a friend." end
+        local friends = self:CopyFriends()
+        friends[id] = {UserId=number, Name=player.Name, DisplayName=player.DisplayName}
+        local valid, message = self:ValidateFriends(friends)
+        if not valid then return false, message end
+        Cfg.Friends = valid
+        if player.Character then characters[player.Character] = number end
+        self:Changed("Friends")
+        if self.Save then self:Save() end
+        return true
+    end
+    function Session:RemoveFriend(value)
+        if not self.Alive then return false end
+        local id = identity(value)
+        if not id or not Cfg.Friends[id] then return false end
+        local friends = self:CopyFriends()
+        friends[id] = nil
+        Cfg.Friends = friends
+        self:Changed("Friends")
+        if self.Save then self:Save() end
+        return true
+    end
+    function Session:DestroyFriends()
+        for connection in pairs(listeners) do connection.Connected = false end
+        table.clear(listeners)
+        table.clear(characters)
+        table.clear(self.FriendPlayers)
+    end
+    Session:Connect(Players.PlayerAdded, function(player)
+        if Session:IsFriend(player) then Session.FriendPlayers[player] = true end
+    end)
+    Session:Connect(Players.PlayerRemoving, function(player) Session.FriendPlayers[player] = nil end)
+end
+-- End script friends model.
+
 
 Session.Cfg = Cfg
 Session.Defaults = table.clone(Cfg)
@@ -3230,7 +3781,7 @@ function Session:InstallAimHooks()
         local ok, err = pcall(function()
             oldIndex = hookmetamethod(game, "__index", function(object, key)
                 local current = hooks.Session
-                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() then return oldIndex(object, key) end
+                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() or current.FriendPlayers[current.KaTarget] then return oldIndex(object, key) end
                 if key ~= "CFrame" and key ~= "Hit" and key ~= "Target" and key ~= "UnitRay" then return oldIndex(object, key) end
                 local character = current.KaTarget.Character
                 local part = character and character:FindFirstChild("HumanoidRootPart")
@@ -3262,7 +3813,7 @@ function Session:InstallAimHooks()
         local ok, err = pcall(function()
             oldNamecall = hookmetamethod(game, "__namecall", function(object, ...)
                 local current = hooks.Session
-                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() then return oldNamecall(object, ...) end
+                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() or current.FriendPlayers[current.KaTarget] then return oldNamecall(object, ...) end
                 local method = getnamecallmethod()
                 local cameraRay = method == "ViewportPointToRay" or method == "ScreenPointToRay"
                 local legacyRay = method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist"
@@ -3556,6 +4107,260 @@ do
     end)
 end
 
+
+-- Platform: Roblox client / Luau; target: compatible client fall-speed damage checks.
+-- This is a velocity reset, not a universal server-side damage bypass.
+do
+    local function finite(value)
+        return type(value) == "number" and value == value and math.abs(value) < math.huge
+    end
+    local function liveAirborneBody(character, humanoid, root)
+        if not character or character ~= LocalPlayer.Character or not root or not root.Parent
+            or not root:IsA("BasePart") or root.Anchored or not humanoid or not humanoid.Parent
+            or character:FindFirstChild("HumanoidRootPart") ~= root or character:FindFirstChildOfClass("Humanoid") ~= humanoid
+            or humanoid.Health <= 0 or humanoid.Sit or humanoid.SeatPart
+            or humanoid.FloorMaterial ~= Enum.Material.Air then return false end
+        return true
+    end
+    local function airborne(character, humanoid, root)
+        if not liveAirborneBody(character, humanoid, root) or humanoid.PlatformStand then return false end
+        local state = humanoid:GetState()
+        return state ~= Enum.HumanoidStateType.Dead and state ~= Enum.HumanoidStateType.Seated
+            and state ~= Enum.HumanoidStateType.Swimming and state ~= Enum.HumanoidStateType.Climbing
+            and state ~= Enum.HumanoidStateType.Physics and state ~= Enum.HumanoidStateType.Ragdoll
+            and state ~= Enum.HumanoidStateType.FallingDown and state ~= Enum.HumanoidStateType.GettingUp
+    end
+
+    -- Only replace the Y component we still own. Jumps, external impulses and
+    -- other movement modules may have changed it after our PostSimulation pass.
+    function Session:RestoreNoFallVelocity()
+        local pending = self.NoFallPending
+        self.NoFallPending = nil
+        if not pending or not liveAirborneBody(pending.Character, pending.Humanoid, pending.Root) then return end
+        local root = pending.Root
+        if (root.Position - pending.Position).Magnitude > 64 then return end
+        local current = root.AssemblyLinearVelocity
+        if finite(current.X) and finite(current.Y) and finite(current.Z) and math.abs(current.Y) <= 0.0001 then
+            root.AssemblyLinearVelocity = Vector3.new(current.X, pending.VelocityY, current.Z)
+        end
+    end
+
+    function Session:ResetNoFall(restorePending)
+        if restorePending then self:RestoreNoFallVelocity() else self.NoFallPending = nil end
+        self.NoFallFlight = nil
+    end
+
+    function Session:NoFallPreSimulation()
+        -- Restore before physics so gravity, collisions and the fall trajectory
+        -- use the original speed instead of repeatedly starting from zero.
+        self:RestoreNoFallVelocity()
+        if not self.Ready or not Cfg.NoFallEnabled or not Cfg.NoFallVelocityReset then self.NoFallFlight = nil end
+    end
+
+    function Session:NoFallPostSimulation(dt)
+        if not self.Ready or not Cfg.NoFallEnabled or not Cfg.NoFallVelocityReset then self:ResetNoFall(true); return end
+        if not finite(dt) or dt <= 0 or dt > 0.5 then self:ResetNoFall(true); return end
+        -- A second post callback without a pre callback must not overwrite saved speed.
+        if self.NoFallPending then return end
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local flight = self.NoFallFlight
+        if flight and (flight.Character ~= character or flight.Root ~= root or flight.Humanoid ~= humanoid
+            or not root or (root.Position - flight.Position).Magnitude > 64) then
+            self.NoFallFlight, flight = nil, nil
+        end
+        if not airborne(character, humanoid, root) then
+            local landed = flight and humanoid and humanoid.Health > 0
+                and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.Sit and not humanoid.SeatPart
+            self.NoFallFlight = nil
+            if landed and Cfg.NoFallLandingNotify and not window.Destroyed
+                and tick() - (self.NoFallLastNotice or -math.huge) >= 1 then
+                self.NoFallLastNotice = tick()
+                window:Notify({Title="notification", Text="Landed. Fall velocity reset was applied.", Kind="info", Duration=2})
+            end
+            return
+        end
+        local velocity = root.AssemblyLinearVelocity
+        if not finite(velocity.X) or not finite(velocity.Y) or not finite(velocity.Z) then self:ResetNoFall(false); return end
+        local minimum = Cfg.NoFallMinSpeed
+        minimum = finite(minimum) and math.clamp(minimum, 1, 150) or 1
+        if flight then flight.Position = root.Position end
+        if velocity.Y > -minimum then return end
+        self.NoFallPending = {Character=character, Humanoid=humanoid, Root=root,
+            VelocityY=velocity.Y, Position=root.Position}
+        self.NoFallFlight = flight or {Character=character, Humanoid=humanoid, Root=root, Position=root.Position}
+        root.AssemblyLinearVelocity = Vector3.new(velocity.X, 0, velocity.Z)
+    end
+
+    Session:Connect(RunService.PreSimulation, function() Session:NoFallPreSimulation() end)
+    Session:Connect(RunService.PostSimulation, function(dt) Session:NoFallPostSimulation(dt) end)
+end
+
+
+-- Platform: Roblox client / Luau; target: explicitly named local fall-damage scripts.
+-- Name matching is a heuristic. It cannot disable server-owned damage logic.
+do
+    local names = {falldamage=true, falldamagescript=true, falldamageclient=true, clientfalldamage=true}
+    local scopes, scripts, lifetime = {}, {}, {}
+    local stopped, queued, errors = false, false, 0
+    local refresh
+    local function disconnect(bucket)
+        for _, connection in ipairs(bucket) do pcall(function() connection:Disconnect() end) end
+        table.clear(bucket)
+    end
+    local function enabled()
+        return not stopped and Session.Ready and Cfg.NoFallEnabled and Cfg.NoFallClientScripts
+    end
+    local function matched(script)
+        return names[script.Name:lower():gsub("[%s_%-]", "")] == true
+    end
+    local function contained(script)
+        for scope in pairs(scopes) do
+            if scope.Parent and script:IsDescendantOf(scope) then return true end
+        end
+        return false
+    end
+    local function release(script, record)
+        local original = record.Original
+        record.Original = nil
+        if original ~= nil then
+            local ok = pcall(function() script.Enabled = original end)
+            if not ok then errors += 1 end
+        end
+    end
+    local function forget(script)
+        local record = scripts[script]
+        if not record then return end
+        release(script, record)
+        disconnect(record.Connections)
+        scripts[script] = nil
+    end
+    local function later()
+        if stopped or queued then return end
+        queued = true
+        task.defer(function()
+            queued = false
+            if not stopped then refresh(false) end
+        end)
+    end
+    local function connect(bucket, event, callback)
+        local ok, connection = pcall(function() return event:Connect(callback) end)
+        if ok then table.insert(bucket, connection) else errors += 1 end
+    end
+    local function scriptChanged(instance)
+        if instance:IsA("LocalScript") then later() end
+    end
+    local function scopeChanged(instance)
+        if instance:IsA("PlayerScripts") or instance:IsA("PlayerGui") then later() end
+    end
+    local function observe(script, reapply)
+        if not script:IsA("LocalScript") then return end
+        local record = scripts[script]
+        if not record then
+            record = {Connections={}, Eligible=false}
+            scripts[script] = record
+            connect(record.Connections, script:GetPropertyChangedSignal("Name"), later)
+            connect(record.Connections, script:GetPropertyChangedSignal("Parent"), later)
+            -- A third party may re-enable its script. This event only updates
+            -- status; only an explicit rescan may disable an eligible script again.
+            connect(record.Connections, script:GetPropertyChangedSignal("Enabled"), function()
+                if not stopped then Session:UpdateNoFallScriptStatus() end
+            end)
+        end
+        local eligible = enabled() and matched(script)
+        if not eligible then
+            release(script, record)
+        elseif reapply or not record.Eligible then
+            local ok, original = pcall(function() return script.Enabled end)
+            if not ok then
+                errors += 1
+            elseif original == true then
+                local changed = pcall(function() script.Enabled = false end)
+                if changed then record.Original = original else errors += 1 end
+            end
+        end
+        record.Eligible = eligible
+    end
+
+    function Session:GetNoFallScriptStatus()
+        local count, disabled = 0, 0
+        for script, record in pairs(scripts) do
+            local ok, isMatch, isDisabled = pcall(function()
+                return contained(script) and matched(script), script.Enabled == false
+            end)
+            if ok and isMatch then
+                count += 1
+                if record.Original ~= nil and isDisabled then disabled += 1 end
+            end
+        end
+        local state = enabled() and "" or "Local control off. "
+        local velocity = Cfg.NoFallEnabled and Cfg.NoFallVelocityReset and "on" or "off"
+        return string.format("%sMatched: %d | Disabled: %d | Errors: %d. Velocity: %s. Local name matches; damage protection unverified.",
+            state, count, disabled, errors, velocity)
+    end
+
+    function Session:UpdateNoFallScriptStatus()
+        if type(self.NoFallStatusChanged) == "function" then
+            pcall(self.NoFallStatusChanged, self:GetNoFallScriptStatus())
+        end
+    end
+
+    refresh = function(reapply)
+        if stopped then return end
+        local desired = {}
+        if Session.Ready then
+            local character = LocalPlayer.Character
+            local playerScripts = LocalPlayer:FindFirstChildOfClass("PlayerScripts")
+            local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if character and character.Parent then desired[character] = true end
+            if playerScripts then desired[playerScripts] = true end
+            if playerGui then desired[playerGui] = true end
+        end
+        for scope, bucket in pairs(scopes) do
+            if not desired[scope] then disconnect(bucket); scopes[scope] = nil end
+        end
+        for scope in pairs(desired) do
+            if not scopes[scope] then
+                local bucket = {}
+                scopes[scope] = bucket
+                connect(bucket, scope.DescendantAdded, scriptChanged)
+                -- Removing fires before ancestry is changed, so recheck deferred.
+                connect(bucket, scope.DescendantRemoving, scriptChanged)
+                connect(bucket, scope:GetPropertyChangedSignal("Parent"), later)
+            end
+        end
+        for script in pairs(scripts) do
+            if not contained(script) then forget(script) end
+        end
+        for scope in pairs(scopes) do
+            for _, script in ipairs(scope:GetDescendants()) do observe(script, reapply) end
+        end
+        Session:UpdateNoFallScriptStatus()
+    end
+
+    function Session:RefreshNoFallScripts()
+        if stopped then return end
+        errors = 0
+        refresh(true)
+    end
+
+    function Session:DestroyNoFallScripts()
+        if stopped then return end
+        stopped = true
+        disconnect(lifetime)
+        for _, bucket in pairs(scopes) do disconnect(bucket) end
+        table.clear(scopes)
+        for script in pairs(scripts) do forget(script) end
+        self:UpdateNoFallScriptStatus()
+    end
+
+    connect(lifetime, LocalPlayer.CharacterAdded, later)
+    connect(lifetime, LocalPlayer:GetPropertyChangedSignal("Character"), later)
+    connect(lifetime, LocalPlayer.ChildAdded, scopeChanged)
+    connect(lifetime, LocalPlayer.ChildRemoved, scopeChanged)
+end
+
 local ThemeObjects = {Backgrounds = {}, Strokes = {}, Texts = {}, SecondaryTexts = {}, Inputs = {}, InputBackgrounds = {}}
 local HitSounds = { "rbxassetid://140604838213617", "rbxassetid://130201387574815", "rbxassetid://135478009117226", "rbxassetid://96735711388006", "rbxassetid://126048302910782", "rbxassetid://7255642553" }
 
@@ -3567,6 +4372,99 @@ local Esp2DFolder = Instance.new("Folder", NotificationGui); Esp2DFolder.Name = 
 local ArrowsFolder = Instance.new("Folder", NotificationGui); ArrowsFolder.Name = "Arrows_Storage"
 
 local TARGET_FONT = Enum.Font.GothamBlack
+
+-- Platform: Roblox client / Luau; target: preloaded, bounded hit sounds with friend exclusion.
+Session.HitFeedbackSounds = setmetatable({}, {__mode = "k"})
+do
+    local soundService = game:GetService("SoundService")
+    local debris = game:GetService("Debris")
+    local records, serial = {}, 0
+    local maxSounds, lifetime = 10, 10
+
+    local function selectedSoundId()
+        if #HitSounds == 0 then return nil end
+        local index = math.clamp(math.floor(tonumber(Cfg.HitSoundMode) or 1), 1, #HitSounds)
+        return HitSounds[index]
+    end
+
+    local function release(sound, record, destroy)
+        if record.Released then return end
+        record.Released = true
+        records[sound], Session.HitFeedbackSounds[sound] = nil, nil
+        if record.Ended then record.Ended:Disconnect() end
+        if record.Destroying then record.Destroying:Disconnect() end
+        if destroy then sound:Destroy() end
+    end
+
+    function Session:PrepareHitSound()
+        if not self.Alive or not Cfg.HitSoundEnabled then return end
+        local id = selectedSoundId()
+        if not id then return end
+        local template = self.HitSoundTemplate
+        if template and template.Parent and template.SoundId == id then return template end
+        if template then template:Destroy() end
+        template = Instance.new("Sound")
+        template.Name, template.SoundId = "NotificationHitSoundWarmup", id
+        template.Volume, template.Looped, template.PlayOnRemove = 0, false, false
+        template.Parent = soundService
+        self.HitSoundTemplate = template
+        -- Configuration changes warm only the selected asset. Preload may yield;
+        -- it never runs inside the damage/input path and never starts playback.
+        task.defer(function()
+            if not self.Alive or not Cfg.HitSoundEnabled or self.HitSoundTemplate ~= template then return end
+            pcall(function() game:GetService("ContentProvider"):PreloadAsync({template}) end)
+        end)
+        return template
+    end
+
+    function Session:ClearHitSounds()
+        for sound, record in pairs(records) do release(sound, record, true) end
+        table.clear(self.HitFeedbackSounds)
+        if self.HitSoundTemplate then
+            self.HitSoundTemplate:Destroy()
+            self.HitSoundTemplate = nil
+        end
+    end
+
+    function Session:PlayHitFeedback(character)
+        if not self.Alive or not Cfg.HitSoundEnabled then return false end
+        local userId = self:CharacterUserId(character)
+        if self:IsFriend(userId) then return false end
+        local id = selectedSoundId()
+        if not id then return false end
+
+        local count, oldest, oldestRecord = 0, nil, nil
+        for sound, record in pairs(records) do
+            if not sound.Parent then
+                release(sound, record, false)
+            else
+                count += 1
+                if not oldestRecord or record.Serial < oldestRecord.Serial then
+                    oldest, oldestRecord = sound, record
+                end
+            end
+        end
+        if count >= maxSounds and oldest then release(oldest, oldestRecord, true) end
+
+        local template = self.HitSoundTemplate
+        local sound = if template and template.Parent and template.SoundId == id
+            then template:Clone() else Instance.new("Sound")
+        sound.Name, sound.SoundId = "NotificationHitSound", id
+        sound.Volume, sound.Looped, sound.PlayOnRemove, sound.TimePosition = 2, false, false, 0
+        sound.Parent = soundService
+        serial += 1
+        local record = {Serial = serial}
+        records[sound], self.HitFeedbackSounds[sound] = record, userId or 0
+        record.Ended = sound.Ended:Connect(function() release(sound, record, true) end)
+        record.Destroying = sound.Destroying:Connect(function() release(sound, record, false) end)
+        -- A cold asset may take longer than a second to become playable. Ended
+        -- handles normal cleanup; the failsafe bounds failed/inaccessible assets.
+        debris:AddItem(sound, lifetime)
+        local ok = pcall(function() sound:Play() end)
+        if not ok then release(sound, record, true) end
+        return ok
+    end
+end
 
 -- Platform: Roblox Luau; target: custom arrow images without distance captions.
 -- Insert after ArrowsFolder/EspCache creation, before GetEspElements.
@@ -3687,6 +4585,8 @@ do
     local MAX_CUBES = 200
     local SPAWN_BUDGET = 8
     local FADE_TIME = 0.65
+    local updateDebt = 0
+    local faceGradient = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(110, 125, 160))
     local faces = {Enum.NormalId.Front, Enum.NormalId.Back, Enum.NormalId.Left, Enum.NormalId.Right, Enum.NormalId.Top, Enum.NormalId.Bottom}
     local palette = {
         Color3.fromRGB(94, 131, 255), Color3.fromRGB(63, 219, 244),
@@ -3738,6 +4638,7 @@ do
 
     function Session:ClearWorldCubes()
         for index = #cubes, 1, -1 do removeCube(index) end
+        updateDebt = 0
     end
 
     local function setOpacity(entry, opacity)
@@ -3762,7 +4663,7 @@ do
             stroke.Name, stroke.BorderSizePixel = "CrystalLine", 0
             stroke.AnchorPoint = Vector2.new(0.5, 0.5)
             stroke.Position = UDim2.fromScale((x1 + x2) / 2, (y1 + y2) / 2)
-            stroke.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) * 512, width or 3)
+            stroke.Size = UDim2.fromScale(math.sqrt(dx * dx + dy * dy), (width or 3) / 512)
             stroke.Rotation = math.deg(math.atan2(dy, dx))
             stroke.BackgroundColor3 = tint or color
             stroke.BackgroundTransparency, stroke.ZIndex = 1, 4
@@ -3800,6 +4701,11 @@ do
             entry.Part.Size = Vector3.new(size, size, size)
             entry.Edge.LineThickness = math.clamp(size * 0.025, 0.009, 0.035)
         end
+        local canvas = Cfg.LowEndMode and 256 or 512
+        if entry.Canvas ~= canvas then
+            entry.Canvas = canvas
+            for _, face in ipairs(entry.Faces) do face.Surface.CanvasSize = Vector2.new(canvas, canvas) end
+        end
         if entry.Color == color and entry.Texture == texture and entry.Asset == atlasId then return end
         entry.Color, entry.Texture, entry.Asset = color, texture, atlasId
         local accent = palette[texture]:Lerp(color, 0.25)
@@ -3808,10 +4714,7 @@ do
         local column, row = (texture - 1) % 2, math.floor((texture - 1) / 2)
         for _, face in ipairs(entry.Faces) do
             face.Base.BackgroundColor3 = accent:Lerp(Color3.new(0, 0, 0), 0.75)
-            face.Gradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 125, 160)),
-            })
+            face.Gradient.Color = faceGradient
             face.Gradient.Rotation = 35 + (texture - 1) * 25
             pattern(face, texture, accent)
             face.Image.ImageColor3 = color
@@ -3896,7 +4799,7 @@ do
             image.ZIndex = 3
             image.Visible = false
             image.Parent = base
-            table.insert(entry.Faces, {Base = base, Gradient = gradient, Lines = {}, Image = image})
+            table.insert(entry.Faces, {Surface = surface, Base = base, Gradient = gradient, Lines = {}, Image = image})
         end
         applyAppearance(entry, size, color, texture)
         seed(entry, center)
@@ -3914,7 +4817,12 @@ do
         if not folder.Parent then self:ClearWorldCubes(); return end
         requestAtlas()
         local delta = finite(dt) and math.clamp(dt, 0, 0.25) or 0
-        local amount = math.floor(bounded(Cfg.WorldParticlesAmount, 40, 1, MAX_CUBES))
+        if Cfg.LowEndMode then
+            updateDebt += delta
+            if updateDebt < 1/30 and #cubes > 0 then return end
+            delta, updateDebt = updateDebt, 0
+        else updateDebt = 0 end
+        local amount = math.floor(bounded(Cfg.WorldParticlesAmount, 40, 1, Cfg.LowEndMode and 40 or MAX_CUBES))
         local size = bounded(Cfg.WorldCubeSize, 0.45, 0.15, 1.5)
         local speed = bounded(Cfg.WorldCubeSpeed, 0.6, 0.1, 2)
         local texture = math.floor(bounded(Cfg.WorldCubeTexture, 1, 1, 4))
@@ -3925,7 +4833,7 @@ do
         if root and root:IsA("BasePart") and (root.Position - center).Magnitude < 24 then
             center = root.Position + Vector3.new(0, 2, 0)
         end
-        for _ = 1, math.min(SPAWN_BUDGET, math.max(0, amount - #cubes)) do createCube(center, size, color, texture) end
+        for _ = 1, math.min(Cfg.LowEndMode and 2 or SPAWN_BUDGET, math.max(0, amount - #cubes)) do createCube(center, size, color, texture) end
 
         for index = #cubes, 1, -1 do
             local entry = cubes[index]
@@ -3965,6 +4873,68 @@ do
         end
     end
 end
+
+-- Platform: Roblox client / Luau; target: idle visuals and character traversal caches.
+do
+    Session.EmptyPlayers = {}
+    local renderDebt, chamsDebt = 0, 0
+    function Session:PlayerVisualDue(dt, chams)
+        if not Cfg.LowEndMode then renderDebt, chamsDebt = 0, 0; return true end
+        if chams then
+            chamsDebt += math.max(0, dt)
+            if self.ChamsForce or chamsDebt >= 0.1 then chamsDebt = 0; self.ChamsForce = false; return true end
+        else
+            renderDebt += math.max(0, dt)
+            if self.PlayerVisualForce or renderDebt >= 1/30 then renderDebt = 0; self.PlayerVisualForce = false; return true end
+        end
+        return false
+    end
+    local parts, indexes, connections = {}, {}, {}
+    local currentCharacter
+    local function add(part)
+        if part:IsA("BasePart") and not indexes[part] then
+            table.insert(parts, part); indexes[part] = #parts
+        end
+    end
+    local function remove(part)
+        local index = indexes[part]
+        if not index then return end
+        local last = parts[#parts]
+        parts[#parts] = nil
+        indexes[part] = nil
+        if last ~= part then parts[index] = last; indexes[last] = index end
+    end
+    function Session:ClearCharacterParts()
+        for _, connection in ipairs(connections) do connection:Disconnect() end
+        table.clear(connections); table.clear(parts); table.clear(indexes)
+        currentCharacter = nil
+    end
+    function Session:GetCharacterParts(character)
+        if character ~= currentCharacter then
+            self:ClearCharacterParts()
+            currentCharacter = character
+            if character then
+                for _, part in ipairs(character:GetDescendants()) do add(part) end
+                self:Connect(character.DescendantAdded, add, connections)
+                self:Connect(character.DescendantRemoving, remove, connections)
+            end
+        end
+        return parts
+    end
+    local previousBox, previousArrows, previousChams
+    function Session:SyncPlayerVisualActivation()
+        if previousBox == Cfg.Esp2DBoxEnabled and previousArrows == Cfg.ArrowsEnabled
+            and previousChams == Cfg.ChamsEnabled then return end
+        previousBox, previousArrows, previousChams = Cfg.Esp2DBoxEnabled, Cfg.ArrowsEnabled, Cfg.ChamsEnabled
+        self.PlayerVisualForce, self.ChamsForce = true, true
+        for _, cache in pairs(EspCache) do
+            if not previousBox and cache.Box2D.Visible then cache.Box2D.Visible = false end
+            if not previousArrows then self:HideArrow(cache) end
+            if not previousChams and cache.ChamsHighlight.Enabled then cache.ChamsHighlight.Enabled = false end
+        end
+    end
+end
+
 
 local function GetEspElements(player)
     if not EspCache[player] then
@@ -4017,51 +4987,94 @@ local function IsVisible(targetPart)
     return workspace:Raycast(origin, direction, raycastParams) == nil 
 end
 
-local function GetTarget()
-    local t, d = nil, Cfg.AimbotMaxDistance
-    local myChar = LocalPlayer.Character; if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
-    local myPos = myChar.HumanoidRootPart.Position
-    for _, v in ipairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
-            
-            local sameTeam = (v.Team == LocalPlayer.Team and v.Team ~= nil)
-            local isIgnoredTeam = v.Team and Cfg["AimbotIgnore_" .. v.Team.Name]
-
-            if (not Cfg.AimbotTeamCheck or not sameTeam) and not isIgnoredTeam then
-                local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
-                if dist < d then
-                    if not Cfg.AimbotWallCheck or IsVisible(v.Character.HumanoidRootPart) then
-                        d = dist; t = v
-                    end
+-- Platform: Roblox client / Luau; target: independent aim, aura and orbit target locks.
+do
+    local selected = {}
+    local leaving = setmetatable({}, {__mode = "k"})
+    local localCharacter
+    local function clear()
+        table.clear(selected)
+        Session.AimbotTarget, Session.KaTarget, Session.StrafeTarget = nil, nil, nil
+        SharedTarget, SharedKaTarget = nil, nil
+    end
+    function Session:ResetTargetLocks()
+        clear()
+        localCharacter = nil
+    end
+    local function better(candidate, best)
+        if not best then return true end
+        if candidate.Distance ~= best.Distance then return candidate.Distance < best.Distance end
+        return candidate.Player.UserId < best.Player.UserId
+    end
+    local function choose(slot, active, locked, candidates, best)
+        if not active then selected[slot] = nil; return nil end
+        local previous = selected[slot]
+        local current = previous and candidates[previous.Player]
+        local nextTarget = if locked and current and current.Character == previous.Character then current else best
+        selected[slot] = nextTarget
+        return nextTarget and nextTarget.Player or nil
+    end
+    function Session:UpdateTargets()
+        if not self.Alive or not self.Ready then clear(); return end
+        local character = LocalPlayer.Character
+        if character ~= localCharacter then clear(); localCharacter = character end
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if not character or not character.Parent or not root or not humanoid or humanoid.Health <= 0 then
+            clear(); return
+        end
+        local wantGeneral = Cfg.AimbotEnabled or Cfg.TargetStrafeOrbitEnabled or Cfg.TargetHudEnabled
+            or Cfg.TargetESPSquareEnabled or Cfg.ArrowsEnabled or Cfg.DamageNumbersEnabled
+        if not wantGeneral and not Cfg.KillAuraEnabled then clear(); return end
+        local general, aura = {}, {}
+        local closestGeneral, closestAura
+        for _, player in ipairs(Players:GetPlayers()) do
+            local model = player.Character
+            local part = model and model:FindFirstChild("HumanoidRootPart")
+            local hum = model and model:FindFirstChildOfClass("Humanoid")
+            if player ~= LocalPlayer and not self:IsFriend(player) and not leaving[player] and model and model.Parent and part and hum and hum.Health > 0 then
+                local distance = (part.Position - root.Position).Magnitude
+                local sameTeam = player.Team ~= nil and player.Team == LocalPlayer.Team
+                local ignoredTeam = player.Team and Cfg["AimbotIgnore_" .. player.Team.Name]
+                local generalEligible = wantGeneral and distance < Cfg.AimbotMaxDistance
+                    and (not Cfg.AimbotTeamCheck or not sameTeam) and not ignoredTeam
+                local auraEligible = Cfg.KillAuraEnabled and distance <= Cfg.KillAuraRange
+                local visible = false
+                if auraEligible or (generalEligible and Cfg.AimbotWallCheck) then visible = IsVisible(part) end
+                local candidate = {Player=player, Character=model, Distance=distance}
+                if generalEligible and (not Cfg.AimbotWallCheck or visible) then
+                    general[player] = candidate
+                    if better(candidate, closestGeneral) then closestGeneral = candidate end
+                end
+                if auraEligible and visible then
+                    aura[player] = candidate
+                    if better(candidate, closestAura) then closestAura = candidate end
                 end
             end
         end
+        self.AimbotTarget = choose("Aim", Cfg.AimbotEnabled, Cfg.AimbotTargetLock, general, closestGeneral)
+        self.StrafeTarget = choose("Strafe", Cfg.TargetStrafeOrbitEnabled, Cfg.TargetStrafeTargetLock, general, closestGeneral)
+        self.KaTarget = choose("Aura", Cfg.KillAuraEnabled, Cfg.KillAuraTargetLock, aura, closestAura)
+        SharedKaTarget = self.KaTarget
+        -- Keep the existing common visual target useful without coupling the locks.
+        SharedTarget = self.AimbotTarget or self.StrafeTarget or (closestGeneral and closestGeneral.Player)
     end
-    return t
-end
-
-local function GetKillauraTarget()
-    local myChar = LocalPlayer.Character; if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
-    local myPos = myChar.HumanoidRootPart.Position
-    local t, d = nil, Cfg.KillAuraRange
-    for _, v in ipairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
-            local dist = (myPos - v.Character.HumanoidRootPart.Position).Magnitude
-            if dist <= d and IsVisible(v.Character.HumanoidRootPart) then d = dist; t = v end
+    Session:Connect(Players.PlayerRemoving, function(player)
+        leaving[player] = true
+        for slot, record in pairs(selected) do
+            if record.Player == player then selected[slot] = nil end
         end
-    end
-    return t
+        Session:UpdateTargets()
+    end)
+    task.spawn(function()
+        while Session.Alive do
+            task.wait(0.2)
+            if not Session.Alive then break end
+            Session:UpdateTargets()
+        end
+    end)
 end
 
-task.spawn(function()
-    while Session.Alive do
-        task.wait(0.2)
-        if not Session.Alive then break end
-        if Cfg.AimbotEnabled or Cfg.TargetHudEnabled or Cfg.TargetESPSquareEnabled or Cfg.TargetStrafeOrbitEnabled or Cfg.ArrowsEnabled or Cfg.DamageNumbersEnabled then SharedTarget = GetTarget() else SharedTarget = nil end
-        if Cfg.KillAuraEnabled then SharedKaTarget = GetKillauraTarget() else SharedKaTarget = nil end
-        Session.KaTarget = SharedKaTarget
-    end
-end)
 
 task.spawn(function()
     while Session.Alive do
@@ -4070,7 +5083,7 @@ task.spawn(function()
         if Cfg.AntiFlingEnabled then
             local newCache = {}
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and p.Character then
+                if p ~= LocalPlayer and not Session:IsFriend(p) and p.Character then
                     local parts = {}
                     local desc = p.Character:GetDescendants()
                     for j = 1, #desc do if desc[j]:IsA("BasePart") then table.insert(parts, desc[j]) end end
@@ -4088,7 +5101,7 @@ end)
 -- Platform: Roblox client / Luau; target: bounded 3D liquid hit splashes.
 do
     local drops, LIMIT, STEP = {}, 160, 1 / 60
-    local accumulator, lastBurst = 0, -math.huge
+    local accumulator = 0
     local folder = Instance.new("Folder")
     folder.Name, folder.Parent = "Notification_HitSplashes", Session.Effects
     Session.HitSplashes, Session.HitSplashFolder = drops, folder
@@ -4103,11 +5116,17 @@ do
         for i = #drops, 1, -1 do remove(i) end
         accumulator = 0
     end
+    function Session:ClearFriendlyHitSplashes()
+        for i = #drops, 1, -1 do
+            if self:IsFriend(drops[i].UserId) then remove(i) end
+        end
+    end
     function Session:EmitHitSplash(position, normal, ignoreCharacter)
         if not self.Alive or not Cfg.DamageParticlesEnabled or typeof(position) ~= "Vector3" then return end
-        if tick() - lastBurst < 0.035 then return end
-        lastBurst = tick()
-        local amount = math.floor(number(Cfg.ParticleAmount, 8, 1, 40))
+        local userId = self:CharacterUserId(ignoreCharacter)
+        if self:IsFriend(userId) then return end
+        local limit = Cfg.LowEndMode and 64 or LIMIT
+        local amount = math.floor(number(Cfg.ParticleAmount, 8, 1, Cfg.LowEndMode and 12 or 40))
         local speed = number(Cfg.ParticleSpeed, 16, 1, 60)
         local camera = workspace.CurrentCamera
         local direction = typeof(normal) == "Vector3" and normal or (camera and camera.CFrame.Position - position or Vector3.new(0, 1, 0))
@@ -4120,7 +5139,7 @@ do
         params.FilterDescendantsInstances = exclusions
         params.IgnoreWater = true
         for i = 1, amount do
-            if #drops >= LIMIT then remove(1) end
+            while #drops >= limit do remove(1) end
             local randomDirection = Vector3.new(math.random() * 2 - 1, math.random() * 1.4, math.random() * 2 - 1)
             local heading = direction * 0.8 + randomDirection
             if heading.Magnitude < 0.01 then heading = Vector3.new(0, 1, 0) end
@@ -4137,27 +5156,31 @@ do
             mesh.Parent, part.Parent = part, folder
             local weight = (i % 3 == 0 and 0.55 or 1) * (0.75 + math.random() * 0.5)
             table.insert(drops, {Part = part, Mesh = mesh, Position = position, Previous = position, Velocity = velocity,
-                Age = 0, Lifetime = 0.85 + math.random() * 0.5, Weight = weight, Params = params})
+                UserId = userId, Age = 0, Lifetime = 0.85 + math.random() * 0.5, Weight = weight, Params = params})
         end
     end
     function Session:UpdateHitSplashes(dt)
         if not self.Alive or not Cfg.DamageParticlesEnabled then self:ClearHitSplashes(); return end
+        if #drops == 0 then accumulator = 0; return end
+        while Cfg.LowEndMode and #drops > 64 do remove(#drops) end
+        local step = Cfg.LowEndMode and 1/30 or STEP
         local delta = number(dt, 0, 0, 0.1)
         local thickness = number(Cfg.ParticleThickness, 0.13, 0.025, 0.6)
         local size = number(Cfg.ParticleSize, 4, 0.1, 20)
         local gravity = Vector3.new(0, -number(workspace.Gravity, 196.2, 0, 1000) * 0.32, 0)
         accumulator += delta
-        while accumulator + 1e-9 >= STEP do
-            accumulator = math.max(0, accumulator - STEP)
+        local drag = math.exp(-0.65 * step)
+        while accumulator + 1e-9 >= step do
+            accumulator = math.max(0, accumulator - step)
             for i = #drops, 1, -1 do
                 local drop = drops[i]
-                drop.Age += STEP
+                drop.Age += step
                 drop.Previous = drop.Position
                 if not drop.Part.Parent or drop.Age >= drop.Lifetime then remove(i)
                 elseif not drop.ImpactAge then
-                    local displacement = drop.Velocity * STEP + gravity * (STEP * STEP * 0.5)
+                    local displacement = drop.Velocity * step + gravity * (step * step * 0.5)
                     local hit = workspace:Raycast(drop.Position, displacement, drop.Params)
-                    drop.Velocity = (drop.Velocity + gravity * STEP) * math.exp(-0.65 * STEP)
+                    drop.Velocity = (drop.Velocity + gravity * step) * drag
                     if hit then
                         drop.Position = hit.Position + hit.Normal * 0.015
                         drop.Normal, drop.ImpactAge = hit.Normal, drop.Age
@@ -4172,15 +5195,20 @@ do
             local fade = math.clamp((drop.Lifetime - drop.Age) / 0.28, 0, 1)
             fade = fade * fade * (3 - 2 * fade)
             local shrink = 0.35 + fade * 0.65
-            drop.Part.Color, drop.Part.Transparency = Cfg.ParticleColor, 1 - fade * 0.93
+            if drop.Part.Color ~= Cfg.ParticleColor then drop.Part.Color = Cfg.ParticleColor end
+            local opacity = 1 - fade * 0.93
+            if drop.Part.Transparency ~= opacity then drop.Part.Transparency = opacity end
             if drop.ImpactAge then
                 local spread = 1 + math.clamp((drop.Age - drop.ImpactAge) / 0.18, 0, 1) * 2.5
                 drop.Mesh.Scale = Vector3.new(diameter * spread, diameter * spread, math.max(0.015, diameter * 0.15)) * shrink
-                drop.Part.CFrame = CFrame.lookAt(drop.Position, drop.Position + drop.Normal)
+                if not drop.ImpactDrawn then
+                    drop.ImpactDrawn = true
+                    drop.Part.CFrame = CFrame.lookAt(drop.Position, drop.Position + drop.Normal)
+                end
             else
                 local length = math.max(diameter, diameter + size * 0.085 * math.clamp(drop.Velocity.Magnitude / 16, 0, 2.5))
                 drop.Mesh.Scale = Vector3.new(diameter, diameter, length) * shrink
-                local point = drop.Previous:Lerp(drop.Position, math.clamp(accumulator / STEP, 0, 1))
+                local point = drop.Previous:Lerp(drop.Position, math.clamp(accumulator / step, 0, 1))
                 local direction = drop.Velocity.Magnitude > 0.001 and drop.Velocity.Unit or Vector3.new(0, -1, 0)
                 drop.Part.CFrame = CFrame.lookAt(point, point + direction)
             end
@@ -4223,7 +5251,7 @@ do
         local width = math.min(radius, math.clamp(tonumber(Cfg.JumpCircleThickness) or 0.15, 0.025, 0.6))
         ring.Width = width
         -- Tangent intersections keep even the thinnest large rings connected.
-        local length = math.max(0.025, 2 * radius * math.tan(STEP / 2) + width * 0.2)
+        local length = math.max(0.025, 2 * radius * math.tan(STEP * ring.Stride / 2) + width * 0.2)
         local frame = ring.Frame
         if ring.Support then
             if not ring.Support.Parent then return false end
@@ -4232,7 +5260,7 @@ do
         local transparency = 0.12 + 0.88 * progress * progress
         for index, part in ipairs(ring.Parts) do
             if not part.Parent then return false end
-            local direction = segmentDirections[index]
+            local direction = segmentDirections[1 + (index - 1) * ring.Stride]
             part.Size = Vector3.new(length, 0.045, width)
             part.CFrame = frame * CFrame.new(direction.Offset * radius) * direction.Rotation
             part.Transparency = transparency
@@ -4279,12 +5307,13 @@ do
             Birth = tick(),
             StartRadius = math.max(0.08, math.min(endRadius * 0.32, math.max(root.Size.X, root.Size.Z) * 0.3)),
             EndRadius = endRadius,
+            Stride = Cfg.LowEndMode and 2 or 1,
         }
         if hit.Instance and hit.Instance:IsA("BasePart") and not hit.Instance:IsA("Terrain") then
             ring.Support = hit.Instance
             ring.LocalFrame = hit.Instance.CFrame:Inverse() * frame
         end
-        for index = 1, SEGMENTS do
+        for index = 1, SEGMENTS / ring.Stride do
             local part = Instance.new("Part")
             part.Name = "Arc" .. index
             part.Size = Vector3.new(0.05, 0.045, 0.025)
@@ -4428,7 +5457,6 @@ do
     local function validPoint(point)
         return point and finite(point.X) and finite(point.Y) and finite(point.Z) and point.Z > 0.05
     end
-
     function Session:UpdateHudPlacement(character)
         local following = Cfg.TargetHudInPlayer == true
         TargetHUD.Active = not following
@@ -4460,9 +5488,8 @@ do
         local width, height = TargetHUD.Size.X.Offset * scale, TargetHUD.Size.Y.Offset * scale
         local x = Cfg.TargetHudSide == 2 and (center.X - halfWidth - gap - width)
             or (center.X + halfWidth + gap)
-        TargetHUD.Position = UDim2.fromOffset(x, center.Y - height * 0.5)
-        -- Keep the card readable near screen edges; never persist this clamp.
-        self:ClampHudPosition(false)
+        local maxX, maxY = math.max(4, viewport.X - width - 4), math.max(4, viewport.Y - height - 4)
+        TargetHUD.Position = UDim2.fromOffset(math.clamp(x, 4, maxX), math.clamp(center.Y - height * 0.5, 4, maxY))
         return true
     end
 
@@ -4533,9 +5560,17 @@ do
         for i = #numbers, 1, -1 do dispose(i) end
         if reset then resetObserver() end
     end
+    function Session:ClearFriendlyDamageNumbers()
+        for i = #numbers, 1, -1 do
+            if self:IsFriend(numbers[i].UserId) then dispose(i) end
+        end
+        if self:IsFriend(observer.Player) then resetObserver() end
+    end
 
     local function showDamage(amount, character)
         if not Session.Alive or not Cfg.DamageNumbersEnabled or not finite(amount) or amount <= 0 then return end
+        local userId = Session:CharacterUserId(character)
+        if Session:IsFriend(userId) then return end
         local part = anchor(character)
         local point = positionOf(part) or observer.LastPosition
         if not point then return end
@@ -4562,7 +5597,7 @@ do
         })
         local scale = Nova.U.new("UIScale", {Name = "DamageScale", Parent = label})
         table.insert(numbers, {
-            Label = label, Scale = scale, Part = part, Position = point, Age = 0,
+            Label = label, Scale = scale, Part = part, Position = point, Age = 0, UserId = userId,
             Lifetime = bounded(Cfg.DamageNumbersLifetime, 1.1, 0.35, 3),
             Rise = bounded(Cfg.DamageNumbersRise, 56, 0, 160),
             Lane = ((sequence - 1) % 3 - 1) * 12,
@@ -4570,6 +5605,7 @@ do
     end
 
     function Session:ObserveDamageTarget(player)
+        if self:IsFriend(player) then player = nil end
         if not self.Alive or not Cfg.DamageNumbersEnabled then
             if observer.Humanoid or #numbers > 0 then self:ClearDamageNumbers(true) end
             return
@@ -4764,14 +5800,14 @@ table.insert(Connections, RunService.Stepped:Connect(function(time, dt)
     if not char then return end
 
     if Cfg.NoClipEnabled then
-        for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then if OrigNoClipStates[part] == nil then OrigNoClipStates[part] = part.CanCollide end; part.CanCollide = false end end
+        for _, part in ipairs(Session:GetCharacterParts(char)) do if part.Parent then if OrigNoClipStates[part] == nil then OrigNoClipStates[part] = part.CanCollide end; part.CanCollide = false end end
     elseif not Cfg.NoClipEnabled and next(OrigNoClipStates) ~= nil then
         for part, state in pairs(OrigNoClipStates) do if part and part.Parent then part.CanCollide = state end end; table.clear(OrigNoClipStates)
     end
 
     if Cfg.AntiFlingEnabled then
         for plr, parts in pairs(AntiFlingCache) do
-            if plr.Character and parts[1] and parts[1].Parent then
+            if not Session:IsFriend(plr) and plr.Character and parts[1] and parts[1].Parent then
                 for i = 1, #parts do
                     local part = parts[i]
                     if part.Parent then
@@ -4809,7 +5845,7 @@ task.spawn(function()
         pcall(function() 
             if Cfg.HitboxEnabled then
                 for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer then
+                    if player ~= LocalPlayer and not Session:IsFriend(player) then
                         local plChar = player.Character
                         if plChar then
                             local head = plChar:FindFirstChild("Head")
@@ -4913,10 +5949,16 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
         end
         local currentTrans = tonumber(Cfg.ClientSideTransparency) or 50
         if lastGhostColor ~= Cfg.ClientSideColor or lastGhostTrans ~= currentTrans then lastGhostColor = Cfg.ClientSideColor; lastGhostTrans = currentTrans; UpdateGhostAppearance() end
-        local currentPose = { t = tick(), parts = {} }
+        local poseTime = tick()
+        local currentPose
+        while #GhostHistory > 1 and (GhostHistory[2].t <= poseTime - 0.1 or #GhostHistory >= 64) do
+            currentPose = table.remove(GhostHistory, 1)
+        end
+        currentPose = currentPose or {parts = {}}
+        currentPose.t = poseTime
+        table.clear(currentPose.parts)
         for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; currentPose.parts[p.real] = p.real.CFrame end
         table.insert(GhostHistory, currentPose)
-        while #GhostHistory > 0 and tick() - GhostHistory[1].t > 2 do table.remove(GhostHistory, 1) end
         local targetTime = tick() - 0.1; local targetPose = GhostHistory[#GhostHistory]
         for i = #GhostHistory, 1, -1 do if GhostHistory[i].t <= targetTime then targetPose = GhostHistory[i]; break end end
         if targetPose then for i = 1, #GhostPartsArray do local p = GhostPartsArray[i]; p.ghost.CFrame = targetPose.parts[p.real] end end
@@ -4924,7 +5966,8 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
         if GhostModel then GhostModel:Destroy(); GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = nil end
     end
 
-    local allPlayers = Players:GetPlayers()
+    Session:SyncPlayerVisualActivation()
+    local allPlayers = Cfg.ChamsEnabled and Session:PlayerVisualDue(dt, true) and Players:GetPlayers() or Session.EmptyPlayers
     for i = 1, #allPlayers do
         local player = allPlayers[i]
         if player ~= LocalPlayer then
@@ -4935,7 +5978,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
             local sameTeam = (player.Team == LocalPlayer.Team and player.Team ~= nil)
             local isIgnoredTeam = player.Team and Cfg["ChamsIgnore_" .. player.Team.Name]
 
-            if Cfg.ChamsEnabled and hasHRP and (not Cfg.ChamsTeamCheck or not sameTeam) and not isIgnoredTeam then
+            if Cfg.ChamsEnabled and not Session:IsFriend(player) and hasHRP and (not Cfg.ChamsTeamCheck or not sameTeam) and not isIgnoredTeam then
                 
                 if espCache.ChamsHighlight.Adornee ~= plChar then espCache.ChamsHighlight.Adornee = plChar end
                 if not espCache.ChamsHighlight.Enabled then espCache.ChamsHighlight.Enabled = true end
@@ -4955,23 +5998,32 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
     end
 end))
 
--- // РЕНДЕР СТЕП
-RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
-    if not Session.Alive or not Session.Ready then return end
-    Session:UpdateDamageNumbers(dt)
-    Session:UpdateWorldCubes(dt)
-    Session:UpdateHitSplashes(dt)
-    local Camera = workspace.CurrentCamera; if not Camera then return end
-    local char = LocalPlayer.Character
-    local target = SharedTarget
-    local currentKaTarget = SharedKaTarget
-    local camCFrame = Camera.CFrame
-    local camPos = camCFrame.Position
-
-    local hudTarget = if Cfg.TargetHudOnlyKillaura then currentKaTarget else target
-    Session:ObserveDamageTarget(hudTarget)
-    local espTarget = if Cfg.TargetESPOnlyKillaura then currentKaTarget else target
-
+-- Platform: Roblox client / Luau; target: change-driven scene settings.
+do
+    local keys = {"CustomFovEnabled", "CustomFovValue", "FullBrightEnabled", "WorldColorEnabled", "WorldColorValue", "FullBrightTime", "TimeChangerEnabled", "TimeChangerHours", "SaturationEnabled", "SaturationValue", "ThirdPersonEnabled", "ThirdPersonDistance", "WorldColorShader", "WorldColorTransparency", "WorldColorDarkness"}
+    local values, lastCamera, cameraConnection = {}, nil, nil
+    Session.SceneDirty = true
+    for _, property in ipairs({"CameraMode", "CameraMinZoomDistance", "CameraMaxZoomDistance"}) do
+        Session:Connect(LocalPlayer:GetPropertyChangedSignal(property), function() Session.SceneDirty = true end)
+    end
+    Session:Connect(Lighting.Changed, function(property)
+        if property == "Ambient" or property == "OutdoorAmbient" or property == "GlobalShadows"
+            or property == "ClockTime" or property == "FogColor" or property == "FogEnd" then Session.SceneDirty = true end
+    end)
+    function Session:UpdateSceneSettings()
+        local Camera = workspace.CurrentCamera
+        if not Camera then return end
+        local changed = self.SceneDirty or Camera ~= lastCamera
+        if Camera ~= lastCamera then
+            if cameraConnection then cameraConnection:Disconnect() end
+            cameraConnection = self:Connect(Camera:GetPropertyChangedSignal("FieldOfView"), function() self.SceneDirty = true end)
+            lastCamera = Camera
+        end
+        for _, key in ipairs(keys) do
+            if values[key] ~= Cfg[key] then values[key] = Cfg[key]; changed = true end
+        end
+        if not changed then return end
+        self.SceneDirty = false
     if Cfg.CustomFovEnabled then Session:Override("FOV", Camera, {FieldOfView = Cfg.CustomFovValue}) else Session:Release("FOV") end
     if Cfg.FullBrightEnabled then
         Session:Override("Ambient", Lighting, {Ambient = Color3.new(1,1,1), OutdoorAmbient = Color3.new(1,1,1)})
@@ -4991,6 +6043,29 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
     else Session:Release("CameraMode") end
 
     
+
+    end
+end
+
+-- // РЕНДЕР СТЕП
+RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
+    if not Session.Alive or not Session.Ready then return end
+    Session:UpdateDamageNumbers(dt)
+    Session:UpdateWorldCubes(dt)
+    Session:UpdateHitSplashes(dt)
+    local Camera = workspace.CurrentCamera; if not Camera then return end
+    local char = LocalPlayer.Character
+    local target = not Session:IsFriend(SharedTarget) and SharedTarget or nil
+    local currentKaTarget = not Session:IsFriend(SharedKaTarget) and SharedKaTarget or nil
+    local camCFrame = Camera.CFrame
+    local camPos = camCFrame.Position
+
+    local hudTarget = if Cfg.TargetHudOnlyKillaura then currentKaTarget else target
+    Session:ObserveDamageTarget(hudTarget)
+    local espTarget = if Cfg.TargetESPOnlyKillaura then currentKaTarget else target
+
+    Session:UpdateSceneSettings()
+
     if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
         local hum = char.Humanoid
         local hrp = char.HumanoidRootPart
@@ -5125,7 +6200,8 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
 
     local localHrp = char and char:FindFirstChild("HumanoidRootPart")
     
-    local allPlayers = Players:GetPlayers()
+    Session:SyncPlayerVisualActivation()
+    local allPlayers = (Cfg.Esp2DBoxEnabled or Cfg.ArrowsEnabled) and Session:PlayerVisualDue(dt, false) and Players:GetPlayers() or Session.EmptyPlayers
     for i = 1, #allPlayers do
         local player = allPlayers[i]
         if player ~= LocalPlayer then
@@ -5136,7 +6212,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
             local sameTeam = (player.Team == LocalPlayer.Team and player.Team ~= nil)
             local isIgnoredTeam = player.Team and Cfg["Esp2DBoxIgnore_" .. player.Team.Name]
 
-            if Cfg.Esp2DBoxEnabled and hasHRP and (not Cfg.Esp2DBoxTeamCheck or not sameTeam) and not isIgnoredTeam then
+            if Cfg.Esp2DBoxEnabled and not Session:IsFriend(player) and hasHRP and (not Cfg.Esp2DBoxTeamCheck or not sameTeam) and not isIgnoredTeam then
                 local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
                     local head = plChar:FindFirstChild("Head"); 
@@ -5146,7 +6222,15 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                     local height = math.abs(bottomScreen.Y - topScreen.Y); local baseMultiplier = tonumber(Cfg.Esp2DBoxSize) or 1; local finalHeight = height * baseMultiplier; local width = (height / 1.5) * baseMultiplier 
                     
                     if not espCache.Box2D.Visible then espCache.Box2D.Visible = true end
-                    espCache.Box2D.Size = UDim2.new(0, width, 0, finalHeight); espCache.Box2D.Position = UDim2.new(0, pos.X - width/2, 0, pos.Y - finalHeight/2)
+                    if espCache.Width ~= width or espCache.Height ~= finalHeight then
+                        espCache.Width, espCache.Height = width, finalHeight
+                        espCache.Box2D.Size = UDim2.fromOffset(width, finalHeight)
+                    end
+                    local x, y = pos.X - width/2, pos.Y - finalHeight/2
+                    if espCache.X ~= x or espCache.Y ~= y then
+                        espCache.X, espCache.Y = x, y
+                        espCache.Box2D.Position = UDim2.fromOffset(x, y)
+                    end
                     
                     local roundedRadius = UDim.new(0, tonumber(Cfg.Esp2DBoxRounding) or 4)
                     if espCache.BoxCorner.CornerRadius.Offset ~= roundedRadius.Offset then espCache.BoxCorner.CornerRadius = roundedRadius; espCache.GlowCorner.CornerRadius = roundedRadius end
@@ -5168,14 +6252,14 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                     espCache.BoxGrad.Rotation = (tick() * 50) % 360 
                     
                     if espCache.NameTag.Visible ~= (Cfg.Esp2DBoxNametagsEnabled == true) then espCache.NameTag.Visible = (Cfg.Esp2DBoxNametagsEnabled == true) end
-                    if Cfg.Esp2DBoxNametagsEnabled then espCache.NameTag.TextSize = tonumber(Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5); if espCache.NameTag.Text ~= player.DisplayName then espCache.NameTag.Text = player.DisplayName end end
+                    if Cfg.Esp2DBoxNametagsEnabled then if espCache.NameTag.TextSize ~= (tonumber(Cfg.Esp2DBoxNametagsScale) or 14) or not espCache.NameSized then espCache.NameSized = true; espCache.NameTag.TextSize = tonumber(Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5) end; if espCache.NameTag.Text ~= player.DisplayName then espCache.NameTag.Text = player.DisplayName end end
                     
                     if espCache.HealthBack.Visible ~= (Cfg.Esp2DBoxHealthBarEnabled == true) then espCache.HealthBack.Visible = (Cfg.Esp2DBoxHealthBarEnabled == true) end
                     if Cfg.Esp2DBoxHealthBarEnabled then
                         local border = tonumber(Cfg.Esp2DBoxHealthBarBorder) or 1
-                        espCache.HealthBack.BorderSizePixel = border; espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0); espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0)
+                        if espCache.HealthBorder ~= border then espCache.HealthBorder = border; espCache.HealthBack.BorderSizePixel = border; espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0); espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0) end
                         local hum = plChar:FindFirstChild("Humanoid")
-                        if hum then local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0.01, 1); espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0); espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0); espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0); espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0) end
+                        if hum then local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0.01, 1); if espCache.HealthFraction ~= hpPercent then espCache.HealthFraction = hpPercent; espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0); espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0); espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0); espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0) end end
                     end
                 elseif espCache.Box2D.Visible then 
                     espCache.Box2D.Visible = false 
@@ -5184,7 +6268,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                 espCache.Box2D.Visible = false 
             end
 
-            if Cfg.ArrowsEnabled and hasHRP and localHrp then
+            if Cfg.ArrowsEnabled and not Session:IsFriend(player) and hasHRP and localHrp then
                 Session:UpdateArrow(espCache, plChar.HumanoidRootPart, localHrp, camCFrame, Camera.ViewportSize)
             else
                 Session:HideArrow(espCache)
@@ -5214,8 +6298,9 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
 
     local didRotateHRP = false
 
-    if Cfg.TargetStrafeOrbitEnabled and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and localHrp then
-        local angle = tick() * Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * Cfg.TargetStrafeOrbitRadius; localHrp.CFrame = CFrame.new(target.Character.HumanoidRootPart.Position + offset, target.Character.HumanoidRootPart.Position)
+    local strafeTarget = not Session:IsFriend(Session.StrafeTarget) and Session.StrafeTarget or nil
+    if Cfg.TargetStrafeOrbitEnabled and strafeTarget and strafeTarget.Character and strafeTarget.Character:FindFirstChild("HumanoidRootPart") and localHrp then
+        local angle = tick() * Cfg.TargetStrafeOrbitSpeed; local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * Cfg.TargetStrafeOrbitRadius; localHrp.CFrame = CFrame.new(strafeTarget.Character.HumanoidRootPart.Position + offset, strafeTarget.Character.HumanoidRootPart.Position)
         didRotateHRP = true 
     end
     
@@ -5253,13 +6338,14 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                     local attackDelay = (Cfg.KillAuraSpeed / 10)
                     if tick() - lastAttackTime > attackDelay then
                         lastAttackTime = tick()
+                        Session:RecordFeedbackAttack(targetPart.Parent, targetPart.Position, nil, "aura")
                         
                         if isMobile then
                             local tool = char:FindFirstChildOfClass("Tool")
                             if tool then tool:Activate() end
                         else
                             task.spawn(function()
-                                if not Session.Alive then return end
+                                if not Session.Alive or Session:IsFriend(currentKaTarget) or currentKaTarget ~= Session.KaTarget then return end
                                 local center = Camera.ViewportSize / 2
                                 pcall(function() VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1) end)
                                 task.wait(0.01)
@@ -5267,8 +6353,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                             end)
                         end
                         
-                        if Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(Cfg.HitSoundMode), 1, 6); local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = HitSounds[sIdx]; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
-                        if Cfg.DamageParticlesEnabled then Session:EmitHitSplash(targetPart.Position, nil, targetPart.Parent) end
+
                     end
                 end
             end
@@ -5307,8 +6392,9 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
         end
     end
 
-    if not Cfg.KillAuraEnabled and Cfg.AimbotEnabled and target and target.Character and target.Character:FindFirstChild("Head") and localHrp then
-        Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, target.Character.Head.Position), (1 - (1 - Cfg.AimbotSmoothness) ^ math.max(dt * 60, 0.01)))
+    local aimTarget = not Session:IsFriend(Session.AimbotTarget) and Session.AimbotTarget or nil
+    if not Cfg.KillAuraEnabled and Cfg.AimbotEnabled and aimTarget and aimTarget.Character and aimTarget.Character:FindFirstChild("Head") and localHrp then
+        Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, aimTarget.Character.Head.Position), (1 - (1 - Cfg.AimbotSmoothness) ^ math.max(dt * 60, 0.01)))
     end
 end)
 
@@ -5355,7 +6441,11 @@ local function UpdateViewHandsParts(char)
 end
 
 local function ConnectJumpAndHands(char)
+    Session:ClearCharacterParts()
+    Session:ResetTargetLocks()
     Session:ResetSoftCamera()
+    Session:ResetNoFall(false)
+    Session:RefreshNoFallScripts()
     for _, connection in ipairs(Session.CharacterConnections) do connection:Disconnect() end
     table.clear(Session.CharacterConnections)
     Session:ClearJumpCircles()
@@ -5381,9 +6471,13 @@ local function ConnectJumpAndHands(char)
             Session:OnCharacterJump(char, hum, active)
         end, Session.CharacterConnections)
         UpdateViewHandsParts(char)
+        local refreshPending = false
         local function refresh(desc)
             if not desc:IsA("BasePart") and not desc:IsA("Motor6D") then return end
+            if refreshPending then return end
+            refreshPending = true
             task.defer(function()
+                refreshPending = false
                 if Session.Alive and Session.CharacterGeneration == generation then UpdateViewHandsParts(char) end
             end)
         end
@@ -5394,23 +6488,57 @@ end
 Session:Connect(LocalPlayer.CharacterAdded, ConnectJumpAndHands)
 if LocalPlayer.Character then ConnectJumpAndHands(LocalPlayer.Character) end
 
-Session:Connect(UserInputService.InputBegan, function(input, gpe)
-    if gpe or UserInputService:GetFocusedTextBox() or window.Listening or window:PointerOverUI() then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        if tick() - lastAttackTime < 0.1 then return end
-        local Camera = workspace.CurrentCamera
-        if not Camera then return end
-        local mousePos = UserInputService:GetMouseLocation(); local unitRay = Camera:ScreenPointToRay(mousePos.X, mousePos.Y); local res = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
-        if res and res.Instance then
-            local hitChar = res.Instance:FindFirstAncestorOfClass("Model")
-            if hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= LocalPlayer.Character then 
-                if Cfg.DamageParticlesEnabled then Session:EmitHitSplash(res.Position, res.Normal, hitChar) end
-                if Cfg.HitSoundEnabled then local sIdx = math.clamp(math.floor(Cfg.HitSoundMode), 1, 6); local sId = HitSounds[sIdx]; local s = Instance.new("Sound", game:GetService("SoundService")); s.SoundId = sId; s.Volume = 2; s:Play(); game:GetService("Debris"):AddItem(s, 1) end
+-- Platform: Roblox client / Luau; target: immediate removal of effects on friends.
+function Session:ApplyFriendExclusions()
+    self:PruneFriendlyFeedback()
+    -- Changing friends invalidates eligibility, including previously locked targets.
+    self:UpdateTargets()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if self:IsFriend(player) then
+            local character = player.Character
+            AntiFlingCache[player] = nil
+            if character then
+                for instance, data in pairs(OrigPartData) do
+                    if instance:IsDescendantOf(character) then
+                        pcall(function()
+                            if instance:IsA("BasePart") then
+                                instance.Size, instance.CanCollide, instance.Massless = data.Size, data.CanCollide, data.Massless
+                            end
+                            instance.Transparency = data.Trans
+                        end)
+                        OrigPartData[instance] = nil
+                    end
+                end
+                for part, original in pairs(self.AntiFlingParts) do
+                    if part:IsDescendantOf(character) then
+                        part.CanCollide = original
+                        self.AntiFlingParts[part] = nil
+                    end
+                end
+                local fake = character:FindFirstChild("Notification_FakeHead")
+                if fake then fake:Destroy() end
+            end
+            local cache = EspCache[player]
+            if cache then
+                cache.Box2D.Visible, cache.Arrow.Visible, cache.ChamsHighlight.Enabled = false, false, false
+                EspHiddenState[player] = nil
             end
         end
     end
-end)
-
+    self:ClearFriendlyHitSplashes()
+    self:ClearFriendlyDamageNumbers()
+    for sound, userId in pairs(self.HitFeedbackSounds) do
+        if self:IsFriend(userId) then sound:Destroy(); self.HitFeedbackSounds[sound] = nil end
+    end
+    local hudTarget = if Cfg.TargetHudOnlyKillaura then SharedKaTarget else SharedTarget
+    self:ObserveDamageTarget(hudTarget)
+    self:UpdateTargetHUD(hudTarget, 0)
+    -- Re-render a new target on the next frame; never leave the old marker on a friend.
+    ESPMain.Visible = false
+    lastEspTargetUserId, lastEspTargetHealth = nil, nil
+    self.PlayerVisualForce, self.ChamsForce = true, true
+end
+-- End immediate friend exclusions.
 
 function Session:RestoreHitboxes()
     for instance, data in pairs(OrigPartData) do
@@ -5434,6 +6562,18 @@ end
 
 function Session:Changed(key)
     if key == "SoftCameraEnabled" and not Cfg.SoftCameraEnabled then self:ResetSoftCamera() end
+    if key == "HitSoundEnabled" or key == "HitSoundOnDamage" or key == "DamageParticlesEnabled" or key == "HitParticlesOnDamage" then
+        self:RefreshHitFeedback(key)
+    end
+    if key == "HitSoundEnabled" or key == "HitSoundMode" then
+        if Cfg.HitSoundEnabled then self:PrepareHitSound() else self:ClearHitSounds() end
+    end
+    if key == "Friends" then self:FriendsChanged() end
+    self.PlayerVisualForce, self.ChamsForce = true, true
+    if key == "NoFallEnabled" or key == "NoFallClientScripts" or key == "NoFallVelocityReset" then
+        if not Cfg.NoFallEnabled or not Cfg.NoFallVelocityReset then self:ResetNoFall(true) end
+        self:RefreshNoFallScripts()
+    end
     if key == "DamageParticlesEnabled" and not Cfg.DamageParticlesEnabled then self:ClearHitSplashes() end
     if key == "WorldParticlesEnabled" and not Cfg.WorldParticlesEnabled then self:ClearWorldCubes() end
     if key == "DamageNumbersEnabled" and not Cfg.DamageNumbersEnabled then self:ClearDamageNumbers(true) end
@@ -5446,8 +6586,10 @@ function Session:Changed(key)
         for part, state in pairs(OrigNoClipStates) do if part.Parent then part.CanCollide = state end end
         table.clear(OrigNoClipStates)
     end
-    if key == "KillAuraEnabled" and not Cfg.KillAuraEnabled then SharedKaTarget = nil; self.KaTarget = nil end
-    if key == "AimbotEnabled" and not Cfg.AimbotEnabled then SharedTarget = nil end
+    if key == "KillAuraEnabled" or key == "AimbotEnabled" or key == "TargetStrafeOrbitEnabled"
+        or key == "KillAuraTargetLock" or key == "AimbotTargetLock" or key == "TargetStrafeTargetLock"
+        or key == "KillAuraRange" or key == "AimbotMaxDistance" or key == "AimbotTeamCheck"
+        or key == "AimbotWallCheck" or key:match("^AimbotIgnore_") then self:UpdateTargets() end
     if key == "ViewHandsEnabled" and not Cfg.ViewHandsEnabled then
         self:RestoreArms()
         for joint, c0 in pairs(OrigMotorC0) do if joint.Parent then joint.C0 = c0 end end
@@ -5458,7 +6600,8 @@ function Session:Changed(key)
         TargetHUD.Position = Cfg.TargetHudPosition
         self:ClampHudPosition(false)
     end
-    if key == "TargetHudInPlayer" or key == "TargetHudSide" or key == "TargetHudHeadDistance" or key == "TargetHudEnabled" then
+    if key == "TargetHudInPlayer" or key == "TargetHudSide" or key == "TargetHudHeadDistance"
+        or key == "TargetHudEnabled" then
         self:RefreshHudPlacement()
     end
     if key:match("^WorldColor") then UpdateWorldShader() end
@@ -5536,6 +6679,8 @@ end
 Session:SyncHudTheme()
 
 function Session:UpdateTargetHUD(target, dt)
+    if self:IsFriend(target) then target = nil end
+    dt = type(dt) == "number" and dt == dt and dt > 0 and dt < math.huge and dt or 0
     local character = target and target.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not Cfg.TargetHudEnabled or not humanoid or humanoid.Health <= 0 then
@@ -5599,8 +6744,17 @@ end
 function Session:Destroy()
     if not self.Alive then return end
     if self.Flush then pcall(function() self:Flush() end) end
+    self:ResetNoFall(true)
+    self:DestroyNoFallScripts()
+    self:ClearCharacterParts()
+    self:ResetTargetLocks()
     self:DestroySoftCamera()
     self.Alive = false
+    self:DestroyHitFeedback()
+    self:ClearHitSounds()
+    self:DestroyFriends()
+    for sound in pairs(self.HitFeedbackSounds) do sound:Destroy() end
+    table.clear(self.HitFeedbackSounds)
     self:ClearDamageNumbers(true)
     self:ClearHitSplashes()
     self:ClearWorldCubes()
@@ -5628,6 +6782,242 @@ function Session:Destroy()
         pcall(function() object:Destroy() end)
     end
 end
+
+-- Platform: Roblox client / Luau; target: shared cosmetic attack and damage feedback.
+do
+    local records, tools = {}, {}
+    local characterConnections, toolCharacter = {}, nil
+    local activeTool, activeTarget, sampleTime = nil, nil, 0
+    local bound, soundVersion, particleVersion = false, 0, 0
+    local WINDOW, MAX_TARGETS, serial = 1.5, 32, 0
+    Session.HitFeedbackTargets = records
+    local function finite(n) return type(n) == "number" and n == n and math.abs(n) < math.huge end
+    local function enabled() return Cfg.HitSoundEnabled or Cfg.DamageParticlesEnabled end
+    local function damageMode()
+        return (Cfg.HitSoundEnabled and Cfg.HitSoundOnDamage) or (Cfg.DamageParticlesEnabled and Cfg.HitParticlesOnDamage)
+    end
+    local function currentChannels(attack)
+        return (attack.Sound and attack.SoundVersion == soundVersion and Cfg.HitSoundEnabled and Cfg.HitSoundOnDamage)
+            or (attack.Particles and attack.ParticleVersion == particleVersion and Cfg.DamageParticlesEnabled and Cfg.HitParticlesOnDamage)
+    end
+    local function disconnect(bucket)
+        for _, connection in ipairs(bucket) do connection:Disconnect() end
+        table.clear(bucket)
+    end
+    local function drop(character)
+        local record = records[character]
+        if record then disconnect(record.Connections); records[character] = nil end
+    end
+    local function eligible(character)
+        if not character or not character.Parent or character == LocalPlayer.Character or Session:IsFriendCharacter(character) then return false end
+        local player = Players:GetPlayerFromCharacter(character)
+        if player and player.Character ~= character then return false end
+        return true
+    end
+    local function point(character)
+        local part = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
+        return part and part:IsA("BasePart") and part.Position or nil
+    end
+    local function owner(character, humanoid)
+        -- These are game conventions, not a universal Roblox damage-source API.
+        for _, parent in ipairs({humanoid, character}) do
+            for _, name in ipairs({"creator", "Creator", "attacker", "Attacker"}) do
+                local tag = parent:FindFirstChild(name)
+                if tag and tag:IsA("ObjectValue") then
+                    local value = tag.Value
+                    if value and (value == LocalPlayer or value == LocalPlayer.Character) then return true end
+                    if value and (value:IsA("Player") or value:IsA("Model")) then return false end
+                end
+            end
+        end
+        return nil
+    end
+    local function expire(record)
+        task.delay(WINDOW + 0.1, function()
+            if not Session.Alive or records[record.Character] ~= record then return end
+            if tick() - record.LastTime >= WINDOW or not eligible(record.Character) then drop(record.Character)
+            else expire(record) end
+        end)
+    end
+    local function watch(record)
+        if record.Watching or not damageMode() then return end
+        record.Watching = true
+        local humanoid, character = record.Humanoid, record.Character
+        record.Health = finite(humanoid.Health) and math.max(0, humanoid.Health) or nil
+        Session:Connect(humanoid.HealthChanged, function(nextHealth)
+            if records[character] ~= record then return end
+            local previous = record.Health
+            record.Health = finite(nextHealth) and math.max(0, nextHealth) or nil
+            if not previous or not record.Health or record.Health >= previous or not damageMode() or not eligible(character) then return end
+            local attack, now = nil, tick()
+            while #record.Pending > 0 do
+                local candidate = table.remove(record.Pending, 1)
+                if now - candidate.Time <= WINDOW and currentChannels(candidate) then attack = candidate; break end
+            end
+            if not attack and activeTarget == character and activeTool and activeTool.Parent == LocalPlayer.Character then
+                attack = {Time=now, Position=point(character), Sound=Cfg.HitSoundEnabled and Cfg.HitSoundOnDamage,
+                    Particles=Cfg.DamageParticlesEnabled and Cfg.HitParticlesOnDamage, SoundVersion=soundVersion, ParticleVersion=particleVersion}
+            end
+            if not attack then return end
+            local sourceOwner = owner(character, humanoid)
+            -- Allow a creator tag replicated just after Health to arrive; the attack is consumed once.
+            task.delay(0.03, function()
+                if not Session.Alive or records[character] ~= record or not eligible(character)
+                    or (record.Player and record.Player.Character ~= character)
+                    or humanoid.Parent ~= character or character:FindFirstChildOfClass("Humanoid") ~= humanoid then return end
+                local currentOwner = owner(character, humanoid)
+                if currentOwner == false or (currentOwner == nil and sourceOwner == false) then return end
+                if attack.Sound and attack.SoundVersion == soundVersion and Cfg.HitSoundEnabled and Cfg.HitSoundOnDamage then Session:PlayHitFeedback(character) end
+                if attack.Particles and attack.ParticleVersion == particleVersion and Cfg.DamageParticlesEnabled and Cfg.HitParticlesOnDamage then
+                    local position = point(character) or attack.Position
+                    if position then Session:EmitHitSplash(position, attack.Normal, character) end
+                end
+            end)
+        end, record.Connections)
+    end
+    function Session:RecordFeedbackAttack(character, position, normal, source)
+        if not self.Alive or not enabled() or not eligible(character) then return false end
+        local localCharacter = LocalPlayer.Character
+        local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+        if not localCharacter or not localCharacter.Parent or not localHumanoid or localHumanoid.Health <= 0 then return false end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or not finite(humanoid.Health) or humanoid.Health <= 0 then return false end
+        position = typeof(position) == "Vector3" and position or point(character)
+        if not position then return false end
+        source = source or "input"
+        local record, now = records[character], tick()
+        if record and record.Humanoid ~= humanoid then drop(character); record = nil end
+        if not record then
+            local count, oldest = 0, nil
+            for _, entry in pairs(records) do
+                count += 1
+                if not oldest or entry.Serial < oldest.Serial then oldest = entry end
+            end
+            if count >= MAX_TARGETS and oldest then drop(oldest.Character) end
+            serial += 1
+            record = {Character=character, Player=Players:GetPlayerFromCharacter(character), Humanoid=humanoid,
+                Connections={}, Pending={}, LastTime=now, Serial=serial}
+            records[character] = record
+            expire(record)
+        end
+        watch(record)
+        record.LastTime = now
+        if source == "held" then
+            -- Holding a Tool only maintains damage observation; it never invents click feedback.
+            if #record.Pending > 0 and now - record.Pending[#record.Pending].Time < 0.2 then return true end
+        elseif record.LastAttack and now - record.LastAttack.Time < 0.06 and not record.LastAttack.Sources[source] then
+            record.LastAttack.Sources[source] = true
+            return true
+        end
+        local attack = {Time=now, Position=position, Normal=normal, Sources={[source]=true},
+            SoundVersion=soundVersion, ParticleVersion=particleVersion,
+            Sound=Cfg.HitSoundEnabled and Cfg.HitSoundOnDamage,
+            Particles=Cfg.DamageParticlesEnabled and Cfg.HitParticlesOnDamage}
+        if source ~= "held" then record.LastAttack = attack end
+        if attack.Sound or attack.Particles then
+            while #record.Pending >= 16 do table.remove(record.Pending, 1) end
+            table.insert(record.Pending, attack)
+        end
+        if source ~= "held" then
+            if Cfg.HitSoundEnabled and not Cfg.HitSoundOnDamage then self:PlayHitFeedback(character) end
+            if Cfg.DamageParticlesEnabled and not Cfg.HitParticlesOnDamage then self:EmitHitSplash(position, normal, character) end
+        end
+        return true
+    end
+    function Session:CaptureFeedbackAttack(source)
+        if not self.Alive or not enabled() or window.Listening or UserInputService:GetFocusedTextBox() or window:PointerOverUI() then return nil end
+        local camera = workspace.CurrentCamera
+        if not camera then return nil end
+        local mouse = UserInputService:GetMouseLocation()
+        local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+        local params = RaycastParams.new()
+        params.FilterType, params.IgnoreWater = Enum.RaycastFilterType.Exclude, true
+        local exclusions = {self.Effects}
+        if LocalPlayer.Character then table.insert(exclusions, LocalPlayer.Character) end
+        if self.WorldCubesFolder then table.insert(exclusions, self.WorldCubesFolder) end
+        if Chams3DFolder then table.insert(exclusions, Chams3DFolder) end
+        params.FilterDescendantsInstances = exclusions
+        local hit = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+        local character = hit and hit.Instance
+        while character and character ~= workspace do
+            if character:IsA("Model") and character:FindFirstChildOfClass("Humanoid") then
+                if self:RecordFeedbackAttack(character, hit.Position, hit.Normal, source) then return character end
+                return nil
+            end
+            character = character.Parent
+        end
+        return nil
+    end
+    function Session:ResetHitFeedback()
+        for character in pairs(records) do drop(character) end
+        activeTarget = nil
+    end
+    function Session:PruneFriendlyFeedback()
+        for character in pairs(records) do if not eligible(character) then drop(character) end end
+        if activeTarget and not eligible(activeTarget) then activeTarget = nil end
+    end
+    local function removeTool(tool)
+        if tools[tool] then disconnect(tools[tool]); tools[tool] = nil end
+        if activeTool == tool then activeTool, activeTarget = nil, nil end
+    end
+    local function addTool(tool)
+        if not tool:IsA("Tool") or tools[tool] then return end
+        local bucket = {}; tools[tool] = bucket
+        Session:Connect(tool.Activated, function()
+            if tool.Parent ~= LocalPlayer.Character then return end
+            activeTool = tool
+            activeTarget = Session:CaptureFeedbackAttack("tool")
+        end, bucket)
+        Session:Connect(tool.Deactivated, function()
+            if activeTool == tool then activeTool, activeTarget = nil, nil end
+        end, bucket)
+    end
+    function Session:RefreshHitFeedback(key)
+        if key == "HitSoundEnabled" or key == "HitSoundOnDamage" then soundVersion += 1 end
+        if key == "DamageParticlesEnabled" or key == "HitParticlesOnDamage" then particleVersion += 1 end
+        for _, record in pairs(records) do
+            for i = #record.Pending, 1, -1 do
+                if not currentChannels(record.Pending[i]) then table.remove(record.Pending, i) end
+            end
+        end
+        if bound and toolCharacter == LocalPlayer.Character and enabled() then return end
+        self:ResetHitFeedback()
+        disconnect(characterConnections)
+        for tool in pairs(tools) do removeTool(tool) end
+        toolCharacter, activeTool, bound = LocalPlayer.Character, nil, false
+        if not self.Alive or not enabled() or not toolCharacter then return end
+        bound = true
+        for _, tool in ipairs(toolCharacter:GetChildren()) do addTool(tool) end
+        self:Connect(toolCharacter.ChildAdded, addTool, characterConnections)
+        self:Connect(toolCharacter.ChildRemoved, removeTool, characterConnections)
+    end
+    function Session:DestroyHitFeedback()
+        self:ResetHitFeedback()
+        disconnect(characterConnections)
+        for tool in pairs(tools) do removeTool(tool) end
+        activeTool, toolCharacter, bound = nil, nil, false
+    end
+    Session:Connect(LocalPlayer.CharacterAdded, function() Session:RefreshHitFeedback() end)
+    Session:Connect(LocalPlayer.CharacterRemoving, function() Session:DestroyHitFeedback() end)
+    Session:Connect(Players.PlayerRemoving, function(player) if player.Character then drop(player.Character) end end)
+    Session:Connect(UserInputService.InputBegan, function(input, processed)
+        if not processed and input.UserInputType == Enum.UserInputType.MouseButton1 then Session:CaptureFeedbackAttack("input") end
+    end)
+    Session:Connect(UserInputService.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then activeTool, activeTarget = nil, nil end
+    end)
+    Session:Connect(RunService.Heartbeat, function(dt)
+        if not activeTool or not damageMode() then return end
+        if activeTool.Parent ~= LocalPlayer.Character then activeTool, activeTarget = nil, nil; return end
+        sampleTime += dt
+        if sampleTime >= 0.12 then
+            sampleTime = 0
+            activeTarget = Session:CaptureFeedbackAttack("held")
+        end
+    end)
+end
+-- End shared cosmetic hit feedback.
+
 
 return Session
 end
@@ -5687,7 +7077,8 @@ end
 local function encodeFeatures()
     local values = {}
     for key, value in pairs(cfg) do
-        if typeof(value) == "Color3" then values[key] = {type="Color3", r=value.R, g=value.G, b=value.B}
+        if key == "Friends" then values[key] = session:CopyFriends()
+        elseif typeof(value) == "Color3" then values[key] = {type="Color3", r=value.R, g=value.G, b=value.B}
         elseif typeof(value) == "UDim2" then values[key] = {type="UDim2", xs=value.X.Scale, xo=value.X.Offset, ys=value.Y.Scale, yo=value.Y.Offset}
         else values[key] = value end
     end
@@ -5698,6 +7089,7 @@ end
 local function decodeFeatures(doc)
     if type(doc) ~= "table" or doc.version ~= 1 or type(doc.values) ~= "table" then return nil, "Invalid Notification config." end
     local out = table.clone(session.Defaults)
+    out.Friends = {}
     local count = 0
     for key, value in pairs(doc.values) do
         count += 1
@@ -5706,7 +7098,11 @@ local function decodeFeatures(doc)
         local teamBind = key:sub(-4) == "Bind" and isTeamKey(key:sub(1,-5))
         if default ~= nil or isTeamKey(key) or teamBind then
             local range = NumberRanges[key]
-            if key:sub(-4) == "Bind" then
+            if key == "Friends" then
+                local friends, message = session:ValidateFriends(value)
+                if not friends then return nil, message end
+                out.Friends = friends
+            elseif key:sub(-4) == "Bind" then
                 local enum, valid = parseBind(value)
                 if not valid then return nil, "Invalid keybind: " .. key end
                 out[key] = enum and enum.Name or "None"
@@ -5890,6 +7286,17 @@ local teamSections = {}
 for _, feature in ipairs(FeatureSchema) do
     local section = tabs[feature.Tab]:Section({Title=feature.Name, Sub=feature.Sub ~= "" and feature.Sub or nil})
     toggle(section, feature.Name, feature.Key)
+    if feature.Key == "HitSoundEnabled" or feature.Key == "DamageParticlesEnabled" then
+        section:Label({Text="On Damage Dealt waits for health loss after your attack. Attacker tags are checked when available; otherwise attribution is estimated.", Size=11, Color="Muted"})
+    end
+    if feature.Key == "NoFallEnabled" then
+        section:Label({Text="Matches dedicated local fall scripts by name. Server damage and combined controllers may remain active.", Size=11, Color="Muted"})
+        local status = section:Label({Text=session:GetNoFallScriptStatus(), Size=11, Color="Muted"})
+        session.NoFallStatusChanged = function(text)
+            if not window.Destroyed then status:SetText(text) end
+        end
+        section:Button({Text="Rescan local fall scripts", Callback=function() session:RefreshNoFallScripts() end})
+    end
     if feature.Key == "KillAuraEnabled" then
         section:Label({Text="Aim hooks start disabled. Enable them separately for this session if needed; this choice is not saved.", Size=11, Color="Muted"})
         section:Button({Text="Enable aim hooks for this session", Callback=function()
@@ -5964,6 +7371,9 @@ end)
 
 local settings = window:Tab({Name="Settings", Icon="settings"})
 window:AddAppearance(settings,{})
+local performance = settings:Section({Title="Performance", Icon="settings"})
+toggle(performance,"Low-end PC mode","LowEndMode")
+performance:Label({Text="Caps cosmetic effects: 40 cubes at 30 Hz, 64 droplets, 24 segments per jump ring. Combat and camera updates keep their normal rate.", Size=11, Color="Muted"})
 local configs = window:Tab({Name="Config", Icon="file-cog", Columns=1})
 window:AddConfigs(configs)
 local localSection = configs:Section({Title="Local Notification config", Icon="save"})
@@ -5978,6 +7388,7 @@ localSection:Button({Text="Reset feature settings",Icon="rotate-ccw",Callback=fu
     notify("Notification values and keybinds reset.","success")
 end})
 localSection:Label({Text="Bind: click the key chip, then press a keyboard key or MB2–MB3. Click a bind to edit; click it again to clear. Left mouse cannot be assigned. Escape cancels; Backspace / Delete clears. Menu key stays out of Keybind List; the launcher keeps an unbound menu accessible.",Size=12})
+Nova.AddFriendManager(window, session)
 syncControls()
 window:SelectTab(tabs.Combat)
 Startup:Mark("menu.open.begin")
@@ -5988,4 +7399,7 @@ Startup:Mark("marquee.begin")
 Nova.StartMarquee(window, {window.Gui, window.Parking, session.OverlayGui})
 Startup:Mark("startup.ready")
 session.Ready = true
+session:RefreshHitFeedback()
+if cfg.HitSoundEnabled then session:PrepareHitSound() end
+session:RefreshNoFallScripts()
 return window
