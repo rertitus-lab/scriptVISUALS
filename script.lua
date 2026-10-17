@@ -2263,7 +2263,7 @@ end
 
 -- Platform: Roblox client / Luau; target: event-driven Nova Friend Manager interface.
 do
-    local U, T, F = Nova.U, Nova.Theme, Nova.Font
+    local U, T, F, M, S = Nova.U, Nova.Theme, Nova.Font, Nova.Motion, Nova.Sound
     local new, bind, label = U.new, T.bind, Nova.label
     function Nova.AddFriendManager(window, session)
         local players = session.Players or Nova.Services.Players
@@ -2282,6 +2282,7 @@ do
         local controller = {
             Tab = tab, ServerRows = {}, FriendRows = {}, Connections = {},
             PlayerConnections = {}, Roster = {}, Alive = true, SelectedUserId = nil,
+            MotionTweens = {}, RetiringRows = {},
         }
         session.FriendManager = controller
         local function alive()
@@ -2296,15 +2297,61 @@ do
             for _, connection in ipairs(bucket or {}) do connection:Disconnect() end
             if bucket then table.clear(bucket) end
         end
+        -- Keep one tween per property group, so rapid interactions cannot leave a stale
+        -- transition running against a new selection or a destroyed player row.
+        local function animate(object, slot, info, props)
+            local slots = controller.MotionTweens[object]
+            if not slots then slots = {}; controller.MotionTweens[object] = slots end
+            if slots[slot] then slots[slot]:Cancel(); slots[slot] = nil end
+            slots[slot] = M.tween(object, info, props)
+        end
         local function release(frame)
             local objects = frame:GetDescendants()
             objects[#objects + 1] = frame
             for _, object in ipairs(objects) do
+                local slots = controller.MotionTweens[object]
+                if slots then
+                    for _, tween in pairs(slots) do tween:Cancel() end
+                    controller.MotionTweens[object] = nil
+                end
                 T.registry[object] = nil
                 U.textReg[object] = nil
                 U.cornerReg[object] = nil
             end
             frame:Destroy()
+        end
+        local function interact(button, opts, bucket)
+            local scale = new("UIScale", {Name = "InteractionScale", Scale = 1, Parent = button})
+            local stroke = opts.Stroke or U.stroke(button, Color3.new(1,1,1), 1, 1)
+            bind(stroke, "Color", opts.Danger and "Danger" or "Accent")
+            local hover, pressed = false, false
+            local function paint()
+                if not alive() or not button.Parent then return end
+                animate(button, "surface", "Quick", {BackgroundTransparency = pressed and opts.PressAlpha
+                    or hover and opts.HoverAlpha or opts.Alpha})
+                animate(stroke, "edge", "Quick", {Transparency = hover and 0.48 or opts.EdgeAlpha or 1})
+                animate(scale, "scale", pressed and "Quick" or "PopSmall", {Scale = pressed and (opts.PressScale or 0.975) or 1})
+                if opts.Glyph then
+                    animate(opts.Glyph, "color", "Quick", {TextColor3 = T.resolve(hover and "Danger" or "Muted")})
+                end
+            end
+            if opts.Glyph then bind(opts.Glyph, "TextColor3", function(tk) return hover and tk.Danger or tk.Muted end) end
+            connect(button.MouseEnter, function()
+                if not alive() then return end
+                hover = true; paint(); S.play("hover", 0.4)
+            end, bucket)
+            connect(button.MouseLeave, function() hover, pressed = false, false; paint() end, bucket)
+            connect(button.MouseButton1Down, function() pressed = true; paint() end, bucket)
+            connect(button.MouseButton1Up, function() pressed = false; paint() end, bucket)
+            connect(button.InputEnded, function(input)
+                if input.UserInputType == Enum.UserInputType.Touch then hover, pressed = false, false; paint() end
+            end, bucket)
+            connect(button.MouseButton1Click, function()
+                if not alive() or not button.Parent then return end
+                pressed = false; paint(); S.play("click")
+                M.ripple(button, T.resolve(opts.Danger and "Danger" or "Accent"), true)
+            end, bucket)
+            return scale
         end
         local function list(section, name, emptyText, maxRows)
             local row = section:_row({Name = name, Text = "", Height = 60, Reserve = 0})
@@ -2323,7 +2370,11 @@ do
             local result = {Row = row, Scroll = scroll, Empty = empty, MaxRows = maxRows}
             function result:Resize(count)
                 empty.Visible = count == 0
-                row.Frame.Size = UDim2.new(1, 0, 0, math.max(1, math.min(count, maxRows)) * 56 + 4)
+                local height = math.max(1, math.min(count, maxRows)) * 56 + 4
+                if self.Height ~= height then
+                    animate(row.Frame, "height", "Base", {Size = UDim2.new(1, 0, 0, height)})
+                    self.Height = height
+                end
                 scroll.CanvasSize = UDim2.fromOffset(0, math.max(1, count) * 56)
             end
             return result
@@ -2332,89 +2383,134 @@ do
         local friendList = list(friendsSection, "Friends", "No friends added yet.", 3)
         local selection = serverSection:_row({Name = "FriendSelection", Text = "", Height = 76, Reserve = 0})
         selection.Title.Visible, selection.Right.Visible, selection.Hover.Visible = false, false, false
-        local selectedLabel = label({Parent = selection.Frame, Text = "", Size = 13, Font = F.Semi(),
+        selection.Frame.ClipsDescendants = true
+        local selectionContent = new("CanvasGroup", {Name = "SelectionContent", Size = UDim2.new(1,0,0,76),
+            BackgroundTransparency = 1, GroupTransparency = 1, Parent = selection.Frame})
+        local selectedLabel = label({Parent = selectionContent, Text = "", Size = 13, Font = F.Semi(),
             Pos = UDim2.fromOffset(10, 2), Box = UDim2.new(1, -20, 0, 22), Truncate = true})
         local function actionButton(text, x, primary)
             local button = new("TextButton", {Name = text, Text = "", AutoButtonColor = false,
                 Position = UDim2.new(x, x == 0 and 10 or 4, 0, 32), Size = UDim2.new(0.5, -14, 0, 34),
                 BorderSizePixel = 0, BackgroundTransparency = primary and 0.08 or 0.25,
-                ZIndex = 3, Parent = selection.Frame})
+                ZIndex = 3, ClipsDescendants = true, Parent = selectionContent})
             bind(button, "BackgroundColor3", primary and "Accent" or "Surface2")
             U.corner(button, 9)
-            bind(U.stroke(button, Color3.new(1,1,1), 1, 0.85), "Color", "Glass")
+            local stroke = U.stroke(button, Color3.new(1,1,1), 1, 0.85)
             label({Parent = button, Text = text, Font = F.Semi(), Size = 13,
                 Box = UDim2.fromScale(1,1), AlignX = Enum.TextXAlignment.Center,
                 Color = primary and "OnAccent" or "Text", Z = 4})
-            connect(button.MouseEnter, function()
-                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0})
-            end)
-            connect(button.MouseLeave, function()
-                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = primary and 0.08 or 0.25})
-            end)
+            interact(button, {Alpha = primary and 0.08 or 0.25, HoverAlpha = 0, PressAlpha = 0,
+                Stroke = stroke, EdgeAlpha = 0.85})
             return button
         end
         controller.AddButton = actionButton("Add", 0, true)
         controller.CancelButton = actionButton("Cancel", 0.5, false)
         controller.SelectionRow = selection.Frame
+        controller.SelectionContent = selectionContent
         controller.SelectedLabel = selectedLabel
         controller.ServerList, controller.FriendsList = serverList.Scroll, friendList.Scroll
+        local selectionVisible, selectionToken = nil, 0
+        local function showSelection(show)
+            if selectionVisible == show then return end
+            selectionVisible, selectionToken = show, selectionToken + 1
+            local token = selectionToken
+            if show then
+                selection.SetVisible(true)
+                animate(selection.Frame, "height", "Base", {Size = UDim2.new(1,0,0,76)})
+                animate(selectionContent, "reveal", "Base", {GroupTransparency = 0, Position = UDim2.fromOffset(0,0)})
+            else
+                animate(selection.Frame, "height", "Exit", {Size = UDim2.new(1,0,0,0)})
+                animate(selectionContent, "reveal", "Exit", {GroupTransparency = 1, Position = UDim2.fromOffset(0,6)})
+                if not M.enabled or not selection.Frame.Visible or selectedLabel.Text == "" then
+                    selection.SetVisible(false)
+                else
+                    task.delay(0.19, function()
+                        if alive() and token == selectionToken and not selectionVisible then selection.SetVisible(false) end
+                    end)
+                end
+            end
+        end
         local render
         local function createRow(parent, id, friend)
             local button = new("TextButton", {Name = "Player_" .. id, Text = "", AutoButtonColor = false,
                 Size = UDim2.new(1, -7, 0, 52), BackgroundTransparency = 0.72,
-                BorderSizePixel = 0, ZIndex = 2, Parent = parent})
+                BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 2, Parent = parent})
             bind(button, "BackgroundColor3", "Surface2")
             U.corner(button, 9)
+            local content = new("CanvasGroup", {Name = "PlayerContent", Size = UDim2.new(1,0,0,52),
+                BackgroundTransparency = 1, GroupTransparency = M.enabled and 1 or 0,
+                Position = UDim2.fromOffset(M.enabled and 8 or 0,0), ZIndex = 2, Parent = button})
             local selected = new("Frame", {Name = "Selected", BackgroundTransparency = 0.78,
-                BorderSizePixel = 0, Size = UDim2.fromScale(1,1), Visible = false, ZIndex = 2, Parent = button})
+                BorderSizePixel = 0, Size = UDim2.fromScale(1,1), Visible = false, ZIndex = 2, Parent = content})
             bind(selected, "BackgroundColor3", "Accent")
             U.corner(selected, 9)
             local avatar = new("ImageLabel", {Name = "Avatar", BackgroundTransparency = 0.3,
                 BorderSizePixel = 0, Position = UDim2.fromOffset(9,7), Size = UDim2.fromOffset(38,38),
-                Image = "rbxthumb://type=AvatarHeadShot&id=" .. id .. "&w=150&h=150", ZIndex = 3, Parent = button})
+                Image = "rbxthumb://type=AvatarHeadShot&id=" .. id .. "&w=150&h=150", ZIndex = 3, Parent = content})
             bind(avatar, "BackgroundColor3", "Elevated")
             U.corner(avatar, UDim.new(1,0))
-            local title = label({Parent = button, Text = "", Font = F.Semi(), Size = 13,
+            local title = label({Parent = content, Text = "", Font = F.Semi(), Size = 13,
                 Pos = UDim2.fromOffset(58,7), Box = UDim2.new(1,-112,0,19), Truncate = true, Z = 3})
-            local subtitle = label({Parent = button, Text = "", Font = F.Regular(), Size = 11,
+            local subtitle = label({Parent = content, Text = "", Font = F.Regular(), Size = 11,
                 Pos = UDim2.fromOffset(58,27), Box = UDim2.new(1,-112,0,16), Color = "Muted", Truncate = true, Z = 3})
             local row = {Button = button, Avatar = avatar, Title = title, Subtitle = subtitle,
-                Selection = selected, UserId = id, Connections = {}}
+                Selection = selected, Content = content, UserId = id, Connections = {}, SelectionToken = 0}
+            row.Scale = interact(button, {Alpha = 0.72, HoverAlpha = 0.35, PressAlpha = 0.2, PressScale = 0.99}, row.Connections)
+            function row:SetSelected(on)
+                if self.Selected == on then return end
+                local hadSelection = self.Selected
+                self.Selected, self.SelectionToken = on, self.SelectionToken + 1
+                local token = self.SelectionToken
+                if on then selected.Visible = true; selected.BackgroundTransparency = 1 end
+                animate(selected, "selection", "Quick", {BackgroundTransparency = on and 0.78 or 1})
+                if not on then
+                    if not M.enabled or hadSelection == nil then selected.Visible = false
+                    else task.delay(0.16, function()
+                        if alive() and button.Parent and token == self.SelectionToken and not self.Selected then selected.Visible = false end
+                    end) end
+                end
+            end
             if friend then
                 local remove = new("TextButton", {Name = "RemoveFriend", Text = "", AutoButtonColor = false,
                     Size = UDim2.fromOffset(30,30), AnchorPoint = Vector2.new(1,0.5),
                     Position = UDim2.new(1,-9,0.5,0), BackgroundTransparency = 0.65,
-                    BorderSizePixel = 0, ZIndex = 5, Parent = button})
+                    BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5, Parent = content})
                 bind(remove, "BackgroundColor3", "Elevated")
                 U.corner(remove, 8)
-                label({Parent = remove, Text = "×", Font = F.Semi(), Size = 22,
+                local glyph = label({Parent = remove, Text = "×", Font = F.Semi(), Size = 22,
                     Box = UDim2.fromScale(1,1), AlignX = Enum.TextXAlignment.Center, Color = "Muted", Z = 6})
                 row.RemoveButton = remove
+                row.RemoveScale = interact(remove, {Alpha = 0.65, HoverAlpha = 0.2, PressAlpha = 0,
+                    Danger = true, Glyph = glyph, PressScale = 0.92}, row.Connections)
                 connect(remove.MouseButton1Click, function()
                     if alive() then session:RemoveFriend(tonumber(id)) end
                 end, row.Connections)
             else
-                row.Status = label({Parent = button, Text = "", Font = F.Semi(), Size = 10,
+                row.Status = label({Parent = content, Text = "", Font = F.Semi(), Size = 10,
                     Anchor = Vector2.new(1,0.5), Pos = UDim2.new(1,-9,0.5,0),
                     Box = UDim2.fromOffset(42,18), AlignX = Enum.TextXAlignment.Right, Color = "Accent", Z = 3})
                 connect(button.MouseButton1Click, function()
                     controller:Select(id)
                 end, row.Connections)
             end
-            connect(button.MouseEnter, function()
-                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0.35})
-            end, row.Connections)
-            connect(button.MouseLeave, function()
-                Nova.Motion.tween(button, "Quick", {BackgroundTransparency = 0.72})
-            end, row.Connections)
+            animate(content, "reveal", "Base", {GroupTransparency = 0, Position = UDim2.fromOffset(0,0)})
             return row
         end
         local function removeRow(rows, id)
             local row = rows[id]
             if not row then return end
             disconnect(row.Connections)
-            release(row.Button)
             rows[id] = nil
+            row.SelectionToken += 1
+            if alive() and M.enabled then
+                controller.RetiringRows[row] = true
+                row.Button.Active = false
+                animate(row.Content, "reveal", "Exit", {GroupTransparency = 1, Position = UDim2.fromOffset(-8,0)})
+                animate(row.Button, "height", "Exit", {Size = UDim2.new(1,-7,0,0), BackgroundTransparency = 1})
+                task.delay(0.19, function()
+                    if controller.RetiringRows[row] then controller.RetiringRows[row] = nil; release(row.Button) end
+                end)
+            else release(row.Button) end
         end
         local function sorted(records)
             table.sort(records, function(a,b)
@@ -2448,8 +2544,14 @@ do
                 local row = controller.ServerRows[id]
                 row.Button.LayoutOrder = order
                 row.Title.Text, row.Subtitle.Text = record.DisplayName, "@" .. record.Name
-                row.Status.Text = friendIds[id] and "Added" or ""
-                row.Selection.Visible = controller.SelectedUserId == id
+                local added = friendIds[id] == true
+                if row.Added ~= added then
+                    row.Added = added
+                    row.Status.Text = "Added"
+                    row.Status.TextTransparency = added and 1 or row.Status.TextTransparency
+                    animate(row.Status, "status", "Quick", {TextTransparency = added and 0 or 1})
+                end
+                row:SetSelected(controller.SelectedUserId == id)
                 searchPlayers[#searchPlayers+1] = record.Name .. " " .. record.DisplayName
             end
             for order, record in ipairs(friendRecords) do
@@ -2468,8 +2570,10 @@ do
             friendList:Resize(#friendRecords)
             serverSection:SetTitle("Server players · " .. #records)
             friendsSection:SetTitle("Friends · " .. #friendRecords)
-            selection.SetVisible(controller.SelectedUserId ~= nil)
-            selectedLabel.Text = controller.SelectedUserId and ("Add @" .. selectedPlayer.Name .. " to friends?") or ""
+            showSelection(controller.SelectedUserId ~= nil)
+            if controller.SelectedUserId then
+                selectedLabel.Text = "Add @" .. selectedPlayer.Name .. " to friends?"
+            end
         end
         function controller:Select(playerOrId)
             if not alive() then return false end
@@ -2531,12 +2635,17 @@ do
         function controller:Destroy()
             if not self.Alive then return end
             self.Alive = false
+            selectionToken += 1
             disconnect(self.Connections)
             for _, bucket in pairs(self.PlayerConnections) do disconnect(bucket) end
             table.clear(self.PlayerConnections)
             table.clear(self.Roster)
             for id in pairs(self.ServerRows) do removeRow(self.ServerRows, id) end
             for id in pairs(self.FriendRows) do removeRow(self.FriendRows, id) end
+            for row in pairs(self.RetiringRows) do release(row.Button) end
+            table.clear(self.RetiringRows)
+            for _, slots in pairs(self.MotionTweens) do for _, tween in pairs(slots) do tween:Cancel() end end
+            table.clear(self.MotionTweens)
             self.SelectedUserId = nil
         end
         controller.Disconnect = controller.Destroy
@@ -3219,6 +3328,8 @@ local FeatureSchema = {
         { Kind = "Toggle", Name = "Only Kill Aura", Key = "TargetHudOnlyKillaura" },
         { Kind = "Color", Name = "Normal HB color", Key = "TargetHudNormalColor" },
         { Kind = "Color", Name = "Damage HB color", Key = "TargetHudDamageColor" },
+        { Kind = "Toggle", Name = "Sync menu color", Key = "TargetHudSyncColor" },
+        { Kind = "Slider", Name = "HUD scale", Key = "TargetHudScale" },
         { Kind = "Toggle", Name = "HUD in player", Key = "TargetHudInPlayer" },
         { Kind = "Slider", Name = "HUD side", Key = "TargetHudSide" },
         { Kind = "Slider", Name = "Head distance (px)", Key = "TargetHudHeadDistance" },
@@ -3232,7 +3343,8 @@ local FeatureSchema = {
         { Kind = "Slider", Name = "Glow", Key = "TargetESPGlow" },
         { Kind = "Slider", Name = "Rotation speed", Key = "TargetESPRotationSpeed" },
     } },
-    { Name = "2D Box Esp", Key = "Esp2DBoxEnabled", Tab = "Visuals", Sub = "Players", Teams = "Esp2DBoxIgnore_", Options = {
+    { Name = "Box ESP", Key = "Esp2DBoxEnabled", Tab = "Visuals", Sub = "Players", Teams = "Esp2DBoxIgnore_", Options = {
+        { Kind = "Toggle", Name = "Sync menu color", Key = "Esp2DBoxSyncColor" },
         { Kind = "Toggle", Name = "Fill Box", Key = "Esp2DBoxFillEnabled" },
         { Kind = "Toggle", Name = "Nametags", Key = "Esp2DBoxNametagsEnabled" },
         { Kind = "Toggle", Name = "Healthbar", Key = "Esp2DBoxHealthBarEnabled" },
@@ -3335,6 +3447,15 @@ local FeatureSchema = {
         { Kind = "Slider", Name = "Vertical offset limit", Key = "SoftCameraVerticalLimit" },
         { Kind = "Slider", Name = "Return speed", Key = "SoftCameraReturnSpeed" },
     } },
+    { Name = "Stretch Screen", Key = "StretchScreenEnabled", Tab = "Visuals", Sub = "Camera", Teams = nil, Options = {
+        { Kind = "Slider", Name = "Horizontal stretch (%)", Key = "StretchScreenAmount" },
+    } },
+    { Name = "Viewmodel (Bridge Duel)", Key = "BridgeViewmodelEnabled", Tab = "Visuals", Sub = "Effects", Teams = nil, Options = {
+        { Kind = "Slider", Name = "X offset", Key = "BridgeViewmodelX" },
+        { Kind = "Slider", Name = "Y offset", Key = "BridgeViewmodelY" },
+        { Kind = "Slider", Name = "Z offset", Key = "BridgeViewmodelZ" },
+        { Kind = "Slider", Name = "Size", Key = "BridgeViewmodelScale" },
+    } },
     { Name = "No Fall Damage", Key = "NoFallEnabled", Tab = "Movement", Sub = "", Teams = nil, Options = {
         { Kind = "Toggle", Name = "Client fall scripts", Key = "NoFallClientScripts" },
         { Kind = "Toggle", Name = "Velocity reset", Key = "NoFallVelocityReset" },
@@ -3356,7 +3477,7 @@ local NumberRanges = {
     WalkSpeedValue = {1, 200, 0},
     VelocityHorizontal = {0, 100, 0},
     VelocityVertical = {0, 100, 0},
-    AirStrafeSpeed = {1, 150, 0},
+    AirStrafeSpeed = {1, 500, 0},
     SpiderSpeed = {1, 150, 0},
     JitterRange = {0, 180, 0},
     JitterSpeed = {1, 60, 0},
@@ -3406,7 +3527,13 @@ local NumberRanges = {
     ParticleSpeed = {1, 60, 1},
     TargetHudSide = {1, 2, 0},
     TargetHudHeadDistance = {0, 240, 0},
+    TargetHudScale = {0.5, 2, 2},
     NoFallMinSpeed = {1, 150, 0},
+    BridgeViewmodelX = {-2, 2, 2},
+    BridgeViewmodelY = {-2, 2, 2},
+    BridgeViewmodelZ = {-2, 2, 2},
+    BridgeViewmodelScale = {0.5, 1.5, 2},
+    StretchScreenAmount = {100, 500, 0},
     SoftCameraLag = {0.03, 0.25, 2},
     SoftCameraVerticalSmoothness = {0.12, 0.75, 2},
     SoftCameraVerticalLimit = {2, 12, 1},
@@ -3535,6 +3662,36 @@ local EspHiddenState = {}
 local ViewHandsParts = {} 
 local CurrentArmJoints = {}
 local OrigMotorC0 = {}
+do
+    local applied = {}
+    local function finite(v) return v == v and math.abs(v) < math.huge end
+    function Session:IsFiniteVector(v)
+        return typeof(v) == "Vector3" and finite(v.X) and finite(v.Y) and finite(v.Z)
+    end
+    function Session:IsFiniteFrame(v)
+        return typeof(v) == "CFrame" and self:IsFiniteVector(v.Position)
+            and self:IsFiniteVector(v.RightVector) and self:IsFiniteVector(v.UpVector) and self:IsFiniteVector(v.LookVector)
+    end
+    function Session:HorizontalFacing(origin, target)
+        if not self:IsFiniteVector(origin) or not self:IsFiniteVector(target) then return nil end
+        local flat = Vector3.new(target.X, origin.Y, target.Z)
+        local distance = (flat - origin).Magnitude
+        if not finite(distance) or distance <= 0.001 then return nil end
+        local frame = CFrame.lookAt(origin, flat)
+        return self:IsFiniteFrame(frame) and frame or nil
+    end
+    function Session:WriteArmC0(joint, frame)
+        if not joint.Parent or not self:IsFiniteFrame(frame) or not self:IsFiniteFrame(joint.C0) then return end
+        if not OrigMotorC0[joint] then OrigMotorC0[joint] = joint.C0 end
+        joint.C0, applied[joint] = frame, frame
+    end
+    function Session:RestoreArmJoints()
+        for joint, original in pairs(OrigMotorC0) do
+            if joint.Parent and joint.C0 == applied[joint] then joint.C0 = original end
+        end
+        table.clear(OrigMotorC0); table.clear(applied)
+    end
+end
 local AntiFlingCache = {}
 
 local SharedTarget = nil
@@ -3564,8 +3721,12 @@ local Cfg = {
     SoftCameraReturnSpeed = 14,
 
     Friends = {},
+    StretchScreenEnabled = false, StretchScreenAmount = 125,
+    BridgeViewmodelEnabled = false, BridgeViewmodelX = 0, BridgeViewmodelY = 0, BridgeViewmodelZ = 0, BridgeViewmodelScale = 1,
+    Esp2DBoxSyncColor = true,
     HitSoundOnDamage = false, HitParticlesOnDamage = false,
     TargetHudInPlayer = false, TargetHudSide = 1, TargetHudHeadDistance = 24,
+    TargetHudScale = 1, TargetHudSyncColor = true,
     NoFallEnabled = false, NoFallMinSpeed = 1, NoFallLandingNotify = false,
     NoFallClientScripts = true, NoFallVelocityReset = false,
     AimbotTargetLock = false, KillAuraTargetLock = false, TargetStrafeTargetLock = false,
@@ -3758,145 +3919,516 @@ local function SaveLocalMAIN()
     if Session.Alive and Session.Save then Session:Save() end
 end
 
--- Native hooks are explicit per-session actions: never call them during startup or config load.
--- Reuse the existing dispatcher on reload; a new session starts detached.
-Session.HooksAvailable = type(hookmetamethod) == "function" and type(checkcaller) == "function" and type(getnamecallmethod) == "function"
-Session.HooksEnabled = false
-if environment.__NotificationNovaHooks then environment.__NotificationNovaHooks.Session = nil end
-function Session:InstallAimHooks()
-    if not self.Alive then return false, "This session has ended." end
-    if self.HooksEnabled then return true, "Aim hooks are already enabled for this session." end
-    if not self.HooksAvailable then return false, "Aim hooks are unavailable in this environment." end
-    Startup:Mark("aim-hooks.manual.begin")
-    local hooks = environment.__NotificationNovaHooks
-    if not hooks then
-        hooks = {}
-        environment.__NotificationNovaHooks = hooks
+
+-- Platform: Roblox client / Luau; target: aim reads isolated from camera rendering and collision.
+-- No Cam Rotate owns activation; disabling it detaches this session from the native callbacks.
+do
+    local VERSION = 4
+    local previous = environment.__NotificationNovaHooks
+    if previous then previous.Session = nil end
+    if previous and previous.Version ~= VERSION then environment.__NotificationNovaHooks = nil end
+    local function available()
+        return type(hookmetamethod) == "function" and type(checkcaller) == "function"
+            and type(getnamecallmethod) == "function" and type(setnamecallmethod) == "function" and type(getcallingscript) == "function"
+            and debug ~= nil and type(debug.info) == "function"
     end
-    hooks.Session = nil
-    local available = type(hookmetamethod) == "function" and type(checkcaller) == "function" and type(getnamecallmethod) == "function"
-    Session.HooksAvailable = available
-    if available and not hooks.IndexInstalled then
-        local oldIndex
-        local ok, err = pcall(function()
-            oldIndex = hookmetamethod(game, "__index", function(object, key)
-                local current = hooks.Session
-                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() or current.FriendPlayers[current.KaTarget] then return oldIndex(object, key) end
-                if key ~= "CFrame" and key ~= "Hit" and key ~= "Target" and key ~= "UnitRay" then return oldIndex(object, key) end
-                local character = current.KaTarget.Character
-                local part = character and character:FindFirstChild("HumanoidRootPart")
-                if not part or typeof(object) ~= "Instance" then return oldIndex(object, key) end
-                if key == "CFrame" and object:IsA("Camera") and current.Cfg.KillAuraNoCamRotation then
-                    local value = oldIndex(object, key)
-                    return CFrame.lookAt(value.Position, part.Position)
-                elseif object:IsA("Mouse") then
-                    if key == "Hit" then return CFrame.new(part.Position) end
-                    if key == "Target" then return part end
-                    if key == "UnitRay" and workspace.CurrentCamera then
-                        local origin = workspace.CurrentCamera.CFrame.Position
-                        local direction = part.Position - origin
-                        if direction.Magnitude > 0.001 then return Ray.new(origin, direction.Unit) end
-                    end
-                end
+    Session.HooksAvailable = available()
+    Session.HooksEnabled = false
+    Session.AimHooksRequested = false
+    Session.HookStatus = "No Cam Rotate is off."
+
+    -- Cache source names, not whole call stacks: the same utility can serve camera and combat.
+    -- Keep movement and networking consumers on real transforms as well as camera consumers.
+    local sourceCache, sourceCount = {}, 0
+    local cameraSegments = {".camera.", ".cameraruntime.", ".cameramodule.", ".cameracontroller.",
+        ".camerainput.", ".cameracollision.", ".camerasubjecttracker.", ".auravisibilitytracker.",
+        ".viewmodelcontroller.", ".controlmodule.", ".playermodule.",
+        ".network.", ".networking.", ".replication.", ".replicationcontroller.",
+        ".networkcontroller.", ".charactercontroller.", ".charactermovement.",
+        ".movementcontroller.", ".characterreplication.", ".playercontroller.", ".humanoidcontroller."}
+    local function cameraSource(source)
+        if type(source) ~= "string" then return false end
+        local cached = sourceCache[source]
+        if cached ~= nil then return cached end
+        local path = "." .. source:lower():gsub("[/\\]", ".") .. "."
+        local protected = false
+        for _, segment in ipairs(cameraSegments) do
+            if path:find(segment, 1, true) then protected = true; break end
+        end
+        if sourceCount >= 128 then table.clear(sourceCache); sourceCount = 0 end
+        sourceCache[source], sourceCount = protected, sourceCount + 1
+        return protected
+    end
+
+    function Session:IsAimCameraCaller(caller)
+        if typeof(caller) ~= "Instance" then return false end
+        -- Include ancestors so CameraRuntime helper modules remain protected after a rename.
+        local node = caller
+        for _ = 1, 32 do
+            if not node or node == game then break end
+            if cameraSource(node.Name) then return true end
+            node = node.Parent
+        end
+        return false
+    end
+
+    function Session:CanRedirectAimCaller(caller)
+        if typeof(caller) ~= "Instance" or not caller.Parent then return false end
+        if not caller:IsA("LocalScript") and not caller:IsA("ModuleScript")
+            and not (caller:IsA("Script") and caller.RunContext == Enum.RunContext.Client) then return false end
+        if self:IsAimCameraCaller(caller) then return false end
+        -- getcallingscript can identify the entry script rather than the nested camera module.
+        -- Inspect the active sources too, without requiring or modifying game modules.
+        if not debug or type(debug.info) ~= "function" then return false end
+        for level = 2, 18 do
+            local ok, source = pcall(debug.info, level, "s")
+            if not ok then return false end
+            if source == nil then return true end
+            if cameraSource(source) then return false end
+        end
+        -- An incomplete/deep stack cannot establish that this call is outside the camera.
+        return false
+    end
+
+    function Session:GetAimHookPart()
+        if not self.Alive or not self.HooksEnabled or not self.Cfg.KillAuraEnabled
+            or not self.Cfg.KillAuraNoCamRotation then return nil end
+        local target = self.KaTarget
+        if typeof(target) ~= "Instance" or not target:IsA("Player") or target.Parent ~= Players
+            or target == LocalPlayer or (self.FriendPlayers and self.FriendPlayers[target]) then return nil end
+        local character, localCharacter = target.Character, LocalPlayer.Character
+        local part = character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+        local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+        if not character or not character.Parent or not part or not part:IsA("BasePart")
+            or not humanoid or humanoid.Health <= 0 or not localCharacter or not localCharacter.Parent or not root or not root:IsA("BasePart")
+            or not localHumanoid or localHumanoid.Health <= 0 then return nil end
+        local range = self.Cfg.KillAuraRange
+        local distance = (part.Position - root.Position).Magnitude
+        if type(range) ~= "number" or range ~= range or range == math.huge or range < 0
+            or distance ~= distance or distance > range then return nil end
+        return part
+    end
+
+    local function redirectPart(hooks)
+        local current = hooks.Session
+        if not current or not current.Alive or not current.HooksEnabled or not current.Cfg.KillAuraEnabled
+            or not current.Cfg.KillAuraNoCamRotation or not current.KaTarget then return nil end
+        local ok, ownCall = pcall(checkcaller)
+        if not ok or ownCall ~= false or type(getcallingscript) ~= "function" then return nil end
+        local callerOK, caller = pcall(getcallingscript)
+        if not callerOK or not current:CanRedirectAimCaller(caller) then return nil end
+        return current:GetAimHookPart(), current
+    end
+
+    local function aimRay(ray, position)
+        if typeof(ray) ~= "Ray" then return ray end
+        local direction = position - ray.Origin
+        local length, distance = ray.Direction.Magnitude, direction.Magnitude
+        if distance ~= distance or length ~= length or distance <= 0.001 or length <= 0 or length == math.huge then return ray end
+        return Ray.new(ray.Origin, direction.Unit * length)
+    end
+
+    function Session:InstallAimHooks()
+        if not self.Alive then return false, "This session has ended." end
+        if self.HooksEnabled then return true, "Aim hooks are already enabled for this session." end
+        self.HooksAvailable = available()
+        if not self.HooksAvailable then return false, "Scoped aim requires hookmetamethod, checkcaller, getnamecallmethod, setnamecallmethod, getcallingscript and debug.info. Camera is unchanged." end
+        Startup:Mark("aim-hooks.install.begin")
+        local callerOK = pcall(getcallingscript)
+        local sourceOK, source = pcall(debug.info, 1, "s")
+        if not callerOK or not sourceOK or type(source) ~= "string" then
+            self.HookError = "Caller inspection failed; aim hooks remain disabled to preserve the camera."
+            Startup:Mark("aim-hooks.install.caller-error")
+            return false, self.HookError
+        end
+        local hooks = environment.__NotificationNovaHooks
+        if not hooks then hooks = {Version = VERSION}; environment.__NotificationNovaHooks = hooks end
+        hooks.Session = nil
+        -- Resolve identities outside the native callbacks. Unrelated property reads must not
+        -- make IsA / GetMouse / camera-property calls or inspect the calling script.
+        local mouseOK, mouse = pcall(function() return LocalPlayer:GetMouse() end)
+        self.AimHookMouse = mouseOK and typeof(mouse) == "Instance" and mouse or nil
+        self.AimHookCamera = workspace.CurrentCamera
+        if not self.AimHookCameraConnection then
+            self.AimHookCameraConnection = self:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), function()
+                self.AimHookCamera = workspace.CurrentCamera
+            end)
+        end
+        if not hooks.IndexInstalled then
+            local oldIndex
+            local inspectMethod, restoreMethod = getnamecallmethod, setnamecallmethod
+            local function forwardIndex(method, object, key)
+                if type(method) == "string" then pcall(restoreMethod, method) end
                 return oldIndex(object, key)
+            end
+            local ok, err = pcall(function()
+                oldIndex = hookmetamethod(game, "__index", function(object, key)
+                    if key ~= "CFrame" and key ~= "Hit" and key ~= "Target" and key ~= "UnitRay" then return oldIndex(object, key) end
+                    local current = hooks.Session
+                    if not current or not current.Alive or not current.HooksEnabled or not current.Cfg.KillAuraEnabled
+                        or not current.Cfg.KillAuraNoCamRotation or not current.KaTarget then return oldIndex(object, key) end
+                    local cameraRead = key == "CFrame" and object == current.AimHookCamera
+                    local mouseRead = key ~= "CFrame" and object == current.AimHookMouse and current.AimHookMouse ~= nil
+                    if not cameraRead and not mouseRead then return oldIndex(object, key) end
+                    local tokenOK, incomingMethod = pcall(inspectMethod)
+                    if not tokenOK then return oldIndex(object, key) end
+                    local routed, changed, value = pcall(function()
+                        local part = redirectPart(hooks)
+                        if not part then return false end
+                        if cameraRead then
+                            local original = forwardIndex(incomingMethod, object, key)
+                            if typeof(original) == "CFrame" and (part.Position - original.Position).Magnitude > 0.001 then
+                                return true, CFrame.lookAt(original.Position, part.Position)
+                            end
+                        elseif key == "Hit" then return true, CFrame.new(part.Position)
+                        elseif key == "Target" then return true, part
+                        elseif key == "UnitRay" then return true, aimRay(forwardIndex(incomingMethod, object, key), part.Position)
+                        end
+                        return false
+                    end)
+                    -- Classification and target inspection can perform nested namecalls.
+                    -- Restore an existing token before either forwarding or returning a value.
+                    if not routed or not changed then return forwardIndex(incomingMethod, object, key) end
+                    if type(incomingMethod) == "string" then pcall(restoreMethod, incomingMethod) end
+                    return value
+                end)
+                assert(type(oldIndex) == "function", "Index hook did not return an original function")
             end)
-        end)
-        hooks.IndexInstalled = ok
-        if not ok then
-            self.HookError = "Index hook unavailable: " .. tostring(err)
-            Startup:Mark("aim-hooks.manual.index-error")
-            return false, self.HookError
-        end
-    end
-    if available and not hooks.NamecallInstalled then
-        local oldNamecall
-        local ok, err = pcall(function()
-            oldNamecall = hookmetamethod(game, "__namecall", function(object, ...)
-                local current = hooks.Session
-                if not current or not current.Alive or not current.Cfg.KillAuraEnabled or not current.KaTarget or checkcaller() or current.FriendPlayers[current.KaTarget] then return oldNamecall(object, ...) end
-                local method = getnamecallmethod()
-                local cameraRay = method == "ViewportPointToRay" or method == "ScreenPointToRay"
-                local legacyRay = method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist"
-                if not cameraRay and not legacyRay and method ~= "Raycast" then return oldNamecall(object, ...) end
-                local character = current.KaTarget.Character
-                local part = character and character:FindFirstChild("HumanoidRootPart")
-                local camera = workspace.CurrentCamera
-                if not part or not camera or typeof(object) ~= "Instance" then return oldNamecall(object, ...) end
-                local args = table.pack(...)
-                if cameraRay and object:IsA("Camera") then
-                    local origin = camera.CFrame.Position
-                    local direction = part.Position - origin
-                    if direction.Magnitude > 0.001 then return Ray.new(origin, direction.Unit) end
-                elseif object == workspace and method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
-                    local direction = part.Position - args[1]
-                    if direction.Magnitude > 0.001 then args[2] = direction.Unit * args[2].Magnitude end
-                elseif object == workspace and legacyRay and typeof(args[1]) == "Ray" then
-                    local ray = args[1]
-                    local direction = part.Position - ray.Origin
-                    if direction.Magnitude > 0.001 then args[1] = Ray.new(ray.Origin, direction.Unit * ray.Direction.Magnitude) end
-                end
-                return oldNamecall(object, table.unpack(args, 1, args.n))
-            end)
-        end)
-        hooks.NamecallInstalled = ok
-        if not ok then
-            self.HookError = "Namecall hook unavailable: " .. tostring(err)
-            Startup:Mark("aim-hooks.manual.namecall-error")
-            return false, self.HookError
-        end
-    end
-    self.HooksEnabled = hooks.IndexInstalled == true and hooks.NamecallInstalled == true
-    if self.HooksEnabled then hooks.Session = self; self.HookError = nil end
-    Startup:Mark(self.HooksEnabled and "aim-hooks.manual.ready" or "aim-hooks.manual.unavailable")
-    return self.HooksEnabled, self.HooksEnabled and "Aim hooks enabled for this session." or "Aim hooks are unavailable."
-end
-
--- // ЭФФЕКТЫ И ШЕЙДЕРЫ
-local SaturationEffect = Instance.new("ColorCorrectionEffect", Lighting)
-SaturationEffect.Name = "NotificationSaturation"; SaturationEffect.Enabled = false
-
-local VibeBloom = Instance.new("BloomEffect", Lighting)
-VibeBloom.Name = "NotificationVibeBloom"; VibeBloom.Intensity = 0.4; VibeBloom.Size = 24; VibeBloom.Threshold = 1.5; VibeBloom.Enabled = false
-
-local VibeCC = Instance.new("ColorCorrectionEffect", Lighting)
-VibeCC.Name = "NotificationVibeCC"; VibeCC.Contrast = 0.2; VibeCC.Enabled = false
-
-local VibeBlur = Instance.new("BlurEffect", Lighting)
-VibeBlur.Name = "NotificationVibeBlur"; VibeBlur.Size = 2; VibeBlur.Enabled = false
-
-local VibeAtmo = Instance.new("Atmosphere")
-VibeAtmo.Name = "NotificationVibeAtmosphere"; VibeAtmo.Density = 0; VibeAtmo.Offset = 0.25; VibeAtmo.Glare = 0; VibeAtmo.Haze = 1
-
-local lastWorldColor, lastWorldTrans, lastWorldDark, lastWorldShader, lastWorldState = nil, nil, nil, nil, nil
-local function UpdateWorldShader()
-    if Cfg.WorldColorEnabled then
-        if lastWorldColor ~= Cfg.WorldColorValue or lastWorldTrans ~= Cfg.WorldColorTransparency or lastWorldDark ~= Cfg.WorldColorDarkness or lastWorldShader ~= Cfg.WorldColorShader or lastWorldState ~= true then
-            lastWorldColor = Cfg.WorldColorValue; lastWorldTrans = Cfg.WorldColorTransparency; lastWorldDark = Cfg.WorldColorDarkness; lastWorldShader = Cfg.WorldColorShader; lastWorldState = true
-            
-            Session:Override("Fog", Lighting, {FogColor = Cfg.WorldColorValue, FogEnd = 300 + (1 - Cfg.WorldColorTransparency) * 1500}) 
-            
-            if Cfg.WorldColorShader then
-                VibeBloom.Enabled = true
-                VibeCC.Enabled = true
-                VibeBlur.Enabled = true
-                VibeCC.TintColor = Cfg.WorldColorValue:Lerp(Color3.new(1,1,1), 1 - Cfg.WorldColorTransparency)
-                VibeCC.Brightness = -Cfg.WorldColorDarkness * 0.1
-                
-                VibeAtmo.Color = Cfg.WorldColorValue
-                VibeAtmo.Decay = Color3.new(0, 0, 0)
-                VibeAtmo.Density = Cfg.WorldColorTransparency * 0.45; VibeAtmo.Parent = Lighting 
-            else
-                VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false
-                VibeAtmo.Density = 0; VibeAtmo.Parent = nil
+            hooks.IndexInstalled = ok
+            if not ok then
+                self.HookError = "Index hook unavailable: " .. tostring(err)
+                Startup:Mark("aim-hooks.install.index-error")
+                return false, self.HookError
             end
         end
-    else
-        if lastWorldState ~= false then
-            lastWorldState = false
-            Session:Release("Fog")
-            VibeBloom.Enabled = false; VibeCC.Enabled = false; VibeBlur.Enabled = false
-            VibeAtmo.Density = 0; VibeAtmo.Parent = nil
+        if not hooks.NamecallInstalled then
+            local oldNamecall
+            local restoreMethod = setnamecallmethod
+            local function forward(method, object, ...)
+                -- IsA / FindFirstChild in the routing helpers can change the native namecall token.
+                restoreMethod(method)
+                return oldNamecall(object, ...)
+            end
+            local ok, err = pcall(function()
+                oldNamecall = hookmetamethod(game, "__namecall", function(object, ...)
+                    if not hooks.Session then return oldNamecall(object, ...) end
+                    local method = getnamecallmethod()
+                    local cameraRay = method == "ViewportPointToRay" or method == "ScreenPointToRay"
+                    local legacyRay = method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist"
+                    if typeof(object) ~= "Instance" or not ((cameraRay and object == hooks.Session.AimHookCamera)
+                        or (object == workspace and (legacyRay or method == "Raycast"))) then return oldNamecall(object, ...) end
+                    local routed, part = pcall(redirectPart, hooks)
+                    if not routed or not part then return forward(method, object, ...) end
+                    if cameraRay then return aimRay(forward(method, object, ...), part.Position) end
+                    local args = table.pack(...)
+                    if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                        args[2] = aimRay(Ray.new(args[1], args[2]), part.Position).Direction
+                    elseif legacyRay and typeof(args[1]) == "Ray" then
+                        args[1] = aimRay(args[1], part.Position)
+                    end
+                    return forward(method, object, table.unpack(args, 1, args.n))
+                end)
+                assert(type(oldNamecall) == "function", "Namecall hook did not return an original function")
+            end)
+            hooks.NamecallInstalled = ok
+            if not ok then
+                self.HookError = "Namecall hook unavailable: " .. tostring(err)
+                Startup:Mark("aim-hooks.install.namecall-error")
+                return false, self.HookError
+            end
         end
+        self.HooksEnabled = hooks.IndexInstalled == true and hooks.NamecallInstalled == true
+        if self.HooksEnabled then hooks.Session = self; self.HookError = nil end
+        Startup:Mark(self.HooksEnabled and "aim-hooks.install.ready" or "aim-hooks.install.unavailable")
+        return self.HooksEnabled, self.HooksEnabled and "Aim hooks enabled; camera modules keep their original view and collision rays." or "Aim hooks are unavailable."
+    end
+
+    function Session:RefreshAimHooks()
+        if not self.Alive or self.Cfg.KillAuraNoCamRotation ~= true then
+            local hooks = environment.__NotificationNovaHooks
+            if hooks and hooks.Session == self then hooks.Session = nil end
+            self.HooksEnabled, self.AimHooksRequested, self.HookError = false, false, nil
+            self.HookStatus = self.Alive and "No Cam Rotate is off." or "This session has ended."
+            return false, self.HookStatus, false
+        end
+        if not self.Ready then
+            self.HookStatus = "Aim hooks will activate when the interface is ready."
+            return nil, self.HookStatus, false
+        end
+        -- A missing or broken executor API must not be retried on every settings refresh.
+        -- Turning the option off and back on explicitly starts a new activation attempt.
+        if self.AimHooksRequested then return self.HooksEnabled, self.HookStatus, false end
+        self.AimHooksRequested = true
+        local enabled, status = self:InstallAimHooks()
+        self.HookStatus = status
+        if not enabled then self.HookError = status end
+        return enabled, status, true
+    end
+end
+-- // ЭФФЕКТЫ И ШЕЙДЕРЫ
+local SaturationEffect = Instance.new("ColorCorrectionEffect")
+SaturationEffect.Name = "NotificationSaturation"
+SaturationEffect.Enabled = false
+SaturationEffect.Parent = Lighting
+-- Platform: Roblox client / Luau; target: owned, change-driven World Color post-processing.
+local function UpdateWorldShader()
+    Session:ApplyWorldShader()
+end
+
+do
+    local WHITE = Color3.new(1, 1, 1)
+    local keys = {
+        "WorldColorEnabled", "WorldColorShader", "WorldColorValue", "WorldColorTransparency", "WorldColorDarkness", "LowEndMode",
+    }
+    local atmosphereProperties = {Color = true, Decay = true, Density = true, Haze = true, Glare = true, Offset = true}
+    local state = {
+        Effects = {}, Values = {}, Connections = {}, ExpectedLighting = {},
+        ExpectedAtmospheres = setmetatable({}, {__mode = "k"}),
+        Dirty = true, Writing = false, Destroyed = false,
+    }
+    Session.WorldShaderState = state
+
+    local function finite(value)
+        return type(value) == "number" and value == value and math.abs(value) < math.huge
+    end
+    local function number(value, fallback, minimum, maximum)
+        return finite(value) and math.clamp(value, minimum, maximum) or fallback
+    end
+    local function setting(key, fallback, minimum, maximum)
+        return number(Cfg[key], fallback, minimum, maximum)
+    end
+    local function color(value, fallback)
+        if typeof(value) ~= "Color3" or not finite(value.R) or not finite(value.G) or not finite(value.B) then return fallback end
+        return Color3.new(math.clamp(value.R, 0, 1), math.clamp(value.G, 0, 1), math.clamp(value.B, 0, 1))
+    end
+    local function assign(object, values)
+        for property, value in pairs(values) do
+            if object[property] ~= value then object[property] = value end
+        end
+    end
+    local function baseline(owner, object, property, fallback)
+        local entry = Session.Overrides[owner]
+        local value = entry and entry.Instance == object and entry.Values[property]
+        if value == nil then value = object[property] end
+        return value == nil and fallback or value
+    end
+    local function expectValues(object, values)
+        local expected
+        if object == Lighting then
+            expected = state.ExpectedLighting
+        else
+            expected = state.ExpectedAtmospheres[object]
+            if not expected then expected = {}; state.ExpectedAtmospheres[object] = expected end
+        end
+        for property, value in pairs(values) do expected[property] = value end
+    end
+    local function readExpectedValues(object, values)
+        local expected = object == Lighting and state.ExpectedLighting or state.ExpectedAtmospheres[object]
+        for property in pairs(values) do
+            local ok, value = pcall(function() return object[property] end)
+            if ok then expected[property] = value end
+        end
+    end
+    local function override(owner, object, values)
+        -- Roblox may defer Changed until after the setter returns. Record expected
+        -- values before writing so our own delayed events never become new baselines.
+        expectValues(object, values)
+        Session:Override(owner, object, values)
+        -- Numeric properties and Color3 channels can be quantized by the engine.
+        -- Compare deferred events with stored values rather than Lua input doubles.
+        readExpectedValues(object, values)
+    end
+    local function release(owner)
+        local entry = Session.Overrides[owner]
+        if entry then expectValues(entry.Instance, entry.Values) end
+        Session:Release(owner)
+        if entry then readExpectedValues(entry.Instance, entry.Values) end
+    end
+    local function markDirty()
+        if state.Destroyed or state.Writing then return end
+        state.Dirty = true
+        Session.SceneDirty = true
+    end
+    local function effect(key, className)
+        local object = state.Effects[key]
+        if object and object.Parent == Lighting then return object end
+        if object then pcall(function() object:Destroy() end) end
+        object = Instance.new(className)
+        object.Name = "NotificationWorld" .. key
+        object.Enabled = false
+        object.Parent = Lighting
+        state.Effects[key] = object
+        return object
+    end
+    local function disableEffects()
+        for _, object in pairs(state.Effects) do
+            pcall(function() if object.Enabled then object.Enabled = false end end)
+        end
+    end
+    local function releaseAtmosphere()
+        if state.AtmosphereConnection then state.AtmosphereConnection:Disconnect(); state.AtmosphereConnection = nil end
+        release("WorldShaderAtmosphere")
+        state.Atmosphere = nil
+        if state.OwnedAtmosphere then pcall(function() state.OwnedAtmosphere.Parent = nil end) end
+    end
+    local function getAtmosphere()
+        local target
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Atmosphere") and child ~= state.OwnedAtmosphere then target = child; break end
+        end
+        if target then
+            if state.OwnedAtmosphere then pcall(function() state.OwnedAtmosphere.Parent = nil end) end
+        else
+            if not state.OwnedAtmosphere then
+                local owned = Instance.new("Atmosphere")
+                owned.Name = "NotificationWorldAtmosphere"
+                assign(owned, {Color = WHITE, Decay = WHITE, Density = 0, Haze = 0, Glare = 0, Offset = 0})
+                state.OwnedAtmosphere = owned
+            end
+            target = state.OwnedAtmosphere
+        end
+        if state.Atmosphere ~= target then
+            releaseAtmosphere()
+            state.Atmosphere = target
+            state.AtmosphereConnection = target.Changed:Connect(function(property)
+                if state.Writing or state.Destroyed or state.Atmosphere ~= target or not atmosphereProperties[property] then return end
+                local expected = state.ExpectedAtmospheres[target]
+                if expected and expected[property] == target[property] then return end
+                -- Keep game-authored weather changes as the baseline restored on disable.
+                local entry = Session.Overrides.WorldShaderAtmosphere
+                if target ~= state.OwnedAtmosphere and entry and entry.Instance == target then entry.Values[property] = target[property] end
+                markDirty()
+            end)
+        end
+        if target == state.OwnedAtmosphere and target.Parent ~= Lighting then
+            local attached = pcall(function() target.Parent = Lighting end)
+            if not attached then
+                -- A game cleanup can destroy an owned child between setting changes.
+                releaseAtmosphere()
+                state.OwnedAtmosphere = nil
+                return getAtmosphere()
+            end
+        end
+        return target
+    end
+
+    for _, signal in ipairs({Lighting.ChildAdded, Lighting.ChildRemoved}) do
+        table.insert(state.Connections, signal:Connect(function(child)
+            if child:IsA("Atmosphere") then markDirty(); return end
+            for _, object in pairs(state.Effects) do if child == object then markDirty(); return end end
+        end))
+    end
+    table.insert(state.Connections, Lighting.Changed:Connect(function(property)
+        if state.Writing or state.Destroyed then return end
+        local owner = property == "ExposureCompensation" and "WorldShaderExposure"
+            or (property == "FogColor" or property == "FogEnd") and "Fog" or nil
+        if not owner then return end
+        if state.ExpectedLighting[property] == Lighting[property] then return end
+        local entry = Session.Overrides[owner]
+        if entry and entry.Instance == Lighting then entry.Values[property] = Lighting[property] end
+        markDirty()
+    end))
+
+    function Session:ApplyWorldShader()
+        if state.Destroyed or not self.Alive then return end
+        local changed = state.Dirty
+        for _, key in ipairs(keys) do
+            local previous, current = state.Values[key], Cfg[key]
+            local bothNaN = type(previous) == "number" and type(current) == "number" and previous ~= previous and current ~= current
+            if previous ~= current and not bothNaN then state.Values[key] = current; changed = true end
+        end
+        if not changed then return end
+        state.Dirty = false
+        state.Writing = true
+        local strength = setting("WorldColorTransparency", 0.5, 0, 1)
+        if not Cfg.WorldColorEnabled or (Cfg.WorldColorShader and strength <= 0) then
+            disableEffects()
+            releaseAtmosphere()
+            release("Fog")
+            release("WorldShaderExposure")
+            state.Writing = false
+            return
+        end
+
+        local custom = color(Cfg.WorldColorValue, Color3.fromRGB(150, 50, 255))
+        if not Cfg.WorldColorShader then
+            -- Preserve the original plain World Color behavior, including intensity zero.
+            override("Fog", Lighting, {FogColor = custom, FogEnd = 300 + (1 - strength) * 1500})
+            disableEffects()
+            releaseAtmosphere()
+            release("WorldShaderExposure")
+            state.Writing = false
+            return
+        end
+
+        local fogColor = color(baseline("Fog", Lighting, "FogColor", WHITE), WHITE)
+        local fogEnd = number(baseline("Fog", Lighting, "FogEnd", 100000), 100000, 0, 1000000)
+        override("Fog", Lighting, {FogColor = fogColor:Lerp(custom, strength * 0.12), FogEnd = fogEnd})
+        local lowEnd = Cfg.LowEndMode == true
+        local darkness = setting("WorldColorDarkness", 1, 0, 5)
+        -- Keep light in every color channel: grading adds the selected hue without
+        -- the old saturated tint multiplying the whole world into a dark wash.
+        local balancedTint = WHITE:Lerp(custom, 0.32)
+        assign(effect("ColorCorrection", "ColorCorrectionEffect"), {
+            TintColor = WHITE:Lerp(balancedTint, strength),
+            Contrast = 0.28 * strength,
+            Saturation = 0.18 * strength,
+            Brightness = -darkness * 0.04 * strength,
+            Enabled = true,
+        })
+        local exposureBase = number(baseline("WorldShaderExposure", Lighting, "ExposureCompensation", 0), 0, -5, 5)
+        override("WorldShaderExposure", Lighting, {
+            ExposureCompensation = math.clamp(exposureBase + (0.1 - darkness * 0.025) * strength, -5, 5),
+        })
+        assign(effect("Bloom", "BloomEffect"), {
+            Intensity = 0.8 * strength * (lowEnd and 0.4 or 1),
+            Size = lowEnd and 16 or 30,
+            Threshold = lowEnd and 1.17 or 1.05,
+            Enabled = true,
+        })
+        assign(effect("SunRays", "SunRaysEffect"), {
+            Intensity = 0.07 * strength * (lowEnd and 0.35 or 1),
+            Spread = 0.78,
+            Enabled = true,
+        })
+
+        local atmosphere = getAtmosphere()
+        local densityBase = number(baseline("WorldShaderAtmosphere", atmosphere, "Density", 0), 0, 0, 1)
+        local hazeBase = number(baseline("WorldShaderAtmosphere", atmosphere, "Haze", 0), 0, 0, 10)
+        local glareBase = number(baseline("WorldShaderAtmosphere", atmosphere, "Glare", 0), 0, 0, 10)
+        local offsetBase = number(baseline("WorldShaderAtmosphere", atmosphere, "Offset", 0), 0, -1, 1)
+        local colorBase = color(baseline("WorldShaderAtmosphere", atmosphere, "Color", WHITE), WHITE)
+        local decayBase = color(baseline("WorldShaderAtmosphere", atmosphere, "Decay", WHITE), WHITE)
+        local densityBlend = strength * (atmosphere == state.OwnedAtmosphere and 1 or 0.35)
+        override("WorldShaderAtmosphere", atmosphere, {
+            Color = colorBase:Lerp(WHITE:Lerp(custom, 0.45), strength),
+            Decay = decayBase:Lerp(Color3.fromRGB(113, 127, 151):Lerp(custom, 0.3), strength),
+            Density = densityBase + (0.23 - densityBase) * densityBlend,
+            Haze = hazeBase + (1.25 - hazeBase) * strength,
+            Glare = glareBase + (0.18 - glareBase) * strength,
+            Offset = offsetBase + (0.12 - offsetBase) * strength,
+        })
+        state.Writing = false
+    end
+
+    function Session:DestroyWorldShader()
+        if state.Destroyed then return end
+        state.Destroyed = true
+        state.Writing = true
+        for _, connection in ipairs(state.Connections) do connection:Disconnect() end
+        table.clear(state.Connections)
+        releaseAtmosphere()
+        release("Fog")
+        release("WorldShaderExposure")
+        for _, object in pairs(state.Effects) do pcall(function() object:Destroy() end) end
+        table.clear(state.Effects)
+        if state.OwnedAtmosphere then state.OwnedAtmosphere:Destroy(); state.OwnedAtmosphere = nil end
+        table.clear(state.Values)
+        table.clear(state.ExpectedLighting)
+        table.clear(state.ExpectedAtmospheres)
+        state.Writing = false
     end
 end
 
@@ -4936,27 +5468,279 @@ do
 end
 
 
+-- Platform: Roblox client / Luau; target: cached Box ESP appearance matching the Nova interface.
+-- Shared menu shadows and card details with perspective-correct nametags.
+do
+    local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+    local REFERENCE_TANGENT = math.tan(math.rad(35))
+    local function finite(value, fallback)
+        value = tonumber(value)
+        return if value and value == value and math.abs(value) < math.huge then value else fallback
+    end
+    local function make(class, parent, name)
+        local object = Instance.new(class)
+        object.Name, object.Parent = name, parent
+        return object
+    end
+    local function corner(parent)
+        return make("UICorner", parent, "Corner")
+    end
+    local function stroke(parent, thickness, transparency)
+        local object = make("UIStroke", parent, "Outline")
+        object.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        object.Thickness, object.Transparency = thickness, transparency
+        return object
+    end
+    local function frame(parent, name, transparency, z)
+        local object = make("Frame", parent, name)
+        object.BorderSizePixel, object.BackgroundTransparency, object.ZIndex = 0, transparency, z or 1
+        return object
+    end
+    local function texture(parent, kind, name, radius, z)
+        -- Nova owns the cached texture and its radius refresh. Creation is once per player.
+        local ok, image = pcall(Nova.Tex.image, parent, kind, {
+            Name = name, Size = UDim2.fromScale(1, 1), SliceScale = radius,
+            ImageColor3 = WHITE, ZIndex = z,
+        })
+        return if ok then image else nil
+    end
+    local function shadow(parent, name, z)
+        local image = texture(parent, "shadow9", name, 0.625, z)
+        if image then image.ImageColor3 = BLACK; return image, true end
+        local fallback = frame(parent, name, 0.65, z)
+        fallback.BackgroundColor3 = BLACK
+        corner(fallback).CornerRadius = UDim.new(0, 8)
+        return fallback, false
+    end
+    local function tint(image, color)
+        if image then image.ImageColor3 = color end
+    end
+    local function alpha(image, value)
+        if image then image.ImageTransparency = value end
+    end
+    local function retarget(image, radius)
+        if not image then return end
+        local info = Nova.Tex.tracked[image]
+        if info then info.base = radius; Nova.Tex.retarget(image) end
+    end
+    function Session:CreateBoxEsp(cache, player, parent)
+        local box = frame(parent, player.Name .. "_2DBox", 1, 2)
+        box.Visible, box.ClipsDescendants = false, false
+        cache.Box2D, cache.BoxCorner = box, corner(box)
+        cache.BoxStroke = stroke(box, 1.2, 0.12)
+        cache.BoxGrad = make("UIGradient", cache.BoxStroke, "EdgeLighting")
+        cache.BoxGrad.Color, cache.BoxGrad.Rotation = ColorSequence.new(WHITE, Color3.fromRGB(184, 188, 201)), 90
+        cache.BoxRim = texture(box, "rim9", "MenuRim", 4 / 14, 3)
+        -- Four outside-only clips reuse the actual menu shadow. Its opaque center can
+        -- never cover the player when the optional box fill is disabled.
+        cache.BoxShadowClips = {}
+        for _, name in ipairs({"Top", "Bottom", "Left", "Right"}) do
+            local clip = frame(box, "Shadow" .. name, 1, 0)
+            clip.ClipsDescendants = true
+            local image = texture(clip, "shadow9", "MenuShadow", 0.625, 0)
+            if image then image.ImageColor3 = BLACK end
+            cache.BoxShadowClips[#cache.BoxShadowClips + 1] = {Frame = clip, Image = image}
+        end
+        local fallback = frame(box, "OutlineShadowFallback", 1, 0)
+        fallback.Position, fallback.Size = UDim2.fromOffset(0, 2), UDim2.fromScale(1, 1)
+        cache.BoxShadowFallback, cache.BoxShadowCorner = fallback, corner(fallback)
+        cache.BoxShadowStroke = stroke(fallback, 3, 0.6)
+        cache.BoxShadowStroke.Color = BLACK
+        fallback.Visible = cache.BoxShadowClips[1].Image == nil
+
+        -- The zero-size anchor keeps the panel above the head. UIScale affects the
+        -- complete card, shadow, text and top gap, without rounding TextSize per frame.
+        local nameRoot = frame(box, "NameAnchor", 1, 5)
+        nameRoot.Position, nameRoot.Size = UDim2.fromScale(0.5, 0), UDim2.fromOffset(0, 0)
+        cache.NameRoot, cache.NameScale = nameRoot, make("UIScale", nameRoot, "PerspectiveScale")
+        cache.NameShadow, cache.NameShadowIsImage = shadow(nameRoot, "MenuShadow", 4)
+        cache.NameShadow.AnchorPoint = Vector2.new(0.5, 1)
+        local plate = frame(nameRoot, "Nameplate", 0.03, 5)
+        plate.AnchorPoint, plate.Position = Vector2.new(0.5, 1), UDim2.fromOffset(0, -7)
+        cache.NamePlate, cache.NameCorner, cache.NameStroke = plate, corner(plate), stroke(plate, 1, 0.85)
+        cache.NameCardGradient = make("UIGradient", plate, "CardGradient")
+        cache.NameCardGradient.Rotation = 90
+        cache.NameGloss = texture(plate, "gloss9", "Gloss", 8 / 14, 5)
+        cache.NameGrain = texture(plate, "grain", "Grain", 1, 5)
+        cache.NameRim = texture(plate, "rim9", "MenuRim", 8 / 14, 7)
+        cache.NameCardStyle = {Card = plate, CardGrad = cache.NameCardGradient, Gloss = cache.NameGloss, Grain = cache.NameGrain}
+        local label = make("TextLabel", plate, "Nametag")
+        label.BackgroundTransparency, label.BorderSizePixel, label.ZIndex = 1, 0, 6
+        label.TextStrokeTransparency, label.TextWrapped = 1, false
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.TextXAlignment, label.TextYAlignment = Enum.TextXAlignment.Center, Enum.TextYAlignment.Center
+        label.Position, label.Size = UDim2.fromOffset(10, 0), UDim2.new(1, -20, 1, 0)
+        cache.NameTag = label
+
+        cache.HealthShadow, cache.HealthShadowIsImage = shadow(box, "HealthShadow", 0)
+        local rail = frame(box, "HealthBarBack", 0.03, 3)
+        rail.ClipsDescendants = false
+        cache.HealthBack, cache.HealthCorner, cache.HealthStroke = rail, corner(rail), stroke(rail, 1, 0.7)
+        cache.HealthRim = texture(rail, "rim9", "MenuRim", 3 / 14, 5)
+        local fill = frame(rail, "HealthBarFill", 0, 4)
+        fill.AnchorPoint, fill.Position = Vector2.new(0, 1), UDim2.fromScale(0, 1)
+        fill.Size = UDim2.fromScale(1, 1)
+        cache.HealthFill, cache.HealthFillCorner = fill, corner(fill)
+        cache.HealthGradient = make("UIGradient", fill, "HealthGradient")
+        cache.HealthGradient.Rotation = 90
+        cache.HealthGradF = fill
+    end
+
+    function Session:UpdateBoxEspStyle(cache, player, depth, viewportHeight, fieldOfView)
+        local tokens, ui, fonts = Nova.Theme.tokens, Nova.U, Nova.Font
+        local sync = Cfg.Esp2DBoxSyncColor ~= false
+        local accent = if sync then tokens.Accent else Cfg.Esp2DBoxColor
+        if typeof(accent) ~= "Color3" then accent = tokens.Accent end
+        local fillColor = Cfg.Esp2DBoxFillColor
+        if typeof(fillColor) ~= "Color3" then fillColor = accent end
+        local opacity = math.clamp(finite(window.Opacity, 1), 0.5, 1)
+        local cardStyle, intensity = window.CardStyle or "Glass", math.clamp(finite(window.BgIntensity, 1), 0, 1.5)
+        if cache.StyleAccent ~= accent or cache.StyleFillColor ~= fillColor
+            or cache.StyleSurface ~= tokens.Surface or cache.StyleElevated ~= tokens.Elevated
+            or cache.StyleText ~= tokens.Text or cache.StyleGlass ~= tokens.Glass
+            or cache.StyleSync ~= sync or cache.StyleSuccess ~= tokens.Success or cache.StyleDanger ~= tokens.Danger
+            or cache.StyleCard ~= cardStyle or cache.StyleOpacity ~= opacity or cache.StyleIntensity ~= intensity then
+            cache.StyleAccent, cache.StyleFillColor, cache.StyleSync = accent, fillColor, sync
+            cache.StyleSurface, cache.StyleElevated = tokens.Surface, tokens.Elevated
+            cache.StyleText, cache.StyleGlass = tokens.Text, tokens.Glass
+            cache.StyleSuccess, cache.StyleDanger = tokens.Success, tokens.Danger
+            cache.StyleCard, cache.StyleOpacity, cache.StyleIntensity = cardStyle, opacity, intensity
+            cache.BoxStroke.Color = accent
+            tint(cache.BoxRim, tokens.Glass)
+            cache.Box2D.BackgroundColor3 = if sync then tokens.Surface:Lerp(accent, 0.12) else fillColor
+            cache.NamePlate.BackgroundColor3, cache.NameTag.TextColor3 = tokens.Surface, tokens.Text
+            cache.NameStroke.Color = tokens.Glass
+            tint(cache.NameRim, tokens.Glass)
+            window:_applyCardStyle(cache.NameCardStyle)
+            if cardStyle == "Tinted" and not sync then
+                cache.NameCardGradient.Color = ColorSequence.new(WHITE:Lerp(accent, 0.05), WHITE:Lerp(accent, 0.34))
+            end
+            cache.NamePlate.BackgroundTransparency = 1 - (1 - cache.NamePlate.BackgroundTransparency) * opacity
+            if cache.NameGloss then cache.NameGloss.ImageTransparency = 1 - (1 - cache.NameGloss.ImageTransparency) * opacity end
+            if cache.NameGrain then cache.NameGrain.ImageTransparency = math.clamp(1 - (1 - cache.NameGrain.ImageTransparency) * intensity * opacity, 0, 1) end
+            cache.NameStroke.Transparency, cache.NameTag.TextTransparency = 1 - 0.15 * opacity, 1 - opacity
+            alpha(cache.NameRim, 1 - 0.5 * opacity)
+            if cache.NameShadowIsImage then cache.NameShadow.ImageTransparency = 1 - 0.48 * opacity
+            else cache.NameShadow.BackgroundTransparency = 1 - 0.35 * opacity end
+            cache.BoxStroke.Transparency = 1 - 0.88 * opacity
+            alpha(cache.BoxRim, 1 - 0.45 * opacity)
+            for _, piece in ipairs(cache.BoxShadowClips) do alpha(piece.Image, 1 - 0.65 * opacity) end
+            cache.BoxShadowStroke.Transparency = 1 - 0.4 * opacity
+            cache.HealthBack.BackgroundColor3, cache.HealthStroke.Color = tokens.Elevated, tokens.Glass
+            cache.HealthBack.BackgroundTransparency, cache.HealthStroke.Transparency = 1 - 0.97 * opacity, 1 - 0.3 * opacity
+            cache.HealthFill.BackgroundTransparency = 1 - opacity
+            tint(cache.HealthRim, tokens.Glass); alpha(cache.HealthRim, 1 - 0.45 * opacity)
+            if cache.HealthShadowIsImage then cache.HealthShadow.ImageTransparency = 1 - 0.45 * opacity
+            else cache.HealthShadow.BackgroundTransparency = 1 - 0.35 * opacity end
+            cache.HealthGradient.Color = ColorSequence.new(WHITE, Color3.fromRGB(194, 199, 211))
+            cache.HealthStyleDirty = true
+        end
+        local fillAlpha = if Cfg.Esp2DBoxFillEnabled then math.clamp(finite(Cfg.Esp2DBoxFillTrans, 0.5), 0, 1) else 1
+        local actualFillAlpha = 1 - (1 - fillAlpha) * opacity
+        if cache.StyleFillAlpha ~= actualFillAlpha then
+            cache.StyleFillAlpha, cache.Box2D.BackgroundTransparency = actualFillAlpha, actualFillAlpha
+        end
+        local radiusMultiplier = math.clamp(finite(ui.radiusMult, 1), 0, 2)
+        local baseRadius = math.max(0, finite(Cfg.Esp2DBoxRounding, 4))
+        local radius, cardRadius = baseRadius * radiusMultiplier, 8 * radiusMultiplier
+        if cache.StyleRadius ~= radius or cache.StyleCardRadius ~= cardRadius then
+            cache.StyleRadius, cache.StyleCardRadius = radius, cardRadius
+            local rounded = UDim.new(0, radius)
+            cache.BoxCorner.CornerRadius, cache.BoxShadowCorner.CornerRadius = rounded, rounded
+            cache.NameCorner.CornerRadius = UDim.new(0, cardRadius)
+            local railRadius = UDim.new(0, math.min(3, cardRadius))
+            cache.HealthCorner.CornerRadius, cache.HealthFillCorner.CornerRadius = railRadius, railRadius
+            if not cache.NameShadowIsImage then cache.NameShadow.Corner.CornerRadius = UDim.new(0, cardRadius + 1) end
+            if not cache.HealthShadowIsImage then cache.HealthShadow.Corner.CornerRadius = railRadius end
+            retarget(cache.BoxRim, baseRadius)
+            if cache.BoxRim then cache.BoxRim.Visible = radius > 0 end
+            if cache.NameRim then cache.NameRim.Visible = cardRadius > 0 end
+            if cache.NameGloss then cache.NameGloss.Visible = cardRadius > 0 end
+            if cache.HealthRim then cache.HealthRim.Visible = cardRadius > 0 end
+        end
+        local width, height = math.max(0, finite(cache.Box2D.Size.X.Offset, 0)), math.max(0, finite(cache.Box2D.Size.Y.Offset, 0))
+        if cache.ShadowWidth ~= width or cache.ShadowHeight ~= height then
+            cache.ShadowWidth, cache.ShadowHeight = width, height
+            local pad = 20
+            local clips = cache.BoxShadowClips
+            clips[1].Frame.Position, clips[1].Frame.Size = UDim2.fromOffset(-pad, -pad), UDim2.fromOffset(width + pad * 2, pad)
+            clips[2].Frame.Position, clips[2].Frame.Size = UDim2.fromOffset(-pad, height), UDim2.fromOffset(width + pad * 2, pad + 3)
+            clips[3].Frame.Position, clips[3].Frame.Size = UDim2.fromOffset(-pad, 0), UDim2.fromOffset(pad, height)
+            clips[4].Frame.Position, clips[4].Frame.Size = UDim2.fromOffset(width, 0), UDim2.fromOffset(pad, height)
+            for _, piece in ipairs(clips) do
+                if piece.Image then piece.Image.Size = UDim2.fromOffset(width + pad * 2, height + pad * 2) end
+            end
+            if clips[1].Image then clips[1].Image.Position = UDim2.fromOffset(0, 3) end
+            if clips[2].Image then clips[2].Image.Position = UDim2.fromOffset(0, -height - pad + 3) end
+            if clips[3].Image then clips[3].Image.Position = UDim2.fromOffset(0, -pad + 3) end
+            if clips[4].Image then clips[4].Image.Position = UDim2.fromOffset(-width - pad, -pad + 3) end
+        end
+        if cache.StyleFont ~= fonts.id then
+            cache.StyleFont = fonts.id
+            cache.NameTag.FontFace = fonts.Semi()
+        end
+        local cameraDepth = if depth == nil then 20 else finite(depth, 0)
+        local viewport = if viewportHeight == nil then 720 else finite(viewportHeight, 0)
+        local fov = math.clamp(finite(fieldOfView, 70), 1, 179)
+        local perspective = if cameraDepth > 0.05 and viewport > 0 then
+            math.min(6, 20 / cameraDepth * (viewport / 720) * REFERENCE_TANGENT / math.tan(math.rad(fov * 0.5))) else 0
+        if cache.NamePerspectiveScale ~= perspective then
+            cache.NamePerspectiveScale, cache.NameScale.Scale = perspective, perspective
+        end
+        local showName = Cfg.Esp2DBoxNametagsEnabled == true and perspective >= 0.035
+        if cache.NameRoot.Visible ~= showName then cache.NameRoot.Visible = showName end
+        if cache.NamePlate.Visible ~= showName then cache.NamePlate.Visible = showName end
+        if cache.NameTag.Visible ~= showName then cache.NameTag.Visible = showName end
+        if showName then
+            local size = math.max(8, math.floor(finite(Cfg.Esp2DBoxNametagsScale, 14) * finite(ui.textScale, 1) + 0.5))
+            local name = tostring(player.DisplayName or player.Name)
+            if cache.StyleTextSize ~= size or cache.StyleName ~= name then
+                cache.StyleTextSize, cache.StyleName = size, name
+                cache.NameTag.Text, cache.NameTag.TextSize = name, size
+                local count = utf8.len(name) or #name
+                local panelWidth, panelHeight = math.clamp(math.ceil(count * size * 0.63) + 20, 72, 260), size + 12
+                cache.NamePlate.Size = UDim2.fromOffset(panelWidth, panelHeight)
+                if cache.NameShadowIsImage then
+                    cache.NameShadow.Size, cache.NameShadow.Position = UDim2.fromOffset(panelWidth + 40, panelHeight + 40), UDim2.fromOffset(0, 16)
+                else
+                    cache.NameShadow.Size, cache.NameShadow.Position = UDim2.fromOffset(panelWidth + 2, panelHeight + 2), UDim2.fromOffset(0, -4)
+                end
+            end
+        end
+        local showHealth = Cfg.Esp2DBoxHealthBarEnabled == true
+        if cache.HealthBack.Visible ~= showHealth then cache.HealthBack.Visible = showHealth end
+        if cache.HealthShadow.Visible ~= showHealth then cache.HealthShadow.Visible = showHealth end
+        if showHealth then
+            local border = math.clamp(finite(Cfg.Esp2DBoxHealthBarBorder, 1), 0, 5)
+            if cache.HealthBorder ~= border then
+                cache.HealthBorder = border
+                cache.HealthStroke.Thickness, cache.HealthStroke.Enabled = border, border > 0
+                cache.HealthBack.Size, cache.HealthBack.Position = UDim2.new(0, 4, 1, 0), UDim2.new(0, -(8 + border), 0, 0)
+                if cache.HealthShadowIsImage then
+                    cache.HealthShadow.Size, cache.HealthShadow.Position = UDim2.new(0, 44, 1, 40), UDim2.new(0, -(28 + border), 0, -17)
+                else
+                    cache.HealthShadow.Size, cache.HealthShadow.Position = UDim2.new(0, 6, 1, 2), UDim2.new(0, -(9 + border), 0, 1)
+                end
+            end
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local health, maximum = humanoid and humanoid.Health or 0, humanoid and humanoid.MaxHealth or 0
+            local fraction = if finite(health, 0) == health and finite(maximum, 0) == maximum and maximum > 0 then math.clamp(health / maximum, 0, 1) else 0
+            if cache.HealthFraction ~= fraction or cache.HealthStyleDirty then
+                cache.HealthFraction = fraction
+                cache.HealthFill.Size, cache.HealthFill.Visible = UDim2.fromScale(1, fraction), fraction > 0
+                cache.HealthFill.BackgroundColor3 = if sync then accent else tokens.Danger:Lerp(tokens.Success, fraction)
+                cache.HealthStyleDirty = false
+            end
+        end
+    end
+end
+-- End cached Box ESP appearance.
+
 local function GetEspElements(player)
     if not EspCache[player] then
         local cache = {}
-        local esp2DBox = Instance.new("Frame", Esp2DFolder); esp2DBox.Name = player.Name .. "_2DBox"; esp2DBox.BackgroundTransparency = 1; esp2DBox.Visible = false
-        local boxCorner = Instance.new("UICorner", esp2DBox); boxCorner.CornerRadius = UDim.new(0, 4)
-        local mainStroke = Instance.new("UIStroke", esp2DBox); mainStroke.Name = "MainStroke"; mainStroke.Thickness = 1.5; mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        local grad = Instance.new("UIGradient", mainStroke); grad.Name = "StrokeGradient"; grad.Rotation = 45
-        local glowFrame = Instance.new("Frame", esp2DBox); glowFrame.Size = UDim2.new(1, 0, 1, 0); glowFrame.BackgroundTransparency = 1
-        local glowCorner = Instance.new("UICorner", glowFrame); glowCorner.CornerRadius = UDim.new(0, 4)
-        local outerGlow = Instance.new("UIStroke", glowFrame); outerGlow.Name = "OuterGlow"; outerGlow.Thickness = 5; outerGlow.Transparency = 0.7; outerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        
-        local nameTag = Instance.new("TextLabel", esp2DBox); nameTag.Name = "Nametag"; nameTag.BackgroundTransparency = 1; nameTag.Font = TARGET_FONT; nameTag.TextColor3 = Color3.new(1, 1, 1); nameTag.TextStrokeTransparency = 0
-        
-        local hbBack = Instance.new("Frame", esp2DBox); hbBack.Name = "HealthBarBack"; hbBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30); hbBack.BorderColor3 = Color3.new(0, 0, 0)
-        local hbFill = Instance.new("Frame", hbBack); hbFill.Name = "HealthBarFill"; hbFill.BorderSizePixel = 0; hbFill.BackgroundColor3 = Color3.new(1, 1, 1); hbFill.ClipsDescendants = true
-        local hbGradientFrame = Instance.new("Frame", hbFill); hbGradientFrame.Name = "GradientFrame"; hbGradientFrame.BorderSizePixel = 0; hbGradientFrame.BackgroundColor3 = Color3.new(1, 1, 1)
-        local hbGrad = Instance.new("UIGradient", hbGradientFrame); hbGrad.Name = "HealthBarGradient"; hbGrad.Rotation = 90
-        hbGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 0)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))})
-        
-        cache.Box2D = esp2DBox; cache.BoxCorner = boxCorner; cache.BoxStroke = mainStroke; cache.BoxGrad = grad; cache.GlowCorner = glowCorner; cache.BoxGlow = outerGlow; cache.NameTag = nameTag; cache.HealthBack = hbBack; cache.HealthFill = hbFill; cache.HealthGradF = hbGradientFrame
-        cache.LastColor = nil 
+        Session:CreateBoxEsp(cache, player, Esp2DFolder)
 
         local chamsHL = Instance.new("Highlight", Chams3DFolder); chamsHL.Name = player.Name .. "_Chams"; chamsHL.Enabled = false
         cache.ChamsHighlight = chamsHL
@@ -4979,11 +5763,14 @@ end)
 
 -- // CORE LOGIC
 local function IsVisible(targetPart)
+    if not targetPart or not targetPart.Parent or not targetPart:IsA("BasePart") then return false end
     local Camera = workspace.CurrentCamera; if not Camera then return false end
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
     local origin = Camera.CFrame.Position; local direction = targetPart.Position - origin
-    local raycastParams = RaycastParams.new(); raycastParams.FilterDescendantsInstances = {char, targetPart.Parent, Chams3DFolder, Session.Effects, Session.WorldCubesFolder}; raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    if not Session:IsFiniteVector(origin) or not Session:IsFiniteVector(direction) then return false end
+    if direction.Magnitude <= 0.001 then return true end
+    local raycastParams = RaycastParams.new(); raycastParams.FilterDescendantsInstances = {char, Camera, targetPart.Parent, Chams3DFolder, Session.Effects, Session.WorldCubesFolder}; raycastParams.FilterType = Enum.RaycastFilterType.Exclude
     return workspace:Raycast(origin, direction, raycastParams) == nil 
 end
 
@@ -5068,7 +5855,8 @@ do
     end)
     task.spawn(function()
         while Session.Alive do
-            task.wait(0.2)
+            -- Active melee needs prompt acquisition; idle visuals keep the cheaper cadence.
+            task.wait(Cfg.KillAuraEnabled and 0.05 or 0.2)
             if not Session.Alive then break end
             Session:UpdateTargets()
         end
@@ -5373,30 +6161,49 @@ do
     end)
 end
 
--- The HUD is a separate Nova card, outside the menu's visibility/animation tree.
+-- Platform: Roblox client / Luau; target: a standalone Nova Target HUD card and shadow.
 local TargetHUD = Nova.U.new("Frame", {
     Name = "TargetHUD", Size = UDim2.fromOffset(272, 86), Position = Cfg.TargetHudPosition,
-    BackgroundTransparency = 0, BorderSizePixel = 0, Visible = false, Active = true,
-    ClipsDescendants = true, ZIndex = 8, Parent = NotificationGui,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, Active = true,
+    ClipsDescendants = false, ZIndex = 8, Parent = NotificationGui,
 })
-Nova.Theme.bind(TargetHUD, "BackgroundColor3", "Surface")
-local cornerHUD = Nova.U.corner(TargetHUD, 12)
-local strokeHUD = Nova.U.stroke(TargetHUD, Color3.new(1, 1, 1), 1, 0.82)
-Nova.Theme.bind(strokeHUD, "Color", "Glass")
 local Hud = {Scale = Nova.U.new("UIScale", {Name = "InterfaceScale", Parent = TargetHUD})}
+Hud.Shadow = Nova.Tex.image(TargetHUD, "shadow9", {
+    Name = "MenuShadow", Position = UDim2.fromOffset(-28, -18), Size = UDim2.new(1, 56, 1, 58),
+    SliceScale = 1, ImageTransparency = 0.45, ZIndex = 7,
+})
+Hud.ShadowIsImage = Hud.Shadow ~= nil
+if not Hud.Shadow then
+    Hud.Shadow = Nova.U.new("Frame", {Name = "MenuShadow", BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.65, BorderSizePixel = 0, Position = UDim2.fromOffset(-2, 2),
+        Size = UDim2.new(1, 4, 1, 4), ZIndex = 7, Parent = TargetHUD})
+    Nova.U.corner(Hud.Shadow, 12)
+end
+Hud.Card = Nova.U.new("Frame", {Name = "Card", Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 0.03, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 8, Parent = TargetHUD})
+Nova.Theme.bind(Hud.Card, "BackgroundColor3", "Surface")
+local cornerHUD = Nova.U.corner(Hud.Card, 12)
+local strokeHUD = Nova.U.stroke(Hud.Card, Color3.new(1, 1, 1), 1, 0.82)
+Nova.Theme.bind(strokeHUD, "Color", "Glass")
+Hud.Gloss = Nova.Tex.image(Hud.Card, "gloss9", {Name = "Gloss", Size = UDim2.fromScale(1, 1),
+    SliceScale = 12 / 14, ImageTransparency = 0.9, ZIndex = 8})
+Hud.Rim = Nova.Tex.image(Hud.Card, "rim9", {Name = "MenuRim", Size = UDim2.fromScale(1, 1),
+    SliceScale = 12 / 14, ImageTransparency = 0.5, ZIndex = 12})
+if Hud.Rim then Nova.Theme.bind(Hud.Rim, "ImageColor3", "Glass") end
 Hud.Tag = Nova.U.new("TextLabel", {
     Name = "TargetTag", Text = "TARGET", BackgroundTransparency = 1, BorderSizePixel = 0,
     FontFace = Nova.Font.Semi(), TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
-    TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 10, Parent = TargetHUD,
+    TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 10, Parent = Hud.Card,
 })
 Nova.Theme.bind(Hud.Tag, "TextColor3", "Accent")
 local TargetIconContainer = Nova.U.new("Frame", {
     Name = "AvatarContainer", BorderSizePixel = 0, BackgroundTransparency = 0.18,
-    ClipsDescendants = true, ZIndex = 10, Parent = TargetHUD,
+    ClipsDescendants = true, ZIndex = 10, Parent = Hud.Card,
 })
 Nova.Theme.bind(TargetIconContainer, "BackgroundColor3", "Elevated")
 Nova.U.corner(TargetIconContainer, 9)
-Nova.Theme.bind(Nova.U.stroke(TargetIconContainer, Color3.new(1, 1, 1), 1, 0.86), "Color", "Glass")
+Hud.AvatarStroke = Nova.U.stroke(TargetIconContainer, Color3.new(1, 1, 1), 1, 0.86)
+Nova.Theme.bind(Hud.AvatarStroke, "Color", "Glass")
 local TargetIcon = Nova.U.new("ImageLabel", {
     Name = "Avatar", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, ScaleType = Enum.ScaleType.Crop, ZIndex = 11, Parent = TargetIconContainer,
@@ -5405,22 +6212,24 @@ local TargetName = Nova.U.new("TextLabel", {
     Name = "TargetName", Text = "No target", BackgroundTransparency = 1, BorderSizePixel = 0,
     FontFace = Nova.Font.Semi(), TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left,
     TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
-    ZIndex = 10, Parent = TargetHUD,
+    ZIndex = 10, Parent = Hud.Card,
 })
 Nova.Theme.bind(TargetName, "TextColor3", "Text")
 local HealthText = Nova.U.new("TextLabel", {
     Name = "HealthText", Text = "100 / 100 HP", BackgroundTransparency = 1, BorderSizePixel = 0,
     FontFace = Nova.Font.Medium(), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
     TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
-    ZIndex = 10, Parent = TargetHUD,
+    ZIndex = 10, Parent = Hud.Card,
 })
 Nova.Theme.bind(HealthText, "TextColor3", "Muted")
 local HealthBack = Nova.U.new("Frame", {
     Name = "HealthTrack", BorderSizePixel = 0, BackgroundTransparency = 0.12,
-    ClipsDescendants = true, ZIndex = 10, Parent = TargetHUD,
+    ClipsDescendants = true, ZIndex = 10, Parent = Hud.Card,
 })
 Nova.Theme.bind(HealthBack, "BackgroundColor3", "Elevated")
 Nova.U.corner(HealthBack, 3)
+Hud.HealthStroke = Nova.U.stroke(HealthBack, Color3.new(1, 1, 1), 1, 0.88)
+Nova.Theme.bind(Hud.HealthStroke, "Color", "Glass")
 local HealthBar = Nova.U.new("Frame", {
     Name = "HealthFill", Size = UDim2.fromScale(1, 1), BorderSizePixel = 0,
     BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 11, Parent = HealthBack,
@@ -5474,12 +6283,16 @@ do
         if not camera or not head or not head:IsA("BasePart") then return false end
         local viewport = camera.ViewportSize
         if not finite(viewport.X) or not finite(viewport.Y) or viewport.X < 1 or viewport.Y < 1 then return false end
-        local center, onScreen = camera:WorldToViewportPoint(head.Position)
+        local center, onScreen = Session:ProjectToViewport(camera, head.Position)
         if not onScreen or not validPoint(center) or center.X < 0 or center.X > viewport.X
             or center.Y < 0 or center.Y > viewport.Y then return false end
         -- The pixel gap starts at the projected edge of the head, not its center.
-        local radius = math.max(head.Size.X, head.Size.Z) * 0.5
-        local edge = camera:WorldToViewportPoint(head.Position + camera.CFrame.RightVector * radius)
+        -- Hitbox may enlarge the invisible Head while its visible copy keeps the
+        -- original dimensions. Position the HUD against the visible head.
+        local original = Cfg.HitboxEnabled and OrigPartData[head]
+        local headSize = original and original.Size or head.Size
+        local radius = math.max(headSize.X, headSize.Z) * 0.5
+        local edge = Session:ProjectToViewport(camera, head.Position + camera.CFrame.RightVector * radius)
         if not validPoint(edge) then return false end
         local halfWidth = math.abs(edge.X - center.X)
         local gap = Cfg.TargetHudHeadDistance
@@ -5684,7 +6497,7 @@ do
                 local nextScale = uiScale * pop
                 if entry.Scale.Scale ~= nextScale then entry.Scale.Scale = nextScale end
                 if camera then
-                    local screen, onScreen = camera:WorldToViewportPoint(entry.Position)
+                    local screen, onScreen = Session:ProjectToViewport(camera, entry.Position)
                     label.Visible = onScreen and screen.Z > 0
                     if label.Visible then label.Position = UDim2.fromOffset(screen.X + side, screen.Y - rise) end
                 else
@@ -5791,7 +6604,155 @@ function Session:UpdateTargetEspTexture(color)
     end
 end
 
-local lastAttackTime = 0; local lastStrafeJumpTime = 0; local nextStrafeJumpDelay = math.random(1, 8) / 10; local currentKaStrafeDir = 1; local nextKaStrafeDirChange = 0
+-- Platform: Roblox client / Luau; target: serialized aura input attempts, not server-confirmed hits.
+do
+    local state = {Pending=nil, Unreleased=nil, NextAttack=0, RetryAt=0, ReleaseAt=0, Dispatching=false, Cancel=false, Stopped=false,
+        SuccessfulDispatches=0, FailedDispatches=0, LastBackend=nil, LastError=nil}
+    Session.AuraAttackState = state
+    local releaseName = Session.RenderName .. "_AuraInputRelease"
+    local HOLD_TIME, RETRY_TIME, RELEASE_GAP = 0.025, 0.08, 0.01
+    local function finite(n) return type(n) == "number" and n == n and math.abs(n) < math.huge end
+    local function safeCall(callback)
+        local ok, result = pcall(callback)
+        return ok and result ~= false, if ok then nil else tostring(result), ok and result == false
+    end
+    local function active()
+        return not state.Stopped and Session.Alive and Session.Ready and Cfg.KillAuraEnabled == true
+    end
+    local function uiClear()
+        local ok, clear = pcall(function()
+            return not window.IsOpen and not window.Listening and not window.KbCap
+                and not UserInputService:GetFocusedTextBox() and not window:PointerOverUI()
+        end)
+        return ok and clear
+    end
+    local function targetInfo(player)
+        if not active() or not uiClear() or player ~= Session.KaTarget or typeof(player) ~= "Instance"
+            or not player:IsA("Player") or player.Parent ~= Players or player == LocalPlayer or Session:IsFriend(player) then return nil end
+        local character, localCharacter = player.Character, LocalPlayer.Character
+        local root = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+        local humanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+        local part = character and character:FindFirstChild("HumanoidRootPart")
+        local targetHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if not localCharacter or not localCharacter.Parent or not character or not character.Parent
+            or not root or not root:IsA("BasePart") or not part or not part:IsA("BasePart")
+            or not humanoid or humanoid.Health <= 0 or not targetHumanoid or targetHumanoid.Health <= 0 then return nil end
+        local range, clickRange = tonumber(Cfg.KillAuraRange), tonumber(Cfg.KillAuraClickRange)
+        if not finite(range) or not finite(clickRange) then return nil end
+        local distance = (part.Position - root.Position).Magnitude
+        if not finite(distance) or distance > math.min(range, clickRange) then return nil end
+        return part, localCharacter
+    end
+    local function releaseOwned()
+        RunService:UnbindFromRenderStep(releaseName)
+        local pending = state.Pending or state.Unreleased
+        state.Pending, state.Unreleased = nil, nil
+        if not pending then return true end
+        -- Clear ownership first so a synchronous input callback cannot release twice.
+        local ok, err = safeCall(pending.Release)
+        if not ok and pending.ReleaseFallback then ok, err = safeCall(pending.ReleaseFallback) end
+        if not ok then
+            state.Unreleased = pending
+            state.LastError = "Input release failed: " .. tostring(err or pending.Backend)
+        end
+        state.ReleaseAt = tick() + RELEASE_GAP
+        return ok
+    end
+    local function releaseStep()
+        local pending = state.Pending
+        if not pending then RunService:UnbindFromRenderStep(releaseName); return end
+        if not active() or not uiClear() or not targetInfo(pending.Target) or tick() >= pending.ReleaseAt then releaseOwned() end
+    end
+    local function vimEvents()
+        local available, method = pcall(function() return VirtualInputManager.SendMouseButtonEvent end)
+        if not available or type(method) ~= "function" then return nil end
+        local camera = workspace.CurrentCamera
+        if not camera then return nil end
+        local viewport = camera.ViewportSize
+        if not viewport or not finite(viewport.X) or not finite(viewport.Y) or viewport.X <= 0 or viewport.Y <= 0 then return nil end
+        local x, y = math.floor(viewport.X / 2), math.floor(viewport.Y / 2)
+        local function send(down) return VirtualInputManager:SendMouseButtonEvent(x, y, 0, down, game, 1) end
+        return function() return send(true) end, function() return send(false) end
+    end
+    local function dispatch(backend, press, release, fallbackRelease, target)
+        -- The press APIs can synchronously fire input callbacks: keep cancellation explicit.
+        state.Dispatching, state.Cancel = true, false
+        local ok, err, rejected = safeCall(press)
+        state.Dispatching = false
+        if not ok then
+            -- Explicit rejection means no press was owned (e.g. Studio has no equipped Tool).
+            if rejected then state.LastError = backend .. " rejected input"; return false, not state.Cancel end
+            -- A throwing backend may have partially pressed before reporting its error.
+            local released = safeCall(release)
+            if not released and fallbackRelease then released = safeCall(fallbackRelease) end
+            if not released then
+                state.Unreleased = {Backend=backend, Release=release, ReleaseFallback=fallbackRelease, Target=target}
+            end
+            state.LastError = err or (backend .. " rejected input")
+            return false, released and not state.Cancel
+        end
+        state.Pending = {Backend=backend, Release=release, ReleaseFallback=fallbackRelease,
+            Target=target, ReleaseAt=tick() + HOLD_TIME}
+        if state.Cancel or not active() or not targetInfo(target) then
+            releaseOwned()
+            return true, false
+        end
+        RunService:BindToRenderStep(releaseName, 2002, releaseStep)
+        return true, false
+    end
+    function Session:TryAuraAttack(target)
+        local now = tick()
+        if state.Dispatching or state.Pending or state.Unreleased or now < state.NextAttack or now < state.RetryAt or now < state.ReleaseAt then return false end
+        local part, character = targetInfo(target)
+        if not part then return false end
+        local pressVim, releaseVim = vimEvents()
+        local succeeded, mayFallback = false, true
+        local touchOnly = UserInputService.TouchEnabled == true and UserInputService.MouseEnabled ~= true
+            and UserInputService.KeyboardEnabled ~= true
+        if touchOnly then
+            local tool = character:FindFirstChildOfClass("Tool")
+            if tool and tool.Enabled ~= false then
+                succeeded, mayFallback = dispatch("Tool", function() return tool:Activate() end,
+                    function() return tool:Deactivate() end, nil, target)
+            end
+        end
+        if not succeeded and mayFallback and targetInfo(target) and type(mouse1press) == "function" and type(mouse1release) == "function" then
+            local press, release = mouse1press, mouse1release
+            succeeded, mayFallback = dispatch("Mouse", press, release, releaseVim, target)
+        end
+        if not succeeded and mayFallback and targetInfo(target) and pressVim then
+            succeeded = dispatch("VirtualInput", pressVim, releaseVim, nil, target)
+        end
+        if not succeeded then
+            state.FailedDispatches += 1
+            state.RetryAt = tick() + RETRY_TIME
+            return false
+        end
+        -- A dispatched input is not proof that the game accepted an attack or damage.
+        state.SuccessfulDispatches += 1
+        state.LastBackend = state.Pending and state.Pending.Backend or "Cancelled"
+        state.LastError, state.RetryAt = nil, 0
+        local speed = tonumber(Cfg.KillAuraSpeed)
+        if not finite(speed) then speed = 1 end
+        state.NextAttack = tick() + math.clamp(speed, 0.5, 50) / 10
+        if active() and targetInfo(target) == part and target.Character == part.Parent then
+            self:RecordFeedbackAttack(part.Parent, part.Position, nil, "aura")
+        end
+        return true
+    end
+    function Session:ResetAuraAttack()
+        if state.Dispatching then state.Cancel = true end
+        releaseOwned()
+        state.NextAttack, state.RetryAt = 0, 0
+    end
+    function Session:DestroyAuraAttack()
+        if state.Stopped then return end
+        self:ResetAuraAttack()
+        state.Stopped = true
+    end
+end
+
+local lastStrafeJumpTime = 0; local nextStrafeJumpDelay = math.random(1, 8) / 10; local currentKaStrafeDir = 1; local nextKaStrafeDirChange = 0
 local lastEspTargetUserId = nil; local lastEspTargetHealth = nil; local lastDamageTimeESP = 0
 local AnimLagAccumulator = 0; local WasAnimLagging = false
 
@@ -5930,13 +6891,11 @@ table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
             if GhostModel then GhostModel:Destroy() end; GhostModel = nil; GhostPartsArray = {}; GhostHistory = {}; currentGhostCharRef = char; lastGhostDelTex = Cfg.ClientSideDelTexture
         end
         if not GhostModel or GhostModel.Parent ~= Chams3DFolder then
-            local archivable = char.Archivable; char.Archivable = true; GhostModel = char:Clone(); char.Archivable = archivable; GhostModel.Name = "Notification_Ghost"; GhostModel.Parent = Chams3DFolder; GhostPartsArray = {}
-            local gh = GhostModel:FindFirstChildOfClass("Humanoid"); if gh then gh:Destroy() end
-            local gHrp = GhostModel:FindFirstChild("HumanoidRootPart"); if gHrp then gHrp:Destroy() end
-            for _, v in ipairs(GhostModel:GetDescendants()) do
-                if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-                if v:IsA("BasePart") then v.Anchored = true; v.CanCollide = false; v.CanQuery = false; v.CanTouch = false; v.Massless = true end
-            end
+            GhostModel = Session:BuildCosmeticGhost(char)
+            GhostPartsArray = {}
+            if not GhostModel then return end
+            -- All scripts, joints and physics controllers were removed while detached.
+            GhostModel.Parent = Chams3DFolder
             for _, realPart in ipairs(char:GetDescendants()) do
                 if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
                     local ghostPart = nil
@@ -6000,7 +6959,7 @@ end))
 
 -- Platform: Roblox client / Luau; target: change-driven scene settings.
 do
-    local keys = {"CustomFovEnabled", "CustomFovValue", "FullBrightEnabled", "WorldColorEnabled", "WorldColorValue", "FullBrightTime", "TimeChangerEnabled", "TimeChangerHours", "SaturationEnabled", "SaturationValue", "ThirdPersonEnabled", "ThirdPersonDistance", "WorldColorShader", "WorldColorTransparency", "WorldColorDarkness"}
+    local keys = {"CustomFovEnabled", "CustomFovValue", "FullBrightEnabled", "WorldColorEnabled", "WorldColorValue", "FullBrightTime", "TimeChangerEnabled", "TimeChangerHours", "SaturationEnabled", "SaturationValue", "ThirdPersonEnabled", "ThirdPersonDistance", "WorldColorShader", "WorldColorTransparency", "WorldColorDarkness", "LowEndMode"}
     local values, lastCamera, cameraConnection = {}, nil, nil
     Session.SceneDirty = true
     for _, property in ipairs({"CameraMode", "CameraMinZoomDistance", "CameraMaxZoomDistance"}) do
@@ -6008,7 +6967,8 @@ do
     end
     Session:Connect(Lighting.Changed, function(property)
         if property == "Ambient" or property == "OutdoorAmbient" or property == "GlobalShadows"
-            or property == "ClockTime" or property == "FogColor" or property == "FogEnd" then Session.SceneDirty = true end
+            or property == "ClockTime" or property == "FogColor" or property == "FogStart"
+            or property == "FogEnd" or property == "ExposureCompensation" then Session.SceneDirty = true end
     end)
     function Session:UpdateSceneSettings()
         local Camera = workspace.CurrentCamera
@@ -6030,7 +6990,9 @@ do
         Session:Override("Shadows", Lighting, {GlobalShadows = false})
     else
         Session:Release("Shadows")
-        if Cfg.WorldColorEnabled then Session:Override("Ambient", Lighting, {Ambient = Cfg.WorldColorValue, OutdoorAmbient = Cfg.WorldColorValue}) else Session:Release("Ambient") end
+        if Cfg.WorldColorEnabled and not Cfg.WorldColorShader then
+            Session:Override("Ambient", Lighting, {Ambient = Cfg.WorldColorValue, OutdoorAmbient = Cfg.WorldColorValue})
+        else Session:Release("Ambient") end
     end
     if Cfg.FullBrightEnabled or Cfg.TimeChangerEnabled then
         Session:Override("Time", Lighting, {ClockTime = Cfg.FullBrightEnabled and Cfg.FullBrightTime or Cfg.TimeChangerHours})
@@ -6072,6 +7034,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
         local state = hum:GetState()
         local isAirborne = (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping)
         local isMoving = hum.MoveDirection.Magnitude > 0
+        local airStrafeVelocity = Session:GetAirStrafeVelocity(char, hum, hrp)
         
         if Cfg.SpeedEnabled then
             Session:Override("Speed", hum, {WalkSpeed = Cfg.WalkSpeedValue})
@@ -6079,17 +7042,12 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                 local baseline = Session.Overrides.Speed.Values.WalkSpeed
                 hum.WalkSpeed = baseline
                 local extraSpeed = Cfg.WalkSpeedValue - baseline
-                if extraSpeed > 0 and isMoving then hrp.CFrame += hum.MoveDirection * extraSpeed * math.min(dt, 0.1) end
+                if extraSpeed > 0 and isMoving and not airStrafeVelocity then hrp.CFrame += hum.MoveDirection * extraSpeed * math.min(dt, 0.1) end
             end
         else
             Session:Release("Speed")
         end
 
-        if Cfg.AirStrafeEnabled and isAirborne and hum.MoveDirection.Magnitude > 0 then
-            local speed = tonumber(Cfg.AirStrafeSpeed) or 30; local currentVel = hrp.AssemblyLinearVelocity
-            local targetVel = hum.MoveDirection.Unit * speed; hrp.AssemblyLinearVelocity = Vector3.new(targetVel.X, currentVel.Y, targetVel.Z)
-        end
-        
         if Cfg.VelocityEnabled then
             local current = hrp.AssemblyLinearVelocity
             local speed = Cfg.SpeedEnabled and Cfg.WalkSpeedValue or hum.WalkSpeed
@@ -6105,7 +7063,12 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
             hrp.AssemblyLinearVelocity = Vector3.new(x, y, z)
         end
 
-        if Cfg.StrafeEnabled and hum.MoveDirection.Magnitude > 0 and not (Cfg.AirStrafeEnabled and isAirborne) then 
+        -- Air Strafe owns horizontal movement after knockback damping; Y is left intact.
+        if airStrafeVelocity then
+            local current = hrp.AssemblyLinearVelocity
+            hrp.AssemblyLinearVelocity = Vector3.new(airStrafeVelocity.X, current.Y, airStrafeVelocity.Z)
+        end
+        if Cfg.StrafeEnabled and hum.MoveDirection.Magnitude > 0 and not airStrafeVelocity then 
             local currentSpeed = Cfg.SpeedEnabled and Cfg.WalkSpeedValue or hum.WalkSpeed; local instantVel = hum.MoveDirection.Unit * currentSpeed; hrp.AssemblyLinearVelocity = Vector3.new(instantVel.X, hrp.AssemblyLinearVelocity.Y, instantVel.Z) 
         elseif Cfg.StrafeEnabled and hum.MoveDirection.Magnitude == 0 then 
             hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) 
@@ -6165,8 +7128,8 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
 
             for i = 1, #CurrentArmJoints do
                 local j = CurrentArmJoints[i]
-                if OrigMotorC0[j] then
-                    local origC0 = OrigMotorC0[j]
+                if j.Parent and Session:IsFiniteFrame(j.C0) then
+                    local origC0 = OrigMotorC0[j] or j.C0
                     local torso = j.Part0
                     
                     if torso and head then
@@ -6175,26 +7138,21 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                         if Cfg.ViewHandsCameraLock then
                             local headOffset = head.CFrame:Inverse() * torso.CFrame
                             local targetC0 = torso.CFrame:Inverse() * camCFrame * visualOffset * headOffset * origC0
-                            j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-25 * dt))
+                            Session:WriteArmC0(j, j.C0:Lerp(targetC0, 1 - math.exp(-25 * dt)))
                         else
                             local right = camCFrame.RightVector * visualOffset.X
                             local up = camCFrame.UpVector * visualOffset.Y
                             local fwd = camCFrame.LookVector * visualOffset.Z
                             local localOffset = torso.CFrame:VectorToObjectSpace(right + up + fwd)
                             local targetC0 = CFrame.new(origC0.Position + localOffset) * origC0.Rotation * visualOffset.Rotation
-                            j.C0 = j.C0:Lerp(targetC0, 1 - math.exp(-20 * dt))
+                            Session:WriteArmC0(j, j.C0:Lerp(targetC0, 1 - math.exp(-20 * dt)))
                         end
                     end
                 end
             end
         else
             Session:RestoreArms()
-            for i = 1, #CurrentArmJoints do
-                local j = CurrentArmJoints[i]
-                if OrigMotorC0[j] and j.C0 ~= OrigMotorC0[j] then 
-                    j.C0 = j.C0:Lerp(OrigMotorC0[j], 1 - math.exp(-15 * dt))
-                end
-            end
+            Session:RestoreArmJoints()
         end
     end
 
@@ -6213,13 +7171,13 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
             local isIgnoredTeam = player.Team and Cfg["Esp2DBoxIgnore_" .. player.Team.Name]
 
             if Cfg.Esp2DBoxEnabled and not Session:IsFriend(player) and hasHRP and (not Cfg.Esp2DBoxTeamCheck or not sameTeam) and not isIgnoredTeam then
-                local hrp = plChar.HumanoidRootPart; local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                local hrp = plChar.HumanoidRootPart; local pos, onScreen = Session:ProjectToViewport(Camera, hrp.Position)
                 if onScreen then
                     local head = plChar:FindFirstChild("Head"); 
                     local topPos = head and head.Position + Vector3.new(0, 1.2, 0) or hrp.Position + Vector3.new(0, 3.5, 0); 
                     local bottomPos = hrp.Position - Vector3.new(0, 3.5, 0)
-                    local topScreen = Camera:WorldToViewportPoint(topPos); local bottomScreen = Camera:WorldToViewportPoint(bottomPos)
-                    local height = math.abs(bottomScreen.Y - topScreen.Y); local baseMultiplier = tonumber(Cfg.Esp2DBoxSize) or 1; local finalHeight = height * baseMultiplier; local width = (height / 1.5) * baseMultiplier 
+                    local topScreen = Session:ProjectToViewport(Camera, topPos); local bottomScreen = Session:ProjectToViewport(Camera, bottomPos)
+                    local height = math.abs(bottomScreen.Y - topScreen.Y); local baseMultiplier = tonumber(Cfg.Esp2DBoxSize) or 1; local finalHeight = height * baseMultiplier; local width = (height / 1.5) * baseMultiplier * Session:GetStretchFactor(Camera) 
                     
                     if not espCache.Box2D.Visible then espCache.Box2D.Visible = true end
                     if espCache.Width ~= width or espCache.Height ~= finalHeight then
@@ -6232,35 +7190,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                         espCache.Box2D.Position = UDim2.fromOffset(x, y)
                     end
                     
-                    local roundedRadius = UDim.new(0, tonumber(Cfg.Esp2DBoxRounding) or 4)
-                    if espCache.BoxCorner.CornerRadius.Offset ~= roundedRadius.Offset then espCache.BoxCorner.CornerRadius = roundedRadius; espCache.GlowCorner.CornerRadius = roundedRadius end
-                    
-                    if Cfg.Esp2DBoxFillEnabled then
-                        local fTrans = tonumber(Cfg.Esp2DBoxFillTrans) or 0.5
-                        if espCache.Box2D.BackgroundTransparency ~= fTrans then espCache.Box2D.BackgroundTransparency = fTrans end
-                        if espCache.Box2D.BackgroundColor3 ~= Cfg.Esp2DBoxFillColor then espCache.Box2D.BackgroundColor3 = Cfg.Esp2DBoxFillColor end
-                    else
-                        if espCache.Box2D.BackgroundTransparency ~= 1 then espCache.Box2D.BackgroundTransparency = 1 end
-                    end
-
-                    if espCache.LastColor ~= Cfg.Esp2DBoxColor then
-                        espCache.LastColor = Cfg.Esp2DBoxColor
-                        espCache.BoxStroke.Color = Cfg.Esp2DBoxColor
-                        espCache.BoxGlow.Color = Cfg.Esp2DBoxColor 
-                        espCache.BoxGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Cfg.Esp2DBoxColor), ColorSequenceKeypoint.new(1, Color3.new(1,1,1):Lerp(Cfg.Esp2DBoxColor, 0.5))})
-                    end
-                    espCache.BoxGrad.Rotation = (tick() * 50) % 360 
-                    
-                    if espCache.NameTag.Visible ~= (Cfg.Esp2DBoxNametagsEnabled == true) then espCache.NameTag.Visible = (Cfg.Esp2DBoxNametagsEnabled == true) end
-                    if Cfg.Esp2DBoxNametagsEnabled then if espCache.NameTag.TextSize ~= (tonumber(Cfg.Esp2DBoxNametagsScale) or 14) or not espCache.NameSized then espCache.NameSized = true; espCache.NameTag.TextSize = tonumber(Cfg.Esp2DBoxNametagsScale) or 14; espCache.NameTag.Size = UDim2.new(1, 0, 0, espCache.NameTag.TextSize); espCache.NameTag.Position = UDim2.new(0, 0, 0, -espCache.NameTag.TextSize - 5) end; if espCache.NameTag.Text ~= player.DisplayName then espCache.NameTag.Text = player.DisplayName end end
-                    
-                    if espCache.HealthBack.Visible ~= (Cfg.Esp2DBoxHealthBarEnabled == true) then espCache.HealthBack.Visible = (Cfg.Esp2DBoxHealthBarEnabled == true) end
-                    if Cfg.Esp2DBoxHealthBarEnabled then
-                        local border = tonumber(Cfg.Esp2DBoxHealthBarBorder) or 1
-                        if espCache.HealthBorder ~= border then espCache.HealthBorder = border; espCache.HealthBack.BorderSizePixel = border; espCache.HealthBack.Size = UDim2.new(0, 4, 1, 0); espCache.HealthBack.Position = UDim2.new(0, -(6 + border), 0, 0) end
-                        local hum = plChar:FindFirstChild("Humanoid")
-                        if hum then local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0.01, 1); if espCache.HealthFraction ~= hpPercent then espCache.HealthFraction = hpPercent; espCache.HealthFill.Size = UDim2.new(1, 0, hpPercent, 0); espCache.HealthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0); espCache.HealthGradF.Size = UDim2.new(1, 0, 1 / hpPercent, 0); espCache.HealthGradF.Position = UDim2.new(0, 0, -((1 - hpPercent) / hpPercent), 0) end end
-                    end
+                    Session:UpdateBoxEspStyle(espCache, player, pos.Z, Camera.ViewportSize.Y, Camera.FieldOfView)
                 elseif espCache.Box2D.Visible then 
                     espCache.Box2D.Visible = false 
                 end
@@ -6285,7 +7215,7 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
         if espHum then if lastEspTargetUserId ~= espTarget.UserId then lastEspTargetUserId = espTarget.UserId; lastEspTargetHealth = espHum.Health; lastDamageTimeESP = 0 end; if lastEspTargetHealth and espHum.Health < lastEspTargetHealth then lastDamageTimeESP = tick() end; lastEspTargetHealth = espHum.Health end
         local currentEspColor = Cfg.TargetESPSquareColor
         if Cfg.TargetESPDamageColorEnabled then local timeSinceDmgEsp = tick() - lastDamageTimeESP; if timeSinceDmgEsp < 0.6 then currentEspColor = Cfg.TargetESPDamageColor:Lerp(Cfg.TargetESPSquareColor, timeSinceDmgEsp / 0.6) end end
-        local pos, onScreen = Camera:WorldToViewportPoint(espTarget.Character.HumanoidRootPart.Position)
+        local pos, onScreen = Session:ProjectToViewport(Camera, espTarget.Character.HumanoidRootPart.Position)
         if Session:UpdateTargetEspLayout(pos, onScreen, Camera.ViewportSize, Camera.FieldOfView) then
             ESPMain.Rotation = (tick() * 60 * Cfg.TargetESPRotationSpeed) % 360 
             Session:UpdateTargetEspTexture(currentEspColor)
@@ -6321,41 +7251,35 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                 end
 
                 if Cfg.KillAuraNoCamRotation then
-                    local savedVel = hrp.AssemblyLinearVelocity
-                    Session:Override("Rotation", char.Humanoid, {AutoRotate = false}); hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
-                    hrp.AssemblyLinearVelocity = savedVel
-                    didRotateHRP = true 
+                    local facing = Session:HorizontalFacing(hrp.Position, targetPart.Position)
+                    if facing then
+                        local savedVel = hrp.AssemblyLinearVelocity
+                        Session:Override("Rotation", char.Humanoid, {AutoRotate = false})
+                        hrp.CFrame = facing
+                        hrp.AssemblyLinearVelocity = savedVel
+                        didRotateHRP = true
+                    end
                 else 
-                    local savedVel = hrp.AssemblyLinearVelocity
-                    Session:Override("Rotation", char.Humanoid, {AutoRotate = false})
-                    Camera.CFrame = camCFrame:Lerp(CFrame.new(camPos, targetPart.Position), (1 - (1 - Cfg.AimbotSmoothness) ^ math.max(dt * 60, 0.01)))
-                    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(targetPart.Position.X, targetPart.Position.Y, targetPart.Position.Z))
-                    hrp.AssemblyLinearVelocity = savedVel
-                    didRotateHRP = true 
-                end
-                
-                if dist <= Cfg.KillAuraClickRange and not window.IsOpen and not window.Listening and not UserInputService:GetFocusedTextBox() and not window:PointerOverUI() then
-                    local attackDelay = (Cfg.KillAuraSpeed / 10)
-                    if tick() - lastAttackTime > attackDelay then
-                        lastAttackTime = tick()
-                        Session:RecordFeedbackAttack(targetPart.Parent, targetPart.Position, nil, "aura")
-                        
-                        if isMobile then
-                            local tool = char:FindFirstChildOfClass("Tool")
-                            if tool then tool:Activate() end
-                        else
-                            task.spawn(function()
-                                if not Session.Alive or Session:IsFriend(currentKaTarget) or currentKaTarget ~= Session.KaTarget then return end
-                                local center = Camera.ViewportSize / 2
-                                pcall(function() VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, true, game, 1) end)
-                                task.wait(0.01)
-                                pcall(function() VirtualInputManager:SendMouseButtonEvent(math.floor(center.X), math.floor(center.Y), 0, false, game, 1) end) 
-                            end)
+                    local cameraDelta = targetPart.Position - camPos
+                    if Session:IsFiniteVector(cameraDelta) and cameraDelta.Magnitude > 0.001 then
+                        local up = math.abs(cameraDelta.Unit.Y) > 0.999 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0)
+                        local aim = CFrame.lookAt(camPos, targetPart.Position, up)
+                        if Session:IsFiniteFrame(aim) then
+                            Camera.CFrame = camCFrame:Lerp(aim, (1 - (1 - Cfg.AimbotSmoothness) ^ math.max(dt * 60, 0.01)))
                         end
-                        
-
+                    end
+                    local facing = Session:HorizontalFacing(hrp.Position, targetPart.Position)
+                    if facing then
+                        local savedVel = hrp.AssemblyLinearVelocity
+                        Session:Override("Rotation", char.Humanoid, {AutoRotate = false})
+                        hrp.CFrame = facing
+                        hrp.AssemblyLinearVelocity = savedVel
+                        didRotateHRP = true
                     end
                 end
+                
+                Session:TryAuraAttack(currentKaTarget)
+
             end
         end
     end
@@ -6368,7 +7292,8 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
         if Cfg.JitterSpinAtJump and (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) then 
             local spinSpeed = tonumber(Cfg.JitterSpinSpeed) or 20
             local spinAngle = math.rad((tick() * spinSpeed * 15) % 360)
-            hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
+            local spinFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
+            if Session:IsFiniteFrame(spinFrame) then hrp.CFrame = spinFrame; didRotateHRP = true end
         else 
             local jitterSign = (math.floor(tick() * (Cfg.JitterSpeed or 15)) % 2 == 0) and 1 or -1
             local jitterYaw = math.rad(Cfg.JitterRange or 45) * jitterSign
@@ -6376,11 +7301,13 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
             local totalYaw = baseYaw + jitterYaw 
             
             local lookVec = camCFrame.LookVector; if char.Humanoid.MoveDirection.Magnitude > 0 then lookVec = char.Humanoid.MoveDirection end
-            local lookAtTarget = hrp.Position + lookVec; local baseRot = CFrame.lookAt(hrp.Position, Vector3.new(lookAtTarget.X, hrp.Position.Y, lookAtTarget.Z))
-            
-            hrp.CFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
+            local baseRot = Session:HorizontalFacing(hrp.Position, hrp.Position + lookVec)
+                or Session:HorizontalFacing(hrp.Position, hrp.Position + hrp.CFrame.LookVector)
+            if baseRot then
+                local jitterFrame = baseRot * CFrame.Angles(0, totalYaw, 0)
+                if Session:IsFiniteFrame(jitterFrame) then hrp.CFrame = jitterFrame; didRotateHRP = true end
+            end
         end
-        didRotateHRP = true
     end
     
     if not didRotateHRP then Session:Release("Rotation") end
@@ -6434,9 +7361,7 @@ local function UpdateViewHandsParts(char)
                 if l then table.insert(CurrentArmJoints, l) end
             end
         end
-        for _, j in ipairs(CurrentArmJoints) do
-            if not OrigMotorC0[j] then OrigMotorC0[j] = j.C0 end
-        end
+
     end
 end
 
@@ -6446,6 +7371,7 @@ local function ConnectJumpAndHands(char)
     Session:ResetSoftCamera()
     Session:ResetNoFall(false)
     Session:RefreshNoFallScripts()
+    if Session.ResetAuraAttack then Session:ResetAuraAttack() end
     for _, connection in ipairs(Session.CharacterConnections) do connection:Disconnect() end
     table.clear(Session.CharacterConnections)
     Session:ClearJumpCircles()
@@ -6456,7 +7382,7 @@ local function ConnectJumpAndHands(char)
     Session:RestoreAnimations()
     Session:Release("Speed")
     Session:Release("Rotation")
-    for joint, c0 in pairs(OrigMotorC0) do if joint.Parent then joint.C0 = c0 end end
+    Session:RestoreArmJoints()
     for part, state in pairs(OrigNoClipStates) do if part.Parent then part.CanCollide = state end end
     table.clear(OrigMotorC0)
     table.clear(OrigNoClipStates)
@@ -6562,6 +7488,10 @@ end
 
 function Session:Changed(key)
     if key == "SoftCameraEnabled" and not Cfg.SoftCameraEnabled then self:ResetSoftCamera() end
+    if key == "StretchScreenEnabled" or key == "StretchScreenAmount" then self:RefreshStretchScreen() end
+    if key == "KillAuraEnabled" and not Cfg.KillAuraEnabled then self:ResetAuraAttack() end
+    if key == "KillAuraNoCamRotation" then self:RefreshAimHooks() end
+    if key:match("^BridgeViewmodel") then self:RefreshBridgeViewmodel() end
     if key == "HitSoundEnabled" or key == "HitSoundOnDamage" or key == "DamageParticlesEnabled" or key == "HitParticlesOnDamage" then
         self:RefreshHitFeedback(key)
     end
@@ -6592,7 +7522,7 @@ function Session:Changed(key)
         or key == "AimbotWallCheck" or key:match("^AimbotIgnore_") then self:UpdateTargets() end
     if key == "ViewHandsEnabled" and not Cfg.ViewHandsEnabled then
         self:RestoreArms()
-        for joint, c0 in pairs(OrigMotorC0) do if joint.Parent then joint.C0 = c0 end end
+        Session:RestoreArmJoints()
     end
     if key == "CustomFovEnabled" and not Cfg.CustomFovEnabled then self:Release("FOV") end
     if key == "ThirdPersonEnabled" and not Cfg.ThirdPersonEnabled then self:Release("CameraMode") end
@@ -6600,11 +7530,15 @@ function Session:Changed(key)
         TargetHUD.Position = Cfg.TargetHudPosition
         self:ClampHudPosition(false)
     end
+    if key == "TargetHudScale" then self:SyncHudAppearance() end
     if key == "TargetHudInPlayer" or key == "TargetHudSide" or key == "TargetHudHeadDistance"
         or key == "TargetHudEnabled" then
         self:RefreshHudPlacement()
     end
-    if key:match("^WorldColor") then UpdateWorldShader() end
+    if key:match("^WorldColor") or key == "LowEndMode" then
+        self.SceneDirty = true
+        self:UpdateSceneSettings()
+    end
 end
 
 function Session:ClampHudPosition(save)
@@ -6621,6 +7555,27 @@ function Session:ClampHudPosition(save)
     if math.abs(nx - x) > 0.1 or math.abs(ny - y) > 0.1 then
         TargetHUD.Position = UDim2.new(position.X.Scale, position.X.Offset + nx - x, position.Y.Scale, position.Y.Offset + ny - y)
         if save and not Cfg.TargetHudInPlayer then Cfg.TargetHudPosition = TargetHUD.Position; SaveLocalMAIN() end
+    end
+end
+
+function Session:SyncHudDecorations()
+    local opacity = math.clamp(tonumber(window.Opacity) or 1, 0.5, 1)
+    if Hud.DecorOpacity ~= opacity then
+        Hud.DecorOpacity = opacity
+        if Hud.ShadowIsImage then Hud.Shadow.ImageTransparency = 1 - 0.55 * opacity
+        else Hud.Shadow.BackgroundTransparency = 1 - 0.35 * opacity end
+        if Hud.Rim then Hud.Rim.ImageTransparency = 1 - 0.5 * opacity end
+        strokeHUD.Transparency = 1 - 0.18 * opacity
+        Hud.AvatarStroke.Transparency = 1 - 0.14 * opacity
+        Hud.HealthStroke.Transparency = 1 - 0.12 * opacity
+        TargetIconContainer.BackgroundTransparency = 1 - 0.82 * opacity
+        HealthBack.BackgroundTransparency = 1 - 0.88 * opacity
+    end
+    local radius = Nova.U.radiusMult or 1
+    if Hud.DecorRadius ~= radius then
+        Hud.DecorRadius = radius
+        if Hud.Rim then Hud.Rim.Visible = radius > 0 end
+        if Hud.Gloss then Hud.Gloss.Visible = radius > 0 end
     end
 end
 
@@ -6642,7 +7597,11 @@ function Session:SyncHudAppearance()
     HealthText.Size = UDim2.new(1, -(left + 12), 0, 16)
     HealthBack.Position = UDim2.fromOffset(left, height - 16)
     HealthBack.Size = UDim2.new(1, -(left + 12), 0, 5)
-    Hud.Scale.Scale = window.Scale and window.Scale.Scale or window.OverlayScale or window.UserScale or 1
+    local hudScale = tonumber(Cfg.TargetHudScale)
+    if not hudScale or hudScale ~= hudScale or math.abs(hudScale) == math.huge then hudScale = 1 end
+    local interfaceScale = window.Scale and window.Scale.Scale or window.OverlayScale or window.UserScale or 1
+    Hud.Scale.Scale = interfaceScale * math.clamp(hudScale, 0.5, 2)
+    self:SyncHudDecorations()
     self:RefreshHudPlacement()
 end
 
@@ -6653,9 +7612,15 @@ function Session:SyncHudTheme()
     table.insert(Nova.Windows, 1, self.ThemeRoot)
     -- Nova's own brand-card pipeline applies the same opacity, card surface, gradients,
     -- background texture/intensity and accent as its watermark and launcher cards.
-    window:_registerBrandCard(TargetHUD)
+    window:_registerBrandCard(Hud.Card)
     Nova.Refresh.sync(TargetHUD)
     self:SyncHudAppearance()
+    Session:Connect(Hud.Card:GetPropertyChangedSignal("BackgroundTransparency"), function()
+        Session:SyncHudDecorations()
+    end)
+    Session:Connect(cornerHUD:GetPropertyChangedSignal("CornerRadius"), function()
+        Session:SyncHudDecorations()
+    end)
     Session:Connect(window.Scale:GetPropertyChangedSignal("Scale"), function()
         Session:SyncHudAppearance()
     end)
@@ -6679,6 +7644,7 @@ end
 Session:SyncHudTheme()
 
 function Session:UpdateTargetHUD(target, dt)
+    self:SyncHudDecorations()
     if self:IsFriend(target) then target = nil end
     dt = type(dt) == "number" and dt == dt and dt > 0 and dt < math.huge and dt or 0
     local character = target and target.Character
@@ -6724,7 +7690,7 @@ function Session:UpdateTargetHUD(target, dt)
         Hud.LastMaxHealth = maximum
     end
     lastTargetHealth = health
-    local normalColor = Cfg.TargetHudNormalColor
+    local normalColor = Cfg.TargetHudSyncColor and Nova.Theme.tokens.Accent or Cfg.TargetHudNormalColor
     local elapsed = tick() - lastDamageTimeHUD
     local barColor = normalColor
     if elapsed < 0.3 then
@@ -6743,13 +7709,19 @@ end
 
 function Session:Destroy()
     if not self.Alive then return end
+    self:DestroyStretchScreen()
+    self:DestroyAuraAttack()
+    self:DestroyCharacterDiagnostics()
     if self.Flush then pcall(function() self:Flush() end) end
     self:ResetNoFall(true)
     self:DestroyNoFallScripts()
     self:ClearCharacterParts()
     self:ResetTargetLocks()
+    self:DestroyWorldShader()
+    self:DestroyBridgeViewmodel()
     self:DestroySoftCamera()
     self.Alive = false
+    self:RefreshAimHooks()
     self:DestroyHitFeedback()
     self:ClearHitSounds()
     self:DestroyFriends()
@@ -6777,8 +7749,8 @@ function Session:Destroy()
     self:RestoreArms()
     self:RestoreHitboxes()
     for part, state in pairs(OrigNoClipStates) do if part.Parent then pcall(function() part.CanCollide = state end) end end
-    for joint, c0 in pairs(OrigMotorC0) do if joint.Parent then pcall(function() joint.C0 = c0 end) end end
-    for _, object in ipairs({NotificationGui, HatPart, ChamsFolder, Chams3DFolder, Session.WorldCubesFolder, self.Effects, SaturationEffect, VibeBloom, VibeCC, VibeBlur, VibeAtmo}) do
+    self:RestoreArmJoints()
+    for _, object in ipairs({NotificationGui, HatPart, ChamsFolder, Chams3DFolder, Session.WorldCubesFolder, self.Effects, SaturationEffect}) do
         pcall(function() object:Destroy() end)
     end
 end
@@ -7019,6 +7991,519 @@ end
 -- End shared cosmetic hit feedback.
 
 
+-- Platform: Roblox client / Luau; target: horizontal air movement with explicit movement precedence.
+do
+    local function finite(value)
+        return type(value) == "number" and value == value and math.abs(value) < math.huge
+    end
+    function Session:GetAirStrafeVelocity(character, humanoid, root)
+        if not self.Alive or not self.Ready or not Cfg.AirStrafeEnabled or character ~= LocalPlayer.Character
+            or not character or not character.Parent or not humanoid or humanoid.Parent ~= character
+            or not root or root.Parent ~= character or not root:IsA("BasePart") or root.Anchored
+            or humanoid.Health <= 0 or humanoid.Sit or humanoid.SeatPart or humanoid.PlatformStand then return nil end
+        local state = humanoid:GetState()
+        local transition = state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics
+            or state == Enum.HumanoidStateType.Landed
+        if state ~= Enum.HumanoidStateType.Jumping and state ~= Enum.HumanoidStateType.Freefall
+            and not (transition and humanoid.FloorMaterial == Enum.Material.Air) then return nil end
+        local direction, velocity = humanoid.MoveDirection, root.AssemblyLinearVelocity
+        if not finite(direction.X) or not finite(direction.Y) or not finite(direction.Z)
+            or not finite(velocity.X) or not finite(velocity.Y) or not finite(velocity.Z) then return nil end
+        local flat = Vector3.new(direction.X, 0, direction.Z)
+        if flat.Magnitude < 0.001 then return nil end
+        local speed = tonumber(Cfg.AirStrafeSpeed)
+        if not finite(speed) then speed = 30 end
+        return flat.Unit * math.clamp(speed, 1, 500)
+    end
+end
+
+
+-- Platform: Roblox client / Luau; target: reversible Bridge Duel camera sword presentation.
+do
+    local names = {woodensword=true, woodsword=true, stonesword=true, ironsword=true,
+        goldsword=true, goldensword=true, diamondsword=true}
+    local state = {Records={}, Connections={}, CameraConnections={}, ViewConnections={},
+        Active=false, Stopped=false, Queued=false, Revision=0, Offset=Vector3.zero, Scale=1}
+    Session.BridgeViewmodelState = state
+    local beforeName, afterName = Session.RenderName .. "_BridgeViewmodelBefore", Session.RenderName .. "_BridgeViewmodelAfter"
+    local function normalized(value) return string.lower(value):gsub("[^%w]", "") end
+    local function finite(value, fallback, minimum, maximum)
+        value = tonumber(value)
+        if not value or value ~= value or math.abs(value) == math.huge then return fallback end
+        return math.clamp(value, minimum, maximum)
+    end
+    local function disconnect(list)
+        for _, connection in ipairs(list) do connection:Disconnect() end
+        table.clear(list)
+    end
+    local function nearNumber(a, b) return math.abs(a - b) <= 0.00001 * math.max(1, math.abs(a), math.abs(b)) end
+    local function nearVector(a, b) return (a - b).Magnitude < 0.00001 end
+    local function nearFrame(a, b)
+        return nearVector(a.Position, b.Position) and nearVector(a.LookVector, b.LookVector)
+            and nearVector(a.UpVector, b.UpVector)
+    end
+    local function readPivot(record)
+        return record.Model and record.Object:GetPivot() or record.Object.CFrame
+    end
+    local function writePivot(record, frame)
+        if record.Model then record.Object:PivotTo(frame) else record.Object.CFrame = frame end
+    end
+    local function undoOffset(record)
+        if not record.Applied then return end
+        pcall(function()
+            -- An absolute pose written by the game after our pass belongs to the game.
+            if nearFrame(readPivot(record), record.Applied) then writePivot(record, record.Base) end
+        end)
+        record.Base, record.Applied = nil, nil
+    end
+    local function undoScale(record)
+        if not record.AppliedScale then return end
+        pcall(function()
+            if record.Model then
+                if nearNumber(record.Object:GetScale(), record.AppliedScale) then record.Object:ScaleTo(record.BaseScale) end
+            elseif record.Mesh then
+                if record.Mesh.Parent == record.Object then
+                    if nearVector(record.Mesh.Scale, record.AppliedScale) then record.Mesh.Scale = record.BaseScale end
+                    if nearVector(record.Mesh.Offset, record.AppliedMeshOffset) then record.Mesh.Offset = record.BaseMeshOffset end
+                end
+            elseif nearVector(record.Object.Size, record.AppliedScale) then
+                record.Object.Size = record.BaseScale
+                if record.OffsetMesh and record.OffsetMesh.Parent == record.Object
+                    and nearVector(record.OffsetMesh.Offset, record.AppliedMeshOffset) then
+                    record.OffsetMesh.Offset = record.BaseMeshOffset
+                end
+            end
+        end)
+        record.AppliedScale, record.AppliedMeshOffset, record.Factor = nil, nil, nil
+    end
+    local function restore(record) undoOffset(record); undoScale(record) end
+    local function clearRecords()
+        for object, record in pairs(state.Records) do restore(record); state.Records[object] = nil end
+    end
+    local function valid(record)
+        return state.Camera == workspace.CurrentCamera and state.Viewmodel
+            and state.Viewmodel.Parent == state.Camera and record.Object.Parent
+            and record.Object:IsDescendantOf(state.Viewmodel)
+    end
+    local function applyScale(record)
+        local factor = state.Scale
+        if record.Factor == factor then return end
+        undoScale(record)
+        -- Capture the game's current baseline after releasing our previous scale.
+        if record.Model then
+            record.BaseScale = record.Object:GetScale()
+            record.AppliedScale = record.BaseScale * factor
+            record.Object:ScaleTo(record.AppliedScale)
+            record.AppliedScale = record.Object:GetScale()
+        elseif record.Mesh and record.Mesh.Parent == record.Object then
+            record.BaseScale, record.BaseMeshOffset = record.Mesh.Scale, record.Mesh.Offset
+            record.AppliedScale, record.AppliedMeshOffset = record.BaseScale * factor, record.BaseMeshOffset * factor
+            record.Mesh.Scale, record.Mesh.Offset = record.AppliedScale, record.AppliedMeshOffset
+        else
+            record.BaseScale = record.Object.Size
+            record.AppliedScale = record.BaseScale * factor
+            record.Object.Size = record.AppliedScale
+            if record.OffsetMesh and record.OffsetMesh.Parent == record.Object then
+                record.BaseMeshOffset = record.OffsetMesh.Offset
+                record.AppliedMeshOffset = record.BaseMeshOffset * factor
+                record.OffsetMesh.Offset = record.AppliedMeshOffset
+            end
+        end
+        record.Factor = factor
+    end
+    local function track(object)
+        local record = {Object=object, Model=object:IsA("Model")}
+        if not record.Model then
+            local mesh = object:FindFirstChildOfClass("SpecialMesh")
+            -- FileMesh geometry follows its mesh scale, not the surrounding Part.Size.
+            if mesh and mesh.MeshType == Enum.MeshType.FileMesh then record.Mesh = mesh
+            elseif mesh then record.OffsetMesh = mesh end
+        end
+        state.Records[object] = record
+    end
+    local discover
+    local function queueDiscovery()
+        if state.Queued or not state.Active or state.Stopped then return end
+        state.Queued = true
+        local revision = state.Revision
+        task.defer(function()
+            if state.Stopped or revision ~= state.Revision then return end
+            state.Queued = false
+            if state.Active then discover() end
+        end)
+    end
+    local function setCamera(camera)
+        if state.Camera == camera then return end
+        clearRecords()
+        disconnect(state.CameraConnections); disconnect(state.ViewConnections)
+        state.Camera, state.Viewmodel = camera, nil
+        if camera then
+            table.insert(state.CameraConnections, camera.ChildAdded:Connect(queueDiscovery))
+            table.insert(state.CameraConnections, camera.ChildRemoved:Connect(queueDiscovery))
+        end
+    end
+    discover = function()
+        if not state.Active then return end
+        setCamera(workspace.CurrentCamera)
+        local viewmodel
+        if state.Camera then
+            for _, child in ipairs(state.Camera:GetChildren()) do
+                if normalized(child.Name) == "viewmodel" then viewmodel = child; break end
+            end
+        end
+        if viewmodel ~= state.Viewmodel then
+            clearRecords(); disconnect(state.ViewConnections)
+            state.Viewmodel = viewmodel
+            if viewmodel then
+                table.insert(state.ViewConnections, viewmodel.DescendantAdded:Connect(queueDiscovery))
+                table.insert(state.ViewConnections, viewmodel.DescendantRemoving:Connect(queueDiscovery))
+            end
+        end
+        local found = {}
+        if viewmodel then
+            -- Walk this small visual subtree only; an equipped sword is treated as one unit.
+            local pending, count = {viewmodel}, 0
+            while #pending > 0 and count < 512 do
+                local parent = table.remove(pending)
+                for _, child in ipairs(parent:GetChildren()) do
+                    count += 1
+                    if names[normalized(child.Name)] and (child:IsA("Model") or child:IsA("BasePart")) then
+                        found[child] = true
+                    elseif count < 512 then
+                        table.insert(pending, child)
+                    end
+                    if count >= 512 then break end
+                end
+            end
+        end
+        for object, record in pairs(state.Records) do
+            if not found[object] then restore(record); state.Records[object] = nil end
+        end
+        for object in pairs(found) do
+            local record = state.Records[object]
+            if record and not record.Model then
+                local mesh = object:FindFirstChildOfClass("SpecialMesh")
+                if mesh ~= (record.Mesh or record.OffsetMesh) then
+                    restore(record); state.Records[object] = nil
+                end
+            end
+            if not state.Records[object] then track(object) end
+        end
+    end
+    local function beforeRender()
+        for _, record in pairs(state.Records) do undoOffset(record) end
+    end
+    local function afterRender()
+        if not state.Active or not Session.Alive or not Cfg.BridgeViewmodelEnabled then return end
+        if workspace.CurrentCamera ~= state.Camera then discover() end
+        local camera = state.Camera
+        if not camera then return end
+        local frame = camera.CFrame
+        local offset = frame.RightVector * state.Offset.X + frame.UpVector * state.Offset.Y - frame.LookVector * state.Offset.Z
+        for object, record in pairs(state.Records) do
+            if not valid(record) then restore(record); state.Records[object] = nil; queueDiscovery()
+            else
+                local ok = pcall(function()
+                    undoOffset(record)
+                    applyScale(record)
+                    if offset.Magnitude > 0.00001 then
+                        record.Base = readPivot(record)
+                        writePivot(record, record.Base + offset)
+                        record.Applied = readPivot(record)
+                    end
+                end)
+                if not ok then restore(record); state.Records[object] = nil end
+            end
+        end
+    end
+    local function deactivate()
+        state.Active, state.Queued = false, false
+        state.Revision += 1
+        RunService:UnbindFromRenderStep(beforeName); RunService:UnbindFromRenderStep(afterName)
+        clearRecords()
+        disconnect(state.Connections); disconnect(state.CameraConnections); disconnect(state.ViewConnections)
+        state.Camera, state.Viewmodel = nil, nil
+    end
+    function Session:RefreshBridgeViewmodel()
+        if state.Stopped then return end
+        local enabled = self.Alive and self.Ready ~= false and Cfg.BridgeViewmodelEnabled == true
+        if not enabled then deactivate(); return end
+        state.Offset = Vector3.new(finite(Cfg.BridgeViewmodelX, 0, -2, 2), finite(Cfg.BridgeViewmodelY, 0, -2, 2),
+            finite(Cfg.BridgeViewmodelZ, 0, -2, 2))
+        state.Scale = finite(Cfg.BridgeViewmodelScale, 1, 0.5, 1.5)
+        if not state.Active then
+            state.Active = true
+            table.insert(state.Connections, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+                -- Release the previous camera's visual immediately, before the next render.
+                setCamera(workspace.CurrentCamera); queueDiscovery()
+            end))
+            RunService:BindToRenderStep(beforeName, -1, beforeRender)
+            RunService:BindToRenderStep(afterName, 2001, afterRender)
+        end
+        beforeRender(); discover()
+    end
+    function Session:DestroyBridgeViewmodel()
+        if state.Stopped then return end
+        deactivate(); state.Stopped = true
+    end
+end
+
+
+-- Platform: Roblox client / Luau; target: detached, inert character ghost construction.
+do
+    function Session:BuildCosmeticGhost(character)
+        if not self.Alive or not character or not character.Parent then return nil end
+        local archivable = character.Archivable
+        local ok, clone = pcall(function()
+            character.Archivable = true
+            return character:Clone()
+        end)
+        character.Archivable = archivable
+        if not ok or not clone then return nil end
+        local prepared = pcall(function()
+            -- Never publish a live rig or runnable character scripts into Workspace.
+            local descendants = clone:GetDescendants()
+            for _, item in ipairs(descendants) do
+                if item:IsA("LuaSourceContainer") or item:IsA("Script") or item:IsA("LocalScript")
+                    or item:IsA("ModuleScript") or item:IsA("JointInstance") or item:IsA("Motor6D")
+                    or item:IsA("Weld") or item:IsA("WeldConstraint") or item:IsA("Constraint")
+                    or item:IsA("BodyMover") then item:Destroy() end
+            end
+            for _, item in ipairs(clone:GetDescendants()) do
+                if item:IsA("Humanoid") or item:IsA("AnimationController") or item:IsA("Animator")
+                    or item:IsA("ControllerManager") or item.Name == "HumanoidRootPart" then
+                    item:Destroy()
+                elseif item:IsA("BasePart") then
+                    item.Anchored, item.Massless = true, true
+                    item.CanCollide, item.CanQuery, item.CanTouch = false, false, false
+                    item.LocalTransparencyModifier = 0
+                end
+            end
+            clone.Name = "Notification_Ghost"
+        end)
+        if not prepared then clone:Destroy(); return nil end
+        return clone
+    end
+end
+
+
+-- Platform: Roblox client / Luau; target: bounded local character diagnostics, never server visibility.
+do
+    local state = {Started=false, Stopped=false, Generation=0, Connections={}}
+    local function finite(n) return type(n) == "number" and n == n and math.abs(n) < math.huge end
+    local function vector(v)
+        return typeof(v) == "Vector3" and finite(v.X) and finite(v.Y) and finite(v.Z)
+    end
+    local function frame(v)
+        return typeof(v) == "CFrame" and vector(v.Position) and vector(v.RightVector) and vector(v.UpVector) and vector(v.LookVector)
+    end
+    local function number(n) return finite(n) and string.format("%.3f", n) or "invalid" end
+    function Session:CaptureCharacterDiagnostics(label)
+        if not self.Alive or state.Stopped then return self.LatestCharacterDiagnostics or "Session ended; no character snapshot." end
+        local active = {}
+        for key in pairs(self.ToggleKeys) do if Cfg[key] == true then table.insert(active, key) end end
+        table.sort(active)
+        while #active > 96 do table.remove(active) end
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root and not root:IsA("BasePart") then root = nil end
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local parts, hidden, localHidden, combinedHidden, joints, invalidJoints = 0, 0, 0, 0, 0, 0
+        local queue, at, capped = character and {character} or {}, 1, false
+        while at <= #queue do
+            local object = queue[at]; at += 1
+            if object:IsA("BasePart") then
+                parts += 1
+                local t, l = object.Transparency, object.LocalTransparencyModifier
+                if finite(t) and t >= 0.99 then hidden += 1 end
+                if finite(l) and l >= 0.99 then localHidden += 1 end
+                if finite(t) and finite(l) and 1 - (1 - t) * (1 - l) >= 0.99 then combinedHidden += 1 end
+            elseif object:IsA("JointInstance") or object:IsA("Motor6D") then
+                joints += 1
+                if not frame(object.C0) or not frame(object.C1) then invalidJoints += 1 end
+            end
+            for _, child in ipairs(object:GetChildren()) do
+                if #queue >= 512 then capped = true; break end
+                table.insert(queue, child)
+            end
+        end
+        local position = root and root:IsA("BasePart") and root.Position
+        local pos = vector(position) and (number(position.X) .. "," .. number(position.Y) .. "," .. number(position.Z)) or "missing/invalid"
+        local humState = "missing"
+        if humanoid then
+            local ok, value = pcall(function() return humanoid:GetState().Name end)
+            humState = ok and tostring(value) or "unavailable"
+        end
+        local text = string.format("local-only; server visibility unknown | %s | active=%s | character=%s parented=%s hp=%s state=%s | root=%s anchored=%s pos=%s frameFinite=%s | parts=%d transparencyHidden=%d localModifierHidden=%d effectiveHidden=%d joints=%d invalidJointFrames=%d scanned=%d capped=%s | hooksEnabled=%s hooksRequested=%s",
+            tostring(label or "manual"):gsub("[\r\n]", " "):sub(1, 64), #active > 0 and table.concat(active, ",") or "none",
+            tostring(character ~= nil), tostring(character ~= nil and character.Parent ~= nil), humanoid and number(humanoid.Health) or "missing", humState,
+            tostring(root ~= nil), tostring(root ~= nil and root.Anchored == true), pos, tostring(root ~= nil and frame(root.CFrame)),
+            parts, hidden, localHidden, combinedHidden, joints, invalidJoints, #queue, tostring(capped),
+            tostring(self.HooksEnabled == true), tostring(self.AimHooksRequested == true))
+        local attack = self.AuraAttackState or {}
+        local function count(value) return finite(value) and tostring(math.floor(math.clamp(value, 0, 1000000000))) or "0" end
+        local backend = tostring(attack.LastBackend or "none"):gsub("[\r\n]", " "):sub(1, 48)
+        local errorText = tostring(attack.LastError or "none"):gsub("[\r\n]", " "):sub(1, 160)
+        text ..= string.format(" | aura successful=%s failed=%s backend=%s pending=%s unreleased=%s error=%s",
+            count(attack.SuccessfulDispatches), count(attack.FailedDispatches), backend,
+            tostring(attack.Pending ~= nil), tostring(attack.Unreleased ~= nil), errorText)
+        self.LatestCharacterDiagnostics = text
+        local previousStage = Startup.Stage
+        pcall(function() Startup:Mark("character.diagnostics " .. text) end)
+        Startup.Stage = previousStage
+        return text
+    end
+    local function schedule(character, label)
+        state.Generation += 1
+        state.Character = character
+        local generation = state.Generation
+        Session:CaptureCharacterDiagnostics(label)
+        for _, seconds in ipairs({1, 5}) do
+            task.delay(seconds, function()
+                if Session.Alive and not state.Stopped and state.Generation == generation and LocalPlayer.Character == character then
+                    Session:CaptureCharacterDiagnostics(label .. "+" .. tostring(seconds) .. "s")
+                end
+            end)
+        end
+    end
+    function Session:StartCharacterDiagnostics()
+        if not self.Alive or state.Started or state.Stopped then return end
+        state.Started = true
+        self:Connect(LocalPlayer.CharacterAdded, function(character) schedule(character, "character-added") end, state.Connections)
+        self:Connect(LocalPlayer.CharacterRemoving, function(character)
+            if state.Character == character then state.Generation += 1; state.Character = nil end
+        end, state.Connections)
+        schedule(LocalPlayer.Character, "ready")
+    end
+    function Session:DestroyCharacterDiagnostics()
+        if state.Stopped then return end
+        state.Stopped, state.Started = true, false
+        state.Generation += 1
+        for _, connection in ipairs(state.Connections) do connection:Disconnect() end
+        table.clear(state.Connections)
+        state.Character = nil
+    end
+end
+
+
+-- Platform: Roblox client / Luau; target: horizontal screen stretch with owned camera restoration.
+do
+    local state = {Active = false, Factor = 1, Stopped = false}
+    Session.StretchScreenState = state
+    local beforeName, afterName = Session.RenderName .. "_StretchBefore", Session.RenderName .. "_StretchAfter"
+    local function finite(value)
+        return type(value) == "number" and value == value and math.abs(value) < math.huge
+    end
+    local function vectorFinite(value)
+        return finite(value.X) and finite(value.Y) and finite(value.Z)
+    end
+    local function sameBasis(a, b)
+        return a.RightVector == b.RightVector and a.UpVector == b.UpVector and a.LookVector == b.LookVector
+    end
+    local function owns(camera)
+        return camera == state.Camera and state.Applied ~= nil and sameBasis(camera.CFrame, state.Applied)
+    end
+
+    function Session:GetStretchFactor(camera)
+        if not self.Alive or not state.Active or Cfg.StretchScreenEnabled ~= true
+            or camera ~= workspace.CurrentCamera then return 1 end
+        return state.Factor
+    end
+
+    function Session:RestoreStretchScreen()
+        local camera, base, applied = state.Camera, state.Base, state.Applied
+        state.Camera, state.Base, state.Applied = nil, nil, nil
+        if not camera or not base or not applied then return end
+        pcall(function()
+            local current = camera.CFrame
+            if current == applied then
+                camera.CFrame = base
+            elseif sameBasis(current, applied) and vectorFinite(current.Position) then
+                -- Preserve a later translation (including Soft Camera being disabled).
+                camera.CFrame = base + (current.Position - applied.Position)
+            end
+        end)
+    end
+
+    function Session:UpdateStretchScreen()
+        -- Also safe when invoked twice without the next early render pass.
+        self:RestoreStretchScreen()
+        local camera = workspace.CurrentCamera
+        if not self.Alive or not self.Ready or not state.Active or not camera
+            or Cfg.StretchScreenEnabled ~= true or state.Factor <= 1 then return end
+        local base = camera.CFrame
+        if not vectorFinite(base.Position) or not vectorFinite(base.RightVector)
+            or not vectorFinite(base.UpVector) or not vectorFinite(base.LookVector) then return end
+        if base.RightVector.Magnitude < 0.0001 or base.UpVector.Magnitude < 0.0001
+            or base.LookVector.Magnitude < 0.0001 then return end
+        -- Camera's transpose view transform: x/z expands by Factor; y/z is unchanged.
+        -- All matrix components stay <= 1 for an ordinary orthonormal camera pose.
+        local s = 1 / state.Factor
+        local right, up, back = base.RightVector, base.UpVector * s, -base.LookVector * s
+        local p = base.Position
+        local stretched = CFrame.new(p.X, p.Y, p.Z,
+            right.X, up.X, back.X, right.Y, up.Y, back.Y, right.Z, up.Z, back.Z)
+        camera.CFrame = stretched
+        state.Camera, state.Base, state.Applied = camera, base, camera.CFrame
+    end
+
+    function Session:ProjectToViewport(camera, position)
+        local point, onScreen = camera:WorldToViewportPoint(position)
+        local factor = self:GetStretchFactor(camera)
+        if factor <= 1 then return point, onScreen end
+        local viewport = camera.ViewportSize
+        if not vectorFinite(point) or not finite(viewport.X) or not finite(viewport.Y)
+            or viewport.X <= 0 or viewport.Y <= 0 then return point, false end
+        if owns(camera) then
+            -- Late UI refresh: projection already includes the stretch. Return normal
+            -- camera depth so distance-based marker sizes do not grow by Factor too.
+            point = Vector3.new(point.X, point.Y, point.Z * factor)
+        else
+            point = Vector3.new(viewport.X * 0.5 + (point.X - viewport.X * 0.5) * factor, point.Y, point.Z)
+        end
+        return point, point.Z > 0 and point.X >= 0 and point.X <= viewport.X and point.Y >= 0 and point.Y <= viewport.Y
+    end
+
+    local function deactivate()
+        Session:RestoreStretchScreen()
+        RunService:UnbindFromRenderStep(beforeName)
+        RunService:UnbindFromRenderStep(afterName)
+        if state.CameraConnection then state.CameraConnection:Disconnect(); state.CameraConnection = nil end
+        state.Active, state.Factor = false, 1
+    end
+
+    function Session:RefreshStretchScreen()
+        if state.Stopped then return end
+        self:RestoreStretchScreen()
+        local amount = tonumber(Cfg.StretchScreenAmount)
+        local factor = (finite(amount) and math.clamp(amount, 100, 500) or 100) / 100
+        if not self.Alive or not self.Ready or Cfg.StretchScreenEnabled ~= true or factor <= 1 then
+            deactivate()
+        else
+            state.Factor = factor
+            if not state.Active then
+                state.Active = true
+                state.CameraConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+                    self:RestoreStretchScreen()
+                    self.PlayerVisualForce = true
+                end)
+                -- Restore before input, camera movement and Soft Camera; apply after
+                -- the game camera, this script's aiming and the sword viewmodel.
+                RunService:BindToRenderStep(beforeName, -2, function() self:RestoreStretchScreen() end)
+                RunService:BindToRenderStep(afterName, 2003, function() self:UpdateStretchScreen() end)
+            end
+        end
+        self.PlayerVisualForce = true
+    end
+
+    function Session:DestroyStretchScreen()
+        if state.Stopped then return end
+        deactivate()
+        state.Stopped = true
+    end
+end
+
+
 return Session
 end
 
@@ -7176,6 +8661,12 @@ end
 local function notify(text, kind)
     if not window.Destroyed then window:Notify({Title="notification", Text=text, Kind=kind or "info", Duration=3}) end
 end
+local refreshAimHooks = session.RefreshAimHooks
+function session:RefreshAimHooks()
+    local enabled, message, attempted = refreshAimHooks(self)
+    if attempted and not enabled then notify(message, "warning") end
+    return enabled, message, attempted
+end
 
 local localLoadError
 if type(isfile) == "function" and type(readfile) == "function" then
@@ -7298,11 +8789,13 @@ for _, feature in ipairs(FeatureSchema) do
         section:Button({Text="Rescan local fall scripts", Callback=function() session:RefreshNoFallScripts() end})
     end
     if feature.Key == "KillAuraEnabled" then
-        section:Label({Text="Aim hooks start disabled. Enable them separately for this session if needed; this choice is not saved.", Size=11, Color="Muted"})
-        section:Button({Text="Enable aim hooks for this session", Callback=function()
-            local ok, message = session:InstallAimHooks()
-            notify(message, ok and "success" or "warning")
-        end})
+        section:Label({Text="No Cam Rotate connects aim hooks automatically. Camera input and wall collision stay unchanged.", Size=11, Color="Muted"})
+    end
+    if feature.Key == "BridgeViewmodelEnabled" then
+        section:Label({Text="Adjusts the sword under Camera / Viewmodel. Offsets are camera-relative; disabling restores the original viewmodel.", Size=11, Color="Muted"})
+    end
+    if feature.Key == "StretchScreenEnabled" then
+        section:Label({Text="100% = normal view. Higher values stretch the world horizontally, up to 500%.", Size=11, Color="Muted"})
     end
     for _, option in ipairs(feature.Options) do
         local key = option.Key
@@ -7382,6 +8875,15 @@ localSection:Button({Text="Save now",Icon="save",Callback=function()
     local ok, message = session:Flush()
     notify(message,ok and "success" or "warning")
 end})
+localSection:Button({Text="Copy diagnostics",Icon="copy",Callback=function()
+    session:CaptureCharacterDiagnostics("manual")
+    local text = table.concat(Startup.Lines, "\n")
+    if type(setclipboard) == "function" and pcall(setclipboard, text) then
+        notify("Diagnostics copied. Character visibility is measured locally only.", "success")
+    else
+        notify("Diagnostics saved to the startup log. In Studio, open Launcher Logs.", "info")
+    end
+end})
 localSection:Button({Text="Reset feature settings",Icon="rotate-ccw",Callback=function()
     applyFeatures(table.clone(session.Defaults))
     session:Save()
@@ -7399,6 +8901,10 @@ Startup:Mark("marquee.begin")
 Nova.StartMarquee(window, {window.Gui, window.Parking, session.OverlayGui})
 Startup:Mark("startup.ready")
 session.Ready = true
+session:StartCharacterDiagnostics()
+session:RefreshAimHooks()
+session:RefreshBridgeViewmodel()
+session:RefreshStretchScreen()
 session:RefreshHitFeedback()
 if cfg.HitSoundEnabled then session:PrepareHitSound() end
 session:RefreshNoFallScripts()
