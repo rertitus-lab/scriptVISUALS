@@ -3541,6 +3541,39 @@ local NumberRanges = {
     SoftCameraReturnSpeed = {6, 30, 1},
 }
 
+-- Platform: Roblox client / Luau; target: exact PlaceId feature selection.
+local PlaceSupport = {PlaceId = game.PlaceId}
+if PlaceSupport.PlaceId == 139566161526375 then
+    PlaceSupport.NoCamRotate = "BridgeDuel"
+    PlaceSupport.Viewmodel = true
+    PlaceSupport.TurnBody = true
+elseif PlaceSupport.PlaceId == 111643789119873 then
+    PlaceSupport.NoCamRotate = "InternalCamera"
+end
+
+function PlaceSupport.Normalize(values)
+    if not PlaceSupport.Viewmodel then
+        values.BridgeViewmodelEnabled, values.BridgeViewmodelEnabledBind = false, "None"
+    end
+    if not PlaceSupport.NoCamRotate then
+        values.KillAuraNoCamRotation, values.KillAuraNoCamRotationBind = false, "None"
+    end
+end
+
+-- Hide unsupported controls before creating sections or registering keybinds.
+for index = #FeatureSchema, 1, -1 do
+    local feature = FeatureSchema[index]
+    if feature.Key == "BridgeViewmodelEnabled" and not PlaceSupport.Viewmodel then
+        table.remove(FeatureSchema, index)
+    else
+        for optionIndex = #feature.Options, 1, -1 do
+            if feature.Options[optionIndex].Key == "KillAuraNoCamRotation" and not PlaceSupport.NoCamRotate then
+                table.remove(feature.Options, optionIndex)
+            end
+        end
+    end
+end
+
 local function StartNotification(window)
     local Session = {
         Alive = true, Ready = false, Connections = {}, CharacterConnections = {}, Overrides = {},
@@ -3902,6 +3935,8 @@ end
 
 
 Session.Cfg = Cfg
+Session.PlaceSupport = PlaceSupport
+PlaceSupport.Normalize(Cfg)
 Session.Defaults = table.clone(Cfg)
 Session.ToggleKeys = {}
 for _, feature in ipairs(FeatureSchema) do
@@ -3923,7 +3958,8 @@ end
 -- Platform: Roblox client / Luau; target: aim reads isolated from camera rendering and collision.
 -- No Cam Rotate owns activation; disabling it detaches this session from the native callbacks.
 do
-    local VERSION = 4
+    local VERSION = 5
+    local profile = Session.PlaceSupport.NoCamRotate
     local previous = environment.__NotificationNovaHooks
     if previous then previous.Session = nil end
     if previous and previous.Version ~= VERSION then environment.__NotificationNovaHooks = nil end
@@ -3932,7 +3968,7 @@ do
             and type(getnamecallmethod) == "function" and type(setnamecallmethod) == "function" and type(getcallingscript) == "function"
             and debug ~= nil and type(debug.info) == "function"
     end
-    Session.HooksAvailable = available()
+    Session.HooksAvailable = profile ~= nil and available()
     Session.HooksEnabled = false
     Session.AimHooksRequested = false
     Session.HookStatus = "No Cam Rotate is off."
@@ -3946,6 +3982,13 @@ do
         ".network.", ".networking.", ".replication.", ".replicationcontroller.",
         ".networkcontroller.", ".charactercontroller.", ".charactermovement.",
         ".movementcontroller.", ".characterreplication.", ".playercontroller.", ".humanoidcontroller."}
+    if profile == "InternalCamera" then
+        -- Names and dependencies observed in the supplied PlayerModule.BaseCamera.
+        for _, segment in ipairs({".basecamera.", ".camerautils.", ".zoomcontroller.",
+            ".cameratogglestatecontroller.", ".cameraui.", ".internalcamera."}) do
+            table.insert(cameraSegments, segment)
+        end
+    end
     local function cameraSource(source)
         if type(source) ~= "string" then return false end
         local cached = sourceCache[source]
@@ -3991,7 +4034,7 @@ do
     end
 
     function Session:GetAimHookPart()
-        if not self.Alive or not self.HooksEnabled or not self.Cfg.KillAuraEnabled
+        if not profile or not self.Alive or not self.HooksEnabled or not self.Cfg.KillAuraEnabled
             or not self.Cfg.KillAuraNoCamRotation then return nil end
         local target = self.KaTarget
         if typeof(target) ~= "Instance" or not target:IsA("Player") or target.Parent ~= Players
@@ -4030,8 +4073,56 @@ do
         return Ray.new(ray.Origin, direction.Unit * length)
     end
 
+    function Session:RefreshAimCameraReferences()
+        self.AimHookCamera = workspace.CurrentCamera
+        self.AimHookInternalCamera = nil
+        if profile ~= "InternalCamera" then return end
+        local function readInternal(scope)
+            if type(scope) ~= "table" then return nil end
+            local candidate = rawget(scope, "internalCamera")
+            if typeof(candidate) == "Instance" and candidate:IsA("Camera") then return candidate end
+            return nil
+        end
+        -- Executors can separate their _G from the game's _G. Resolve it without
+        -- requiring PlayerModule or changing any field in the game's camera object.
+        local runtime = self.AimRuntimeEnvironment
+        self.AimHookInternalCamera = readInternal(type(runtime) == "table" and rawget(runtime, "_G"))
+            or readInternal(_G) or readInternal(environment)
+    end
+
+    function Session:StopAimCameraTracking()
+        if self.AimInternalCameraConnection then
+            self.AimInternalCameraConnection:Disconnect()
+            self.AimInternalCameraConnection = nil
+        end
+        self.AimHookInternalCamera, self.AimRuntimeEnvironment = nil, nil
+    end
+
+    function Session:StartAimCameraTracking()
+        if profile ~= "InternalCamera" then return end
+        if type(getrenv) == "function" then
+            local ok, runtime = pcall(getrenv)
+            self.AimRuntimeEnvironment = ok and type(runtime) == "table" and runtime or nil
+        end
+        self:RefreshAimCameraReferences()
+        if self.AimInternalCameraConnection then return end
+        local elapsed = 0
+        self.AimInternalCameraConnection = RunService.Heartbeat:Connect(function(dt)
+            if not self.Alive or not self.HooksEnabled or not self.Cfg.KillAuraNoCamRotation then return end
+            elapsed += dt
+            if elapsed < 0.2 then return end
+            elapsed = 0
+            self:RefreshAimCameraReferences()
+        end)
+    end
+
+    function Session:IsAimReadCamera(object)
+        return object == self.AimHookCamera or (self.AimHookInternalCamera ~= nil and object == self.AimHookInternalCamera)
+    end
+
     function Session:InstallAimHooks()
         if not self.Alive then return false, "This session has ended." end
+        if not profile then return false, "No Cam Rotate is not available in this place." end
         if self.HooksEnabled then return true, "Aim hooks are already enabled for this session." end
         self.HooksAvailable = available()
         if not self.HooksAvailable then return false, "Scoped aim requires hookmetamethod, checkcaller, getnamecallmethod, setnamecallmethod, getcallingscript and debug.info. Camera is unchanged." end
@@ -4050,10 +4141,10 @@ do
         -- make IsA / GetMouse / camera-property calls or inspect the calling script.
         local mouseOK, mouse = pcall(function() return LocalPlayer:GetMouse() end)
         self.AimHookMouse = mouseOK and typeof(mouse) == "Instance" and mouse or nil
-        self.AimHookCamera = workspace.CurrentCamera
+        self:RefreshAimCameraReferences()
         if not self.AimHookCameraConnection then
             self.AimHookCameraConnection = self:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), function()
-                self.AimHookCamera = workspace.CurrentCamera
+                self:RefreshAimCameraReferences()
             end)
         end
         if not hooks.IndexInstalled then
@@ -4065,12 +4156,14 @@ do
             end
             local ok, err = pcall(function()
                 oldIndex = hookmetamethod(game, "__index", function(object, key)
-                    if key ~= "CFrame" and key ~= "Hit" and key ~= "Target" and key ~= "UnitRay" then return oldIndex(object, key) end
+                    if key ~= "CFrame" and key ~= "CoordinateFrame" and key ~= "Hit" and key ~= "Target" and key ~= "UnitRay" then return oldIndex(object, key) end
                     local current = hooks.Session
                     if not current or not current.Alive or not current.HooksEnabled or not current.Cfg.KillAuraEnabled
                         or not current.Cfg.KillAuraNoCamRotation or not current.KaTarget then return oldIndex(object, key) end
-                    local cameraRead = key == "CFrame" and object == current.AimHookCamera
-                    local mouseRead = key ~= "CFrame" and object == current.AimHookMouse and current.AimHookMouse ~= nil
+                    local cameraRead = (key == "CFrame" or (key == "CoordinateFrame" and current.PlaceSupport.NoCamRotate == "InternalCamera"))
+                        and current:IsAimReadCamera(object)
+                    local mouseRead = (key == "Hit" or key == "Target" or key == "UnitRay")
+                        and object == current.AimHookMouse and current.AimHookMouse ~= nil
                     if not cameraRead and not mouseRead then return oldIndex(object, key) end
                     local tokenOK, incomingMethod = pcall(inspectMethod)
                     if not tokenOK then return oldIndex(object, key) end
@@ -4117,7 +4210,7 @@ do
                     local method = getnamecallmethod()
                     local cameraRay = method == "ViewportPointToRay" or method == "ScreenPointToRay"
                     local legacyRay = method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist"
-                    if typeof(object) ~= "Instance" or not ((cameraRay and object == hooks.Session.AimHookCamera)
+                    if typeof(object) ~= "Instance" or not ((cameraRay and hooks.Session:IsAimReadCamera(object))
                         or (object == workspace and (legacyRay or method == "Raycast"))) then return oldNamecall(object, ...) end
                     local routed, part = pcall(redirectPart, hooks)
                     if not routed or not part then return forward(method, object, ...) end
@@ -4140,17 +4233,26 @@ do
             end
         end
         self.HooksEnabled = hooks.IndexInstalled == true and hooks.NamecallInstalled == true
-        if self.HooksEnabled then hooks.Session = self; self.HookError = nil end
+        if self.HooksEnabled then
+            self:StartAimCameraTracking()
+            hooks.Session = self
+            self.HookError = nil
+        end
         Startup:Mark(self.HooksEnabled and "aim-hooks.install.ready" or "aim-hooks.install.unavailable")
-        return self.HooksEnabled, self.HooksEnabled and "Aim hooks enabled; camera modules keep their original view and collision rays." or "Aim hooks are unavailable."
+        local readyStatus = profile == "InternalCamera"
+            and "Internal camera aim profile enabled; PlayerModule camera reads remain unchanged."
+            or "Aim hooks enabled; camera modules keep their original view and collision rays."
+        return self.HooksEnabled, self.HooksEnabled and readyStatus or "Aim hooks are unavailable."
     end
 
     function Session:RefreshAimHooks()
-        if not self.Alive or self.Cfg.KillAuraNoCamRotation ~= true then
+        if not self.Alive or not profile or self.Cfg.KillAuraNoCamRotation ~= true then
             local hooks = environment.__NotificationNovaHooks
             if hooks and hooks.Session == self then hooks.Session = nil end
             self.HooksEnabled, self.AimHooksRequested, self.HookError = false, false, nil
-            self.HookStatus = self.Alive and "No Cam Rotate is off." or "This session has ended."
+            self:StopAimCameraTracking()
+            self.HookStatus = not self.Alive and "This session has ended."
+                or (not profile and "No Cam Rotate is not available in this place." or "No Cam Rotate is off.")
             return false, self.HookStatus, false
         end
         if not self.Ready then
@@ -7250,9 +7352,9 @@ RunService:BindToRenderStep(Session.RenderName, 202, function(dt)
                     end
                 end
 
-                if Cfg.KillAuraNoCamRotation then
-                    local facing = Session:HorizontalFacing(hrp.Position, targetPart.Position)
-                    if facing then
+                if Session.PlaceSupport.NoCamRotate and Cfg.KillAuraNoCamRotation then
+                    local facing = Session.PlaceSupport.TurnBody and Session:HorizontalFacing(hrp.Position, targetPart.Position)
+                    if facing and Session.PlaceSupport.TurnBody then
                         local savedVel = hrp.AssemblyLinearVelocity
                         Session:Override("Rotation", char.Humanoid, {AutoRotate = false})
                         hrp.CFrame = facing
@@ -8194,7 +8296,7 @@ do
         for _, record in pairs(state.Records) do undoOffset(record) end
     end
     local function afterRender()
-        if not state.Active or not Session.Alive or not Cfg.BridgeViewmodelEnabled then return end
+        if not state.Active or not Session.Alive or not Session.PlaceSupport.Viewmodel or not Cfg.BridgeViewmodelEnabled then return end
         if workspace.CurrentCamera ~= state.Camera then discover() end
         local camera = state.Camera
         if not camera then return end
@@ -8226,7 +8328,7 @@ do
     end
     function Session:RefreshBridgeViewmodel()
         if state.Stopped then return end
-        local enabled = self.Alive and self.Ready ~= false and Cfg.BridgeViewmodelEnabled == true
+        local enabled = self.Alive and self.Ready ~= false and self.PlaceSupport.Viewmodel == true and Cfg.BridgeViewmodelEnabled == true
         if not enabled then deactivate(); return end
         state.Offset = Vector3.new(finite(Cfg.BridgeViewmodelX, 0, -2, 2), finite(Cfg.BridgeViewmodelY, 0, -2, 2),
             finite(Cfg.BridgeViewmodelZ, 0, -2, 2))
@@ -8648,6 +8750,7 @@ local function syncControls()
     window:_kbDirty()
 end
 local function applyFeatures(values)
+    session.PlaceSupport.Normalize(values)
     local changed = {}
     for key, value in pairs(values) do
         if cfg[key] ~= value then changed[key] = true end
@@ -8788,8 +8891,12 @@ for _, feature in ipairs(FeatureSchema) do
         end
         section:Button({Text="Rescan local fall scripts", Callback=function() session:RefreshNoFallScripts() end})
     end
-    if feature.Key == "KillAuraEnabled" then
-        section:Label({Text="No Cam Rotate connects aim hooks automatically. Camera input and wall collision stay unchanged.", Size=11, Color="Muted"})
+    if feature.Key == "KillAuraEnabled" and session.PlaceSupport.NoCamRotate then
+        if session.PlaceSupport.NoCamRotate == "InternalCamera" then
+            section:Label({Text="No Cam Rotate uses this place's internal camera profile. Camera modules keep their own view; aim hooks connect automatically.", Size=11, Color="Muted"})
+        else
+            section:Label({Text="No Cam Rotate connects aim hooks automatically. Camera input and wall collision stay unchanged.", Size=11, Color="Muted"})
+        end
     end
     if feature.Key == "BridgeViewmodelEnabled" then
         section:Label({Text="Adjusts the sword under Camera / Viewmodel. Offsets are camera-relative; disabling restores the original viewmodel.", Size=11, Color="Muted"})
