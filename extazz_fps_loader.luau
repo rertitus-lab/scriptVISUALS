@@ -1544,6 +1544,21 @@ return function(window)
         return type(value) == "string" and value:lower():gsub("[^%w]", "") or nil
     end
     for i, label in ipairs(labels) do byName[nameKey(label)] = i end
+    local choiceBits, optionBitsVerified = {}, false
+    for i = 1, #labels do choiceBits[i] = 2 ^ (i - 1) end
+    -- Display order is canonical, while saved masks follow the runtime's ore
+    -- catalog order. Only trust complete, unambiguous runtime metadata.
+    local metadata = session.XrayBlockOptions
+    if type(metadata) == "table" and #metadata == #labels then
+        local mapped, seen, valid = {}, {}, true
+        for index = 1, #labels do
+            local option = metadata[index]
+            local canonical = type(option) == "table" and byName[nameKey(option.label)]
+            if not canonical or seen[canonical] then valid = false; break end
+            seen[canonical], mapped[canonical] = true, 2 ^ (index - 1)
+        end
+        if valid then choiceBits, optionBitsVerified = mapped, true end
+    end
     -- Valid saved bit masks are unchanged. Invalid selections fail closed rather
     -- than reaching the original Xray numeric fallback (all eight categories).
     local function maskOf(value)
@@ -1557,31 +1572,30 @@ return function(window)
         for _, item in ipairs(value) do
             local index = type(item) == "number" and item or byName[nameKey(item)]
             if type(index) == "number" and index % 1 == 0 and index >= 1 and index <= 8 then
-                mask = bit32.bor(mask, 2 ^ (index - 1))
+                mask = bit32.bor(mask, choiceBits[index])
             end
         end
         for i, label in ipairs(labels) do
-            if value[label] == true or value[nameKey(label)] == true then mask = bit32.bor(mask, 2 ^ (i - 1)) end
+            if value[label] == true or value[nameKey(label)] == true then mask = bit32.bor(mask, choiceBits[i]) end
         end
         return mask
     end
     local function selectedValues(mask)
         local values = {}
         for i = 1, #labels do
-            if bit32.band(mask, 2 ^ (i - 1)) ~= 0 then values[#values + 1] = i end
+            if bit32.band(mask, choiceBits[i]) ~= 0 then values[#values + 1] = i end
         end
         return values
     end
-    local options = {}
-    for i, label in ipairs(labels) do options[i] = {value = i, label = label} end
-    local controller = {Active = true, Version = 2, Controls = {}, Mask = maskOf, Labels = table.clone(labels)}
+    local controller = {Active = true, Version = 3, UIKind = "CheckboxMulti", OptionLabelsVerified = false,
+        OptionBitsVerified = optionBitsVerified, OptionBits = table.clone(choiceBits),
+        Controls = {}, Mask = maskOf, Labels = table.clone(labels)}
     local originalChanged, originalStep, originalDestroy = session.Changed, session.StepXray, session.Destroy
-    local originalApply = window.ApplyConfig
+    local originalApply, originalClose = window.ApplyConfig, window.Close
     local created, hidden, sections = {}, {}, {}
-    local popupConnections, ownedPopups = {}, {}
     local syncing = false
     local seenXrayMask
-    local replacementChanged, replacementStep, replacementDestroy, replacementApply
+    local replacementChanged, replacementStep, replacementDestroy, replacementApply, replacementClose
     function controller.GetMask(key)
         if not keys[key] then return 0 end
         local mask = maskOf(session.Cfg[key])
@@ -1611,6 +1625,220 @@ return function(window)
     local function remove(array, value)
         for i = #array, 1, -1 do if array[i] == value then table.remove(array, i) end end
     end
+    local function newMultiDropdown(section, key)
+        local item = {Type = "MultiDropdown", OptionButtons = {}, Selected = {}}
+        local popup, nativePopup, fallbackLayer
+        local popupConnections = {}
+        local closing = false
+        local host
+        local white = Color3.fromRGB(239, 241, 245)
+        local muted = Color3.fromRGB(153, 161, 177)
+        local surface = Color3.fromRGB(29, 32, 40)
+        local accent = Color3.fromRGB(113, 174, 255)
+        local function instance(class, properties)
+            local result = Instance.new(class)
+            for name, value in pairs(properties) do result[name] = value end
+            return result
+        end
+        local function corner(parent, radius)
+            instance("UICorner", {CornerRadius = UDim.new(0, radius), Parent = parent})
+        end
+        local function connect(signal, fn)
+            popupConnections[#popupConnections + 1] = signal:Connect(fn)
+        end
+        local function destroyPopup()
+            for _, connection in ipairs(popupConnections) do connection:Disconnect() end
+            table.clear(popupConnections)
+            table.clear(item.OptionButtons)
+            if popup then popup:Destroy() end
+            if fallbackLayer then fallbackLayer:Destroy() end
+            popup, nativePopup, fallbackLayer = nil, nil, nil
+            item.PopupFrame, item.IsOpen = nil, false
+        end
+        function item:Close()
+            if closing then return end
+            closing = true
+            local registered = false
+            for _, active in ipairs(type(window.Popups) == "table" and window.Popups or {}) do
+                if active == nativePopup then registered = true; break end
+            end
+            if registered and type(window.ClosePopups) == "function" then window:ClosePopups() end
+            destroyPopup()
+            closing = false
+        end
+        local function refresh()
+            local names = {}
+            for i, label in ipairs(labels) do
+                local selected = item.Selected[i] == true
+                if selected then names[#names + 1] = label end
+                local button = item.OptionButtons[i]
+                if button then
+                    button.BackgroundColor3 = selected and accent or surface
+                    button.BackgroundTransparency = selected and .78 or 1
+                    local check = button:FindFirstChild("Check")
+                    if check then check.Text = selected and "✓" or "" end
+                end
+            end
+            local summary = #names == 0 and "None" or #names <= 2 and table.concat(names, ", ")
+                or (#names .. " selected")
+            item.Caption = "Blocks: " .. summary .. "  ▾"
+            if item.CaptionLabel then
+                item.CaptionLabel.Text = item.Caption
+                item.CaptionVerified = item.CaptionLabel.Text == item.Caption
+            end
+        end
+        function item:Get()
+            local values = {}
+            for i = 1, #labels do if self.Selected[i] then values[#values + 1] = i end end
+            return values
+        end
+        function item:SetSilent(values)
+            local mask = maskOf(values)
+            table.clear(self.Selected)
+            for i = 1, #labels do self.Selected[i] = bit32.band(mask, choiceBits[i]) ~= 0 end
+            refresh()
+        end
+        function item:Set(values, silent)
+            if silent then self:SetSilent(values) else controller.SetMask(key, values) end
+        end
+        item.SetValue = item.Set
+        function item:Open()
+            if not controller.Active or not session.Alive or window.Destroyed then return end
+            if self.IsOpen then self:Close(); return end
+            for _, other in pairs(controller.Controls) do if other ~= self then other:Close() end end
+            local nativeAvailable = type(window.PopupShell) == "function" and type(window.PopupPlace) == "function"
+                and type(window.OpenPopup) == "function" and type(window.ClosePopups) == "function"
+            local viewWidth, viewHeight = 800, 600
+            local layer = nativeAvailable and window.PopLayer or window.Gui
+            if typeof(layer) == "Instance" then
+                local ok, size = pcall(function() return layer.AbsoluteSize end)
+                local zoom = nativeAvailable and window.PopScale and tonumber(window.PopScale.Scale) or 1
+                zoom = zoom and zoom > 0 and zoom or 1
+                if ok and typeof(size) == "Vector2" and size.X > 0 and size.Y > 0 then
+                    viewWidth, viewHeight = size.X / zoom, size.Y / zoom
+                end
+            end
+            local margin = math.min(8, viewWidth * .05, viewHeight * .05)
+            local width = math.max(1, math.min(296, viewWidth - margin * 2))
+            local height = math.max(1, math.min(334, viewHeight - margin * 2))
+            local shell, scale
+            if nativeAvailable then
+                local ok, frame, body, zoom = pcall(window.PopupShell, window, width, height)
+                if ok and typeof(frame) == "Instance" and typeof(body) == "Instance" then
+                    popup, shell, scale = frame, body, zoom
+                    local placed, x, y, _, up = pcall(window.PopupPlace, window, item.Base, width, height, "right")
+                    if placed and type(x) == "number" and type(y) == "number" then
+                        popup.Position = UDim2.fromOffset(x, y)
+                    end
+                    if type(window.PopupReveal) == "function" then
+                        local revealed = pcall(window.PopupReveal, window, popup, shell, scale, up == 1)
+                        if not revealed then pcall(function() shell.GroupTransparency = 0 end) end
+                    else pcall(function() shell.GroupTransparency = 0 end) end
+                elseif typeof(frame) == "Instance" then frame:Destroy() end
+            end
+            if not popup then
+                local parent = window.Gui
+                if typeof(parent) ~= "Instance" then return end
+                local ok, size = pcall(function() return parent.AbsoluteSize end)
+                if ok and typeof(size) == "Vector2" and size.X > 0 and size.Y > 0 then
+                    local pad = math.min(8, size.X * .05, size.Y * .05)
+                    width, height = math.max(1, math.min(296, size.X - pad * 2)), math.max(1, math.min(334, size.Y - pad * 2))
+                end
+                fallbackLayer = instance("Frame", {Name = "OreMultiOverlay", Size = UDim2.fromScale(1, 1),
+                    BackgroundTransparency = 1, ZIndex = 200, Parent = parent})
+                local outside = instance("TextButton", {Name = "Outside", Text = "", AutoButtonColor = false,
+                    Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 200, Parent = fallbackLayer})
+                connect(outside.MouseButton1Click, function() item:Close() end)
+                popup = instance("Frame", {Name = "OreMultiPopup", AnchorPoint = Vector2.new(.5, .5),
+                    Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(width, height),
+                    BackgroundColor3 = surface, BorderSizePixel = 0, ZIndex = 201, Parent = fallbackLayer})
+                corner(popup, 10)
+                shell = popup
+            end
+            popup.Name = "OreMultiPopup"
+            item.PopupFrame, item.IsOpen = popup, true
+            instance("TextLabel", {Name = "Title", Text = "Select blocks", BackgroundTransparency = 1,
+                Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = white,
+                TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6),
+                Size = UDim2.new(1, -24, 0, 24), ZIndex = 212, Parent = shell})
+            local list = instance("ScrollingFrame", {Name = "OreMultiList", Position = UDim2.fromOffset(8, 36),
+                Size = UDim2.new(1, -16, 1, -78), CanvasSize = UDim2.fromOffset(0, #labels * 32),
+                BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+                ScrollBarImageColor3 = muted, ZIndex = 212, Parent = shell})
+            for i, label in ipairs(labels) do
+                local bit = choiceBits[i]
+                local button = instance("TextButton", {Name = "OreOption", Text = label, AutoButtonColor = false,
+                    Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = white,
+                    TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, (i - 1) * 32),
+                    Size = UDim2.new(1, -4, 0, 30), BorderSizePixel = 0, LayoutOrder = i, ZIndex = 213, Parent = list})
+                corner(button, 6)
+                instance("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 32), Parent = button})
+                instance("TextLabel", {Name = "Check", Text = "", BackgroundTransparency = 1,
+                    Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = accent,
+                    AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -2, .5, 0),
+                    Size = UDim2.fromOffset(22, 24), ZIndex = 214, Parent = button})
+                item.OptionButtons[i] = button
+                connect(button.MouseButton1Click, function()
+                    if not controller.Active or not session.Alive then return end
+                    local mask = controller.GetMask(key)
+                    controller.SetMask(key, bit32.bxor(mask, bit))
+                end)
+            end
+            local clear = instance("TextButton", {Name = "Clear", Text = "Clear", AutoButtonColor = false,
+                Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = muted,
+                BackgroundTransparency = 1, Position = UDim2.new(0, 10, 1, -34),
+                Size = UDim2.fromOffset(90, 26), ZIndex = 213, Parent = shell})
+            local done = instance("TextButton", {Name = "Done", Text = "Done", AutoButtonColor = false,
+                Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = white,
+                BackgroundColor3 = accent, BackgroundTransparency = .82, BorderSizePixel = 0,
+                Position = UDim2.new(1, -100, 1, -34), Size = UDim2.fromOffset(90, 26), ZIndex = 213, Parent = shell})
+            corner(done, 6)
+            connect(clear.MouseButton1Click, function() controller.SetMask(key, 0) end)
+            connect(done.MouseButton1Click, function() item:Close() end)
+            refresh()
+            local verified = true
+            for i, label in ipairs(labels) do
+                verified = verified and item.OptionButtons[i].Text == label
+            end
+            item.OptionLabelsVerified = verified
+            controller.OptionLabelsVerified = verified
+            if not fallbackLayer then
+                nativePopup = {close = destroyPopup}
+                window:OpenPopup(nativePopup)
+            end
+        end
+        host = section:Button({Text = "Blocks", Order = 2,
+            Tooltip = "Select several blocks. Choices remain checked until you remove them.",
+            Callback = function() end})
+        item.Row, item.RowObj = host.Row, host.RowObj
+        if typeof(item.Row) ~= "Instance" and type(section.Rows) == "table" then
+            local last = section.Rows[#section.Rows]
+            if type(last) == "table" and last.Section == section then item.RowObj, item.Row = last, last.Frame end
+        end
+        item.Base = host.Base
+        if (typeof(item.Base) ~= "Instance" or not item.Base:IsA("GuiButton")) and typeof(item.Row) == "Instance" then
+            item.Base = item.Row:IsA("TextButton") and item.Row or item.Row:FindFirstChildWhichIsA("TextButton", true)
+        end
+        item.Host = host
+        if typeof(item.Base) ~= "Instance" then error("Selection button unavailable", 0) end
+        -- Keep the host's native interaction/style but bypass its setter ABI.
+        -- Protected builds can expose dot-style setters; passing self to one
+        -- would stringify a control table instead of showing an ore name.
+        for _, child in ipairs(item.Base:GetDescendants()) do
+            if child:IsA("TextLabel") then child.Visible = false end
+        end
+        if item.Base:IsA("TextButton") then item.Base.Text = "" end
+        item.CaptionLabel = instance("TextLabel", {Name = "OreSelectionCaption", Text = "",
+            BackgroundTransparency = 1, Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0),
+            Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = white,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 12, Parent = item.Base})
+        item.HostConnection = item.Base.MouseButton1Click:Connect(function() item:Open() end)
+        if item.RowObj then
+            item.RowObj.SearchExtra = function() return item.Caption .. " " .. table.concat(labels, " ") end
+        end
+        item:SetSilent(selectedValues(controller.GetMask(key)))
+        return item
+    end
     function controller:Restore()
         if not self.Active then return end
         self.Active = false
@@ -1618,12 +1846,11 @@ return function(window)
         if session.StepXray == replacementStep then session.StepXray = originalStep end
         if session.Destroy == replacementDestroy then session.Destroy = originalDestroy end
         if window.ApplyConfig == replacementApply then window.ApplyConfig = originalApply end
-        for _, connection in ipairs(popupConnections) do connection:Disconnect() end
-        local closeOwned = false
-        for _, active in ipairs(type(window.Popups) == "table" and window.Popups or {}) do
-            for _, owned in pairs(ownedPopups) do if active == owned then closeOwned = true end end
+        if window.Close == replacementClose then window.Close = originalClose end
+        for _, item in ipairs(created) do
+            item:Close()
+            if item.HostConnection then item.HostConnection:Disconnect(); item.HostConnection = nil end
         end
-        if closeOwned and type(window.ClosePopups) == "function" then pcall(window.ClosePopups, window) end
         for _, item in ipairs(created) do
             local row = item.RowObj
             if row then
@@ -1644,7 +1871,6 @@ return function(window)
         for _, section in ipairs(sections) do section:_refreshVisibility() end
         if session.__ExtazzOreSelection == self then session.__ExtazzOreSelection = nil end
         table.clear(created); table.clear(hidden); table.clear(self.Controls)
-        table.clear(popupConnections); table.clear(ownedPopups)
     end
     replacementChanged = function(self, key, ...)
         if self == session and keys[key] then controller.GetMask(key); controller:Sync(key) end
@@ -1675,36 +1901,25 @@ return function(window)
         if self == session then controller:Restore() end
         return originalDestroy(self, ...)
     end
+    replacementClose = function(self, ...)
+        if self == window then for _, item in ipairs(created) do item:Close() end end
+        return originalClose(self, ...)
+    end
     -- Resolve by the stable section key, not the translated visible title.
     for _, tab in ipairs(window.TabList) do
         for _, section in ipairs(tab.Sections or {}) do
             local key = section.Key == "Visuals/Xray" and "XrayBlockMask"
                 or section.Key == "Movement/Baritone" and "BaritoneBlockMask" or nil
-            if key and type(section.Dropdown) == "function" then
+            if key and type(section.Button) == "function" then
                 sections[#sections + 1] = section
                 for _, row in ipairs(section.Rows) do
                     if row.Section == section and row.Opts and row.Opts.Text == "Blocks" then
                         hidden[#hidden + 1] = {Row = row, WasHidden = row.selfHidden == true}
                     end
                 end
-                local item = section:Dropdown({Text = "Blocks", Options = options, Multi = true,
-                    Default = selectedValues(controller.GetMask(key)),
-                    Tooltip = "Select any combination. An empty selection means no blocks.", Order = 2,
-                    Callback = function(values)
-                        if not syncing and controller.Active then controller.SetMask(key, values) end
-                    end})
+                local item = newMultiDropdown(section, key)
                 controller.Controls[key] = item
                 created[#created + 1] = item
-                local box = item.Row and item.Row:FindFirstChild("Box", true)
-                if box and box:IsA("TextButton") then
-                    -- Native Dropdown opens synchronously in its first Box
-                    -- handler. Remember only its current popup, so Restore can
-                    -- leave a popup belonging to another control untouched.
-                    popupConnections[#popupConnections + 1] = box.MouseButton1Click:Connect(function()
-                        local popups = window.Popups
-                        ownedPopups[item] = type(popups) == "table" and popups[#popups] or nil
-                    end)
-                end
             end
         end
     end
@@ -1712,12 +1927,15 @@ return function(window)
         controller:Restore()
         return nil, "Selection sections unavailable"
     end
+    controller.CaptionsVerified = controller.Controls.XrayBlockMask.CaptionVerified == true
+        and controller.Controls.BaritoneBlockMask.CaptionVerified == true
     for _, item in ipairs(hidden) do item.Row.SetVisible(false) end
     controller:Sync()
     seenXrayMask = controller.GetMask("XrayBlockMask")
     session:RefreshXray("XrayBlockMask")
     session.Changed, session.StepXray, session.Destroy = replacementChanged, replacementStep, replacementDestroy
     if type(originalApply) == "function" then window.ApplyConfig = replacementApply end
+    if type(originalClose) == "function" then window.Close = replacementClose end
     session.__ExtazzOreSelection = controller
     return controller
 end
@@ -2538,7 +2756,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-9-native-multiselect", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-10-multi-checkbox", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
@@ -2553,6 +2771,8 @@ if window then
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
         status.Features[#status.Features+1] = {Name = item.Name, Active = active,
+            Version = active and controller.Version or nil, UIKind = active and controller.UIKind or nil,
+            OptionBitsVerified = active and controller.OptionBitsVerified or nil,
             Reason = not active and tostring(ok and reason or controller) or nil}
         if not active then
             warn("[Extazz] " .. item.Name .. ": " .. tostring(ok and reason or controller))
