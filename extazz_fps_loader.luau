@@ -143,6 +143,7 @@ local window = type(results[1]) == "table" and type(results[1].Runtime) == "tabl
     or environment.__NotificationNova
 local installers = {}
 local installed = {}
+local featureInstallers = {}
 installers[#installers+1]={Name="runtime_math_fastpath",Install=(function()
 -- Platform: Roblox client / Luau; target: extazz r135 shared runtime utilities.
 -- Keep feature implementations protected; run common numeric/property utilities directly.
@@ -1522,9 +1523,681 @@ return function(window)
 end
 
 end)()}
+featureInstallers[#featureInstallers+1]={Name="ore_selection_fix",Install=(function()
+-- Platform: Roblox client / Luau; target: extazz r135 independent Xray/Baritone block selections.
+return function(window)
+    if type(window) ~= "table" or type(window.Startup) ~= "table" or window.Startup.Revision ~= 135 then
+        return nil, "Unsupported runtime revision"
+    end
+    local session = window.Runtime
+    if type(session) ~= "table" or not session.Alive or not session.Ready or type(session.Cfg) ~= "table"
+        or type(session.Changed) ~= "function" or type(session.Save) ~= "function"
+        or type(session.Destroy) ~= "function" or type(session.StepXray) ~= "function"
+        or type(session.RefreshXray) ~= "function" or type(window.TabList) ~= "table" then
+        return nil, "Unsupported selection runtime"
+    end
+    if session.__ExtazzOreSelection then return session.__ExtazzOreSelection end
+    local labels = {"Coal Ore", "Iron Ore", "Gold Ore", "Diamond Ore", "Titanium Ore", "Chest", "Ender Chest", "Chest of Drawers"}
+    local keys = {XrayBlockMask = true, BaritoneBlockMask = true}
+    local byName = {}
+    local function nameKey(value)
+        return type(value) == "string" and value:lower():gsub("[^%w]", "") or nil
+    end
+    for i, label in ipairs(labels) do byName[nameKey(label)] = i end
+    -- Valid saved bit masks are unchanged. Invalid selections fail closed rather
+    -- than reaching the original Xray numeric fallback (all eight categories).
+    local function maskOf(value)
+        if type(value) == "string" then value = tonumber(value) end
+        if type(value) == "number" then
+            if value == value and value >= 0 and value <= 255 then return math.floor(value) end
+            return 0
+        end
+        if type(value) ~= "table" then return 0 end
+        local mask = 0
+        for _, item in ipairs(value) do
+            local index = type(item) == "number" and item or byName[nameKey(item)]
+            if type(index) == "number" and index % 1 == 0 and index >= 1 and index <= 8 then
+                mask = bit32.bor(mask, 2 ^ (index - 1))
+            end
+        end
+        for i, label in ipairs(labels) do
+            if value[label] == true or value[nameKey(label)] == true then mask = bit32.bor(mask, 2 ^ (i - 1)) end
+        end
+        return mask
+    end
+    local controller = {Active = true, Version = 1, Controls = {}, Mask = maskOf, Labels = table.clone(labels)}
+    local originalChanged, originalStep, originalDestroy = session.Changed, session.StepXray, session.Destroy
+    local originalApply = window.ApplyConfig
+    local created, hidden, sections = {}, {}, {}
+    local syncing = false
+    local seenXrayMask
+    local replacementChanged, replacementStep, replacementDestroy, replacementApply
+    function controller.GetMask(key)
+        if not keys[key] then return 0 end
+        local mask = maskOf(session.Cfg[key])
+        session.Cfg[key] = mask
+        return mask
+    end
+    function controller:Sync(key)
+        if not self.Active or syncing then return end
+        syncing = true
+        for candidate in pairs(keys) do
+            if key == nil or key == candidate then
+                local mask = self.GetMask(candidate)
+                for i, item in ipairs(self.Controls[candidate] or {}) do
+                    item:SetSilent(bit32.band(mask, 2 ^ (i - 1)) ~= 0)
+                end
+            end
+        end
+        syncing = false
+    end
+    function controller.SetMask(key, value)
+        if not controller.Active or syncing or not keys[key] or not session.Alive or window.Destroyed then return false end
+        local mask = maskOf(value)
+        if session.Cfg[key] == mask then controller:Sync(key); return true end
+        session.Cfg[key] = mask
+        session:Changed(key)
+        session:Save()
+        return true
+    end
+    local function remove(array, value)
+        for i = #array, 1, -1 do if array[i] == value then table.remove(array, i) end end
+    end
+    function controller:Restore()
+        if not self.Active then return end
+        self.Active = false
+        if session.Changed == replacementChanged then session.Changed = originalChanged end
+        if session.StepXray == replacementStep then session.StepXray = originalStep end
+        if session.Destroy == replacementDestroy then session.Destroy = originalDestroy end
+        if window.ApplyConfig == replacementApply then window.ApplyConfig = originalApply end
+        for _, item in ipairs(created) do
+            local row = item.RowObj
+            if row then
+                remove(row.Section.Rows, row)
+                remove(row.Section.Tab.Rows, row.Entry)
+            end
+            if item.Row then item.Row:Destroy() end
+        end
+        for _, item in ipairs(hidden) do item.Row.SetVisible(not item.WasHidden) end
+        for _, section in ipairs(sections) do section:_refreshVisibility() end
+        if session.__ExtazzOreSelection == self then session.__ExtazzOreSelection = nil end
+        table.clear(created); table.clear(hidden); table.clear(self.Controls)
+    end
+    replacementChanged = function(self, key, ...)
+        if self == session and keys[key] then controller.GetMask(key); controller:Sync(key) end
+        return originalChanged(self, key, ...)
+    end
+    replacementStep = function(self, ...)
+        if self == session and controller.Active then
+            local rawMask = session.Cfg.XrayBlockMask
+            local mask = controller.GetMask("XrayBlockMask")
+            if mask ~= seenXrayMask or rawMask ~= mask then
+                seenXrayMask = mask
+                session:RefreshXray("XrayBlockMask")
+                controller:Sync("XrayBlockMask")
+            end
+        end
+        return originalStep(self, ...)
+    end
+    local function finishApply(ok, ...)
+        controller:Sync()
+        if not ok then error((...), 0) end
+        return ...
+    end
+    replacementApply = function(self, ...)
+        if self ~= window or not controller.Active then return originalApply(self, ...) end
+        return finishApply(pcall(originalApply, self, ...))
+    end
+    replacementDestroy = function(self, ...)
+        if self == session then controller:Restore() end
+        return originalDestroy(self, ...)
+    end
+    -- Resolve by the stable section key, not the translated visible title.
+    for _, tab in ipairs(window.TabList) do
+        for _, section in ipairs(tab.Sections or {}) do
+            local key = section.Key == "Visuals/Xray" and "XrayBlockMask"
+                or section.Key == "Movement/Baritone" and "BaritoneBlockMask" or nil
+            if key and type(section.Toggle) == "function" then
+                sections[#sections + 1] = section
+                for _, row in ipairs(section.Rows) do
+                    if row.Section == section and row.Opts and row.Opts.Text == "Blocks" then
+                        hidden[#hidden + 1] = {Row = row, WasHidden = row.selfHidden == true}
+                    end
+                end
+                local controls = {}
+                controller.Controls[key] = controls
+                for i, label in ipairs(labels) do
+                    local bit = 2 ^ (i - 1)
+                    local item = section:Toggle({Text = label, Default = bit32.band(controller.GetMask(key), bit) ~= 0,
+                        Tooltip = "Select any combination. All switches off means no blocks.", Order = 2 + i / 10,
+                        Callback = function(on)
+                            if syncing or not controller.Active then return end
+                            local mask = controller.GetMask(key)
+                            controller.SetMask(key, on and bit32.bor(mask, bit) or bit32.band(mask, bit32.bnot(bit)))
+                        end})
+                    controls[i] = item
+                    created[#created + 1] = item
+                end
+            end
+        end
+    end
+    if not controller.Controls.XrayBlockMask or not controller.Controls.BaritoneBlockMask then
+        controller:Restore()
+        return nil, "Selection sections unavailable"
+    end
+    for _, item in ipairs(hidden) do item.Row.SetVisible(false) end
+    controller:Sync()
+    seenXrayMask = controller.GetMask("XrayBlockMask")
+    session:RefreshXray("XrayBlockMask")
+    session.Changed, session.StepXray, session.Destroy = replacementChanged, replacementStep, replacementDestroy
+    if type(originalApply) == "function" then window.ApplyConfig = replacementApply end
+    session.__ExtazzOreSelection = controller
+    return controller
+end
+
+end)()}
+featureInstallers[#featureInstallers+1]={Name="baritone_selection_fix",Install=(function()
+-- Platform: Roblox client / Luau; target: r135 Premium Baritone ore selection and stale target cancellation.
+return function(window)
+    if type(window)~="table" or type(window.Startup)~="table" or window.Startup.Revision~=135 then
+        return nil,"Unsupported runtime revision"
+    end
+    local session=window.Runtime
+    if type(session)~="table" or not session.Alive or type(session.Cfg)~="table"
+        or type(session.Destroy)~="function" then return nil,"Runtime not available" end
+    if session.__ExtazzBaritoneSelection then return session.__ExtazzBaritoneSelection end
+    local control={Active=true,Version=1,TargetResets=0,RejectedTargets=0}
+    local originalControls,originalDestroy=session.PremiumControlsChanged,session.Destroy
+    local replacementControls,replacementDestroy
+    local binding
+    local function maskValue(value)
+        if type(value)~="number" or value~=value or value<0 or value>255 then return 0 end
+        return math.floor(value)
+    end
+    local function currentMask()
+        local shared=session.__ExtazzOreSelection
+        if type(shared)=="table" and shared.Active and type(shared.GetMask)=="function" then
+            return maskValue(shared.GetMask("BaritoneBlockMask"))
+        end
+        local mask=maskValue(session.Cfg.BaritoneBlockMask)
+        session.Cfg.BaritoneBlockMask=mask
+        return mask
+    end
+    local function unbind()
+        if binding and binding.Api.Tool==binding.Wrapper then binding.Api.Tool=binding.Original end
+        binding=nil
+    end
+    local function attach()
+        local api,state=session.BaritonePlanner,session.BaritoneState
+        if type(api)~="table" or type(state)~="table" or type(api.Tool)~="function" then unbind();return end
+        if binding and binding.Api==api and api.Tool==binding.Wrapper then return end
+        unbind()
+        local item={Api=api,State=state,Original=api.Tool,Kinds={}}
+        local function updateKinds()
+            table.clear(item.Kinds)
+            item.Options=session.XrayBlockOptions
+            for index,option in ipairs(type(item.Options)=="table" and item.Options or {})do
+                if index<=8 and type(option)=="table" and type(option.label)=="string" then
+                    item.Kinds[option.label:lower():gsub("[^%w]","")]=2^(index-1)
+                end
+            end
+        end
+        updateKinds()
+        item.Wrapper=function(ctx,raw,requireHarvest,...)
+            if not control.Active or not session.Alive or session.BaritonePlanner~=api
+                or session.BaritoneState~=state or state.Stopped then
+                return item.Original(ctx,raw,requireHarvest,...)
+            end
+            local mask=currentMask()
+            local optionsChanged=item.Options~=session.XrayBlockOptions
+            if item.Mask~=mask or optionsChanged then
+                -- Direct config/import changes must also cancel an old route and
+                -- release its native mining input before choosing another target.
+                item.Mask=mask
+                if optionsChanged then updateKinds()end
+                if type(session.RefreshBaritone)=="function" then
+                    session:RefreshBaritone()
+                    control.TargetResets+=1
+                end
+            end
+            if requireHarvest and raw~=nil then
+                local id=type(raw)=="table" and raw.id or raw
+                local env=type(ctx)=="table" and ctx.Env
+                local info=type(env)=="table" and type(env.idinfo)=="table" and env.idinfo[id]
+                local kind=type(info)=="table" and info.block and type(info.name)=="string"
+                    and item.Kinds[info.name:lower():gsub("[^%w]","")]
+                if not kind or bit32.band(mask,kind)==0 then
+                    control.RejectedTargets+=1
+                    return nil
+                end
+            end
+            -- requireHarvest=false is the original route/sightline clearance;
+            -- retaining it allows Baritone to reach a selected ore behind stone.
+            return item.Original(ctx,raw,requireHarvest,...)
+        end
+        binding=item
+        api.Tool=item.Wrapper
+    end
+    function control:Restore()
+        if not self.Active then return end
+        self.Active=false
+        unbind()
+        if session.PremiumControlsChanged==replacementControls then session.PremiumControlsChanged=originalControls end
+        if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
+        if session.__ExtazzBaritoneSelection==self then session.__ExtazzBaritoneSelection=nil end
+    end
+    local function controlsFinished(...)
+        if control.Active then attach()end
+        return ...
+    end
+    replacementControls=function(...)
+        if type(originalControls)=="function" then return controlsFinished(originalControls(...))end
+        attach()
+    end
+    replacementDestroy=function(self,...)
+        control:Restore()
+        return originalDestroy(self,...)
+    end
+    session.PremiumControlsChanged=replacementControls
+    session.Destroy=replacementDestroy
+    session.__ExtazzBaritoneSelection=control
+    attach()
+    return control
+end
+
+end)()}
+featureInstallers[#featureInstallers+1]={Name="verity_pet",Install=(function()
+-- Platform: Roblox client / Luau; target: Extazz r135, local three-dimensional Verity Pet.
+return function(window)
+    if type(window)~="table" or type(window.Startup)~="table" or window.Startup.Revision~=135 then return nil,"Unsupported runtime" end
+    local session=window.Runtime
+    if type(session)~="table" or not session.Alive or not session.Ready or type(session.Cfg)~="table"
+        or type(session.Defaults)~="table" or type(session.Changed)~="function" or type(session.Save)~="function"
+        or type(session.Destroy)~="function" or type(window.TabList)~="table" then return nil,"Unsupported pet runtime" end
+    if session.__ExtazzVerityPet then return session.__ExtazzVerityPet end
+    local visualTab
+    for _,tab in ipairs(window.TabList)do if tab.Name=="Visuals" then visualTab=tab;break end end
+    if not visualTab or type(visualTab.Section)~="function" then return nil,"Visuals tab unavailable" end
+    local players=game:GetService("Players")
+    local localPlayer=players.LocalPlayer
+    local runService=game:GetService("RunService")
+    local UP=Vector3.new(0,1,0)
+    local YELLOW=Color3.fromRGB(255,235,0)
+    local INK=Color3.fromRGB(30,28,0)
+    local RADIUS=1.05
+    local originalChanged,originalDestroy,originalApply=session.Changed,session.Destroy,window.ApplyConfig
+    local controller={Active=true,Version=1,State="Disabled",CreatedInstances=0,Hits=0,Owner={},Target={},Sparks={}}
+    local connection,section,toggle,replacementChanged,replacementDestroy,replacementApply
+    local position,facing,ownerCharacter,targetIdentity
+    local elapsed,nextRead,lookDwell,joyUntil,nextJoy,nextHop,nextHit=0,0,0,0,0,3.5,0
+    local burstAt=-100
+    local syncing=false
+    local function finite(n)return type(n)=="number" and n==n and math.abs(n)<math.huge end
+    local function vector(v)return typeof(v)=="Vector3" and finite(v.X) and finite(v.Y) and finite(v.Z)end
+    local function dot(a,b)return a.X*b.X+a.Y*b.Y+a.Z*b.Z end
+    local function safeCall(fn,...)
+        if type(fn)~="function" then return nil end
+        local ok,a,b=pcall(fn,...)
+        if ok then return a,b end
+        return nil
+    end
+    local function clearActor(record)
+        record.Root,record.Position,record.Feet,record.Character,record.Value=nil,nil,nil,nil,nil
+    end
+    local function readActor(value,record)
+        clearActor(record)
+        if not value then return false end
+        if value~=localPlayer and safeCall(session.IsFriend,session,value)==true then return false end
+        local voxel=session.PlaceSupport and session.PlaceSupport.VoxelCraft
+        local entity=voxel and safeCall(session.GetVoxelCombatEntity,session,value)or nil
+        -- Native aura can select an entity before its rendered rig streams in.
+        -- The gameplay accessor supplies its live health/dimension/decay guards.
+        if voxel then
+            if type(entity)~="table" or not vector(entity.Pos)then return false end
+        elseif type(session.IsPlayerTargetable)=="function" and safeCall(session.IsPlayerTargetable,session,value)~=true then return false end
+        local model
+        if typeof(value)=="Instance" then model=value:IsA("Model") and value or value.Character
+        elseif type(value)=="table" then model=value.Character end
+        local root
+        if typeof(model)=="Instance" and model:IsA("Model") and model.Parent then
+            root=model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+        end
+        if not root then root=safeCall(session.GetPlace103TargetRoot,session,value) end
+        if typeof(root)=="Instance" and root:IsA("BasePart") and root.Parent and vector(root.Position) then
+            local humanoid=model and model:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                local health=type(session.GetPlayerHealth)=="function" and safeCall(session.GetPlayerHealth,session,value,humanoid) or humanoid.Health
+                if not finite(health) or health<=0 then return false end
+            end
+            local down=3
+            if not (session.PlaceSupport and session.PlaceSupport.VoxelCraft) then
+                local hip=humanoid and humanoid.HipHeight or 0
+                local size=root.Size
+                down=(vector(size) and size.Y*0.5 or 1)+(finite(hip) and math.max(0,hip) or 0)
+                if humanoid and humanoid.RigType==Enum.HumanoidRigType.R6 and model then
+                    local leg=model:FindFirstChild("Left Leg") or model:FindFirstChild("Right Leg")
+                    if leg and leg:IsA("BasePart") and vector(leg.Size)then down+=leg.Size.Y end
+                end
+            end
+            record.Root,record.Position,record.Feet=root,root.Position,root.Position.Y-down
+            record.Character,record.Value=model,value
+            return true
+        end
+        local ctx=entity and safeCall(session.GetVoxelActorContext,session)
+        if type(entity)=="table" and vector(entity.Pos) and type(ctx)=="table" and finite(ctx.BlockSize) and ctx.BlockSize>0 then
+            local feet=entity.Pos*ctx.BlockSize
+            local height=vector(entity.Size)and entity.Size.Y or 1.8
+            if not finite(height) or height<=0 then height=1.8 end
+            record.Position,record.Feet,record.Value=feet+UP*(height*ctx.BlockSize*.5),feet.Y,value
+            return true
+        end
+        return false
+    end
+    local function livePosition(record)
+        local root=record.Root
+        if root then
+            if not root.Parent or not vector(root.Position)then return nil end
+            local delta=root.Position.Y-record.Position.Y
+            record.Feet+=delta;record.Position=root.Position
+        end
+        return record.Position
+    end
+    local function part(name,size,color,parent)
+        local p=Instance.new("Part")
+        controller.CreatedInstances+=1
+        p.Name,p.Size,p.Color=name,size,color
+        p.Shape=Enum.PartType.Ball
+        p.Anchored,p.CanCollide,p.CanTouch,p.CanQuery=true,false,false,false
+        p.CastShadow=false
+        p.Material=Enum.Material.SmoothPlastic
+        p.TopSurface,p.BottomSurface=Enum.SurfaceType.Smooth,Enum.SurfaceType.Smooth
+        p.Parent=parent
+        return p
+    end
+    local function hideSparks()
+        for _,item in ipairs(controller.Sparks)do item.Part.Transparency=1 end
+        burstAt=-100
+    end
+    local function destroyWorld()
+        if controller.Folder then controller.Folder:Destroy() end
+        controller.Folder,controller.Model,controller.Body=nil,nil,nil
+        table.clear(controller.Sparks)
+        position,facing,ownerCharacter,targetIdentity=nil,nil,nil,nil
+        clearActor(controller.Owner);clearActor(controller.Target)
+        lookDwell,joyUntil,burstAt=0,0,-100
+    end
+    local function createWorld()
+        if controller.Model and controller.Model.Parent then return end
+        destroyWorld()
+        local folder=Instance.new("Folder")
+        controller.CreatedInstances+=1
+        folder.Name,folder.Parent="Extazz_VerityPet",session.Effects or workspace
+        controller.Folder=folder
+        local model=Instance.new("Model")
+        controller.CreatedInstances+=1
+        model.Name,model.Parent="Verity Pet",folder
+        controller.Model=model
+        local body=part("Knitted yellow body",Vector3.one*(RADIUS*2),YELLOW,model)
+        body.Material,body.CastShadow=Enum.Material.Fabric,true
+        body.CFrame=CFrame.identity
+        model.PrimaryPart=body
+        controller.Body=body
+        local function onFace(name,x,y,size)
+            local z=-math.sqrt(math.max(.01,RADIUS*RADIUS-x*x-y*y))-.025
+            local p=part(name,size,INK,model)
+            p.CFrame=CFrame.new(x,y,z)
+            return p
+        end
+        onFace("Left eye",-.29,.23,Vector3.new(.16,.30,.11))
+        onFace("Right eye",.29,.23,Vector3.new(.16,.30,.11))
+        -- A real curved smile follows the spherical surface, so it keeps depth
+        -- and parallax while the entire model turns. No camera-facing image.
+        for i=0,15 do
+            local x=-.59+i*(1.18/15)
+            local y=-.43+.94*x*x
+            onFace("Smile "..i,x,y,Vector3.new(.11,.11,.10))
+        end
+        onFace("Left smile corner",-.60,-.09,Vector3.new(.13,.13,.11))
+        onFace("Right smile corner",.60,-.09,Vector3.new(.13,.13,.11))
+        for i=1,6 do
+            local spark=part("Playful hit sparkle "..i,Vector3.one*.12,YELLOW,folder)
+            spark.Material,spark.Transparency=Enum.Material.Neon,1
+            local angle=(i-1)*math.pi/3
+            controller.Sparks[i]={Part=spark,Direction=Vector3.new(math.cos(angle),.45+(.12*(i%2)),math.sin(angle))}
+        end
+    end
+    local function refreshActors()
+        local previousCharacter=controller.Owner.Character
+        if not readActor(localPlayer,controller.Owner)then
+            clearActor(controller.Target)
+            return false
+        end
+        if previousCharacter~=controller.Owner.Character then position=nil;joyUntil=0;lookDwell=0 end
+        local target=session.Cfg.KillAuraEnabled==true and session.KaTarget or nil
+        if target==localPlayer then target=nil end
+        if not readActor(target,controller.Target)then target=nil end
+        local targetPos=controller.Target.Position
+        if target and targetPos then
+            local distance=(targetPos-controller.Owner.Position).Magnitude
+            local range=tonumber(session.Cfg.KillAuraRange)
+            range=finite(range) and math.clamp(range+8,8,100)or 32
+            if distance>range then target=nil;clearActor(controller.Target)end
+        end
+        if target~=targetIdentity then nextHit=elapsed+.2;hideSparks();targetIdentity=target end
+        return true
+    end
+    local function syncToggle()
+        syncing=true
+        if toggle then toggle:SetSilent(session.Cfg.VerityPetEnabled==true)end
+        syncing=false
+    end
+    function controller:Step(dt)
+        if not self.Active or not session.Alive or window.Destroyed then return end
+        if session.Cfg.VerityPetEnabled~=true then
+            if connection then connection:Disconnect();connection=nil end
+            destroyWorld();self.State="Disabled";syncToggle()
+            return
+        end
+        dt=finite(dt)and math.clamp(dt,0,.1)or 0
+        if dt<=0 then return end
+        elapsed+=dt
+        if elapsed>=nextRead then
+            nextRead=elapsed+.05
+            refreshActors()
+        end
+        local owner=livePosition(self.Owner)
+        if not owner then
+            self.State="Waiting for character"
+            if self.Folder then destroyWorld()end
+            return
+        end
+        if not self.Model or not self.Model.Parent then createWorld();refreshActors();owner=livePosition(self.Owner);if not owner then return end end
+        local ownerRoot=self.Owner.Root
+        local frame=ownerRoot and ownerRoot.CFrame
+        local forward=frame and frame.LookVector or Vector3.new(0,0,-1)
+        forward=Vector3.new(forward.X,0,forward.Z)
+        if forward.Magnitude<.001 then forward=Vector3.new(0,0,-1)else forward=forward.Unit end
+        local right=Vector3.new(-forward.Z,0,forward.X)
+        local centerY=self.Owner.Feet+RADIUS
+        local home=owner-forward*3+right*2.6
+        home=Vector3.new(home.X,centerY,home.Z)
+        position=position or home
+        local camera=workspace.CurrentCamera
+        local looked=false
+        if camera and not window.IsOpen and vector(camera.CFrame.Position) and vector(camera.CFrame.LookVector)then
+            local delta=position-camera.CFrame.Position
+            local distance=delta.Magnitude
+            if distance>.05 and distance<38 then
+                local threshold=math.cos(math.atan(RADIUS/distance)+math.rad(4))
+                local look=camera.CFrame.LookVector
+                looked=dot(delta,look)/(distance*math.max(look.Magnitude,.001))>=threshold
+            end
+        end
+        lookDwell=looked and math.min(1,lookDwell+dt)or math.max(0,lookDwell-dt*3)
+        if lookDwell>=.24 and elapsed>=nextJoy and not targetIdentity then
+            joyUntil,nextJoy=elapsed+3.1,elapsed+5.5
+            lookDwell=0
+        end
+        local desired,facePoint,hop,spin,tilt,speed=home,owner,0,0,0,13
+        local target=targetIdentity and livePosition(self.Target)
+        if target then
+            self.State="Playing with target"
+            local phase=elapsed*3.9
+            local pulse=(elapsed*2.2)%1
+            local radius=2.2-(pulse<.22 and math.sin(pulse/.22*math.pi)*1.35 or 0)
+            desired=target+Vector3.new(math.cos(phase)*radius,0,math.sin(phase)*radius)
+            desired=Vector3.new(desired.X,self.Target.Feet+RADIUS,desired.Z)
+            hop=math.abs(math.sin(elapsed*8.2))*.95
+            facePoint,speed,tilt=target,23,math.sin(elapsed*8)*.18
+            if (position-target).Magnitude<4.7 and elapsed>=nextHit then
+                nextHit=elapsed+.46;burstAt=elapsed;self.Hits+=1
+                self.HitPosition=target-UP*.25
+            end
+        elseif elapsed<joyUntil then
+            self.State="Happy"
+            local phase=(3.1-(joyUntil-elapsed))*2.65
+            desired=owner+Vector3.new(math.cos(phase)*3.1,0,math.sin(phase)*3.1)
+            desired=Vector3.new(desired.X,centerY,desired.Z)
+            hop=math.abs(math.sin(phase*3))*1.5
+            spin=math.sin(phase*1.8)*.45
+            facePoint,speed,tilt=owner,19,math.sin(phase*3)*.22
+        else
+            local distance=(home-position).Magnitude
+            if distance>1.2 then
+                self.State=distance>12 and "Catching up"or "Following"
+                hop=math.abs(math.sin(elapsed*9))*math.min(.38,distance*.03)
+                speed=distance>12 and 38 or 13
+                facePoint=home+forward
+                tilt=math.sin(elapsed*7)*.09
+            else
+                self.State="Idle"
+                desired+=right*(math.sin(elapsed*.8)*.16)+forward*(math.sin(elapsed*.47)*.12)
+                if elapsed>=nextHop then nextHop=elapsed+5.4 end
+                local since=elapsed-(nextHop-5.4)
+                if since>=0 and since<.55 then hop=math.sin(since/.55*math.pi)*.65 end
+            end
+        end
+        local delta=desired-position
+        if delta.Magnitude>90 then position=home;delta=desired-position;self.State="Returning"end
+        if delta.Magnitude>.0001 then
+            local fraction=math.min(1,(1-math.exp(-9*dt)),speed*dt/delta.Magnitude)
+            position+=delta*fraction
+        end
+        local direction=facePoint-position
+        direction=Vector3.new(direction.X,0,direction.Z)
+        if direction.Magnitude<.001 then direction=forward else direction=direction.Unit end
+        facing=facing and facing:Lerp(direction,1-math.exp(-11*dt))or direction
+        if facing.Magnitude<.001 then facing=direction else facing=facing.Unit end
+        local renderPosition=position+UP*hop
+        self.Model:PivotTo(CFrame.lookAt(renderPosition,renderPosition+facing)*CFrame.Angles(0,spin,tilt))
+        self.Position,self.Hop,self.LookedAt=renderPosition,hop,looked
+        local age=elapsed-burstAt
+        for _,item in ipairs(self.Sparks)do
+            if age>=0 and age<.28 and self.HitPosition then
+                item.Part.Position=self.HitPosition+item.Direction*(.25+age*6)
+                item.Part.Transparency=math.clamp(age/.28,0,1)
+            elseif item.Part.Transparency~=1 then item.Part.Transparency=1 end
+        end
+    end
+    local function updateEnabled()
+        if connection then connection:Disconnect();connection=nil end
+        if controller.Active and session.Alive and session.Cfg.VerityPetEnabled==true then
+            controller.State="Waiting for character"
+            nextRead=0
+            connection=runService.RenderStepped:Connect(function(dt)
+                local ok,why=pcall(controller.Step,controller,dt)
+                if not ok then
+                    controller.LastError=tostring(why)
+                    session.Cfg.VerityPetEnabled=false
+                    syncToggle()
+                    if connection then connection:Disconnect();connection=nil end
+                    destroyWorld();controller.State="Error"
+                    if type(window.Notify)=="function"then window:Notify({Title="Verity Pet",Text=controller.LastError,Kind="warning"})end
+                end
+            end)
+        else destroyWorld();controller.State="Disabled"end
+        syncToggle()
+    end
+    function controller:SetEnabled(enabled)
+        if not self.Active or not session.Alive or window.Destroyed then return false end
+        session.Cfg.VerityPetEnabled=enabled==true
+        session:Changed("VerityPetEnabled")
+        session:Save()
+        return true
+    end
+    local function remove(array,value)
+        if type(array)~="table"then return end
+        for i=#array,1,-1 do if array[i]==value then table.remove(array,i)end end
+    end
+    function controller:Restore()
+        if not self.Active then return end
+        self.Active=false
+        if connection then connection:Disconnect();connection=nil end
+        destroyWorld()
+        if session.Changed==replacementChanged then session.Changed=originalChanged end
+        if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
+        if window.ApplyConfig==replacementApply then window.ApplyConfig=originalApply end
+        if section then
+            if section.Floating and type(window.DockSection)=="function"then pcall(window.DockSection,window,section)end
+            for _,row in ipairs(section.Rows or {})do remove(visualTab.Rows,row.Entry)end
+            remove(visualTab.Sections,section)
+            if section.Page and section.Page.Load and section.Side then section.Page.Load[section.Side]=math.max(0,section.Page.Load[section.Side]-1)end
+            if section.Wrap then section.Wrap:Destroy()end
+            if section.Page and type(visualTab._queueBalance)=="function"then visualTab:_queueBalance(section.Page)end
+        end
+        if session.__ExtazzVerityPet==self then session.__ExtazzVerityPet=nil end
+        self.State="Stopped"
+    end
+    replacementChanged=function(self,key,...)
+        local results=table.pack(originalChanged(self,key,...))
+        if self==session and key=="VerityPetEnabled" and controller.Active then updateEnabled()end
+        return table.unpack(results,1,results.n)
+    end
+    local function finishApply(ok,...)
+        if controller.Active then updateEnabled()end
+        if not ok then error((...),0)end
+        return ...
+    end
+    replacementApply=function(self,...)
+        if self~=window or not controller.Active then return originalApply(self,...)end
+        return finishApply(pcall(originalApply,self,...))
+    end
+    replacementDestroy=function(self,...)
+        if self==session then controller:Restore()end
+        return originalDestroy(self,...)
+    end
+    session.Defaults.VerityPetEnabled=false
+    if type(session.Cfg.VerityPetEnabled)~="boolean"then
+        session.Cfg.VerityPetEnabled=false
+        -- The protected startup validator predates this setting. Recover only
+        -- this bounded boolean from its existing local configuration file.
+        if type(readfile)=="function"then
+            pcall(function()
+                local raw=readfile("MenuSettings/notification.json")
+                if type(raw)=="string" and #raw<=1048576 then
+                    local doc=game:GetService("HttpService"):JSONDecode(raw)
+                    local value=type(doc)=="table" and type(doc.values)=="table" and doc.values.VerityPetEnabled
+                    if type(value)=="boolean"then session.Cfg.VerityPetEnabled=value end
+                end
+            end)
+        end
+    end
+    section=visualTab:Section({Title="Verity Pet",Sub="World"})
+    toggle=section:Toggle({Text="Verity Pet",Default=session.Cfg.VerityPetEnabled==true,
+        Tooltip="A playful knitted companion. Looks, colors and smile are fixed.",
+        Callback=function(value)if not syncing then controller:SetEnabled(value)end end})
+    controller.Toggle,controller.Section=toggle,section
+    session.Changed,session.Destroy=replacementChanged,replacementDestroy
+    if type(originalApply)=="function"then window.ApplyConfig=replacementApply end
+    session.__ExtazzVerityPet=controller
+    updateEnabled()
+    return controller
+end
+
+end)()}
 
 if window then
-    local status = {Build = "whole-runtime-5-memory", Revision = window.Startup and window.Startup.Revision, Modules = {}}
+    local status = {Build = "whole-runtime-6-ore-verity", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
@@ -1533,6 +2206,15 @@ if window then
         if active then installed[#installed+1]={Name=item.Name,Controller=controller}end
         if not active then
             warn("[Extazz FPS] " .. item.Name .. ": " .. tostring(ok and reason or controller))
+        end
+    end
+    for _, item in ipairs(featureInstallers) do
+        local ok, controller, reason = pcall(item.Install, window)
+        local active = ok and type(controller) == "table" and controller.Active == true
+        status.Features[#status.Features+1] = {Name = item.Name, Active = active,
+            Reason = not active and tostring(ok and reason or controller) or nil}
+        if not active then
+            warn("[Extazz] " .. item.Name .. ": " .. tostring(ok and reason or controller))
         end
     end
     -- One local startup receipt, with no player, account, license or server data.
