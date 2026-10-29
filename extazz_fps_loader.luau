@@ -1822,13 +1822,15 @@ return function(window)
     local localPlayer=players.LocalPlayer
     local runService=game:GetService("RunService")
     local UP=Vector3.new(0,1,0)
-    local YELLOW=Color3.fromRGB(255,235,0)
-    local INK=Color3.fromRGB(30,28,0)
+    local YELLOW=Color3.fromRGB(255,244,0)
+    local INK=Color3.fromRGB(22,23,0)
     local RADIUS=1.05
     local originalChanged,originalDestroy,originalApply=session.Changed,session.Destroy,window.ApplyConfig
-    local controller={Active=true,Version=1,State="Disabled",CreatedInstances=0,Hits=0,Owner={},Target={},Sparks={}}
+    local controller={Active=true,Version=2,State="Disabled",CreatedInstances=0,Hits=0,Owner={},Target={},Sparks={}}
     local connection,section,toggle,replacementChanged,replacementDestroy,replacementApply
     local position,facing,ownerCharacter,targetIdentity
+    local followOffset,attentionAnchor
+    local attentionUntil=0
     local elapsed,nextRead,lookDwell,joyUntil,nextJoy,nextHop,nextHit=0,0,0,0,0,3.5,0
     local burstAt=-100
     local syncing=false
@@ -1923,6 +1925,8 @@ return function(window)
         controller.Folder,controller.Model,controller.Body=nil,nil,nil
         table.clear(controller.Sparks)
         position,facing,ownerCharacter,targetIdentity=nil,nil,nil,nil
+        followOffset,attentionAnchor,attentionUntil=nil,nil,0
+        controller.Attentive,controller.Facing,controller.LookedAt=false,nil,false
         clearActor(controller.Owner);clearActor(controller.Target)
         lookDwell,joyUntil,burstAt=0,0,-100
     end
@@ -1937,28 +1941,42 @@ return function(window)
         controller.CreatedInstances+=1
         model.Name,model.Parent="Verity Pet",folder
         controller.Model=model
-        local body=part("Knitted yellow body",Vector3.one*(RADIUS*2),YELLOW,model)
-        body.Material,body.CastShadow=Enum.Material.Fabric,true
+        local body=part("Smooth yellow body",Vector3.one*(RADIUS*2),YELLOW,model)
+        body.Material,body.CastShadow=Enum.Material.SmoothPlastic,true
         body.CFrame=CFrame.identity
         model.PrimaryPart=body
         controller.Body=body
-        local function onFace(name,x,y,size)
-            local z=-math.sqrt(math.max(.01,RADIUS*RADIUS-x*x-y*y))-.025
+        local function facePoint(x,y,lift)
+            local surface=Vector3.new(x,y,-math.sqrt(RADIUS*RADIUS-x*x-y*y))
+            local normal=surface/RADIUS
+            return surface+normal*lift,normal
+        end
+        local function onFace(name,x,y,size,lift)
+            local point,normal=facePoint(x,y,lift or .012)
             local p=part(name,size,INK,model)
-            p.CFrame=CFrame.new(x,y,z)
+            p.CFrame=CFrame.lookAt(point,point+normal,UP)
             return p
         end
-        onFace("Left eye",-.29,.23,Vector3.new(.16,.30,.11))
-        onFace("Right eye",.29,.23,Vector3.new(.16,.30,.11))
-        -- A real curved smile follows the spherical surface, so it keeps depth
-        -- and parallax while the entire model turns. No camera-facing image.
-        for i=0,15 do
-            local x=-.59+i*(1.18/15)
-            local y=-.43+.94*x*x
-            onFace("Smile "..i,x,y,Vector3.new(.11,.11,.10))
+        onFace("Left eye",-.25,.19,Vector3.new(.15,.28,.035))
+        onFace("Right eye",.25,.19,Vector3.new(.15,.28,.035))
+        -- Overlapping short cylinders make a thin continuous stroke rather
+        -- than a row of beads. Its centerline follows the sphere in 3D.
+        local smileHalfWidth,smileBottom,smileRise=.60,-.43,.30
+        local smileSegments,smileThickness=24,.058
+        local function smilePoint(x)
+            return facePoint(x,smileBottom+smileRise*(x/smileHalfWidth)^2,.018)
         end
-        onFace("Left smile corner",-.60,-.09,Vector3.new(.13,.13,.11))
-        onFace("Right smile corner",.60,-.09,Vector3.new(.13,.13,.11))
+        local previous=smilePoint(-smileHalfWidth)
+        for i=1,smileSegments do
+            local point=smilePoint(-smileHalfWidth+i*(2*smileHalfWidth/smileSegments))
+            local delta=point-previous
+            local stroke=part("Smile "..i,Vector3.new(delta.Magnitude+.008,smileThickness,smileThickness),INK,model)
+            stroke.Shape=Enum.PartType.Cylinder
+            stroke.CFrame=CFrame.lookAt((previous+point)*.5,point)*CFrame.Angles(0,math.pi*.5,0)
+            previous=point
+        end
+        onFace("Left smile corner",-smileHalfWidth,smileBottom+smileRise,Vector3.new(.082,.082,.065),.018)
+        onFace("Right smile corner",smileHalfWidth,smileBottom+smileRise,Vector3.new(.082,.082,.065),.018)
         for i=1,6 do
             local spark=part("Playful hit sparkle "..i,Vector3.one*.12,YELLOW,folder)
             spark.Material,spark.Transparency=Enum.Material.Neon,1
@@ -1972,7 +1990,10 @@ return function(window)
             clearActor(controller.Target)
             return false
         end
-        if previousCharacter~=controller.Owner.Character then position=nil;joyUntil=0;lookDwell=0 end
+        if previousCharacter~=controller.Owner.Character then
+            position=nil;joyUntil=0;lookDwell=0
+            followOffset,attentionAnchor,attentionUntil=nil,nil,0
+        end
         local target=session.Cfg.KillAuraEnabled==true and session.KaTarget or nil
         if target==localPlayer then target=nil end
         if not readActor(target,controller.Target)then target=nil end
@@ -2019,28 +2040,56 @@ return function(window)
         if forward.Magnitude<.001 then forward=Vector3.new(0,0,-1)else forward=forward.Unit end
         local right=Vector3.new(-forward.Z,0,forward.X)
         local centerY=self.Owner.Feet+RADIUS
-        local home=owner-forward*3+right*2.6
+        -- Capture the following side once. Turning the character/camera must
+        -- never rotate the destination away from someone inspecting the pet.
+        followOffset=followOffset or (-forward*3+right*2.6)
+        local home=owner+followOffset
         home=Vector3.new(home.X,centerY,home.Z)
         position=position or home
         local camera=workspace.CurrentCamera
-        local looked=false
+        local looked,approachingLook=false,false
+        local cameraPosition
         if camera and not window.IsOpen and vector(camera.CFrame.Position) and vector(camera.CFrame.LookVector)then
+            cameraPosition=camera.CFrame.Position
             local delta=position-camera.CFrame.Position
             local distance=delta.Magnitude
             if distance>.05 and distance<38 then
-                local threshold=math.cos(math.atan(RADIUS/distance)+math.rad(4))
+                local angularRadius=math.atan(RADIUS/distance)
+                local threshold=math.cos(angularRadius+math.rad(4))
                 local look=camera.CFrame.LookVector
-                looked=dot(delta,look)/(distance*math.max(look.Magnitude,.001))>=threshold
+                local alignment=dot(delta,look)/(distance*math.max(look.Magnitude,.001))
+                looked=alignment>=threshold
+                approachingLook=alignment>=math.cos(angularRadius+math.rad(18))
             end
         end
+        local ownerDistance=(position-owner).Magnitude
+        if approachingLook and ownerDistance<18 then
+            attentionAnchor=attentionAnchor or position
+            attentionUntil=elapsed+.85
+        elseif ownerDistance>=18 then
+            attentionAnchor,attentionUntil=nil,0
+        end
+        local attentive=attentionAnchor~=nil and elapsed<attentionUntil
+        if not attentive then attentionAnchor=nil end
         lookDwell=looked and math.min(1,lookDwell+dt)or math.max(0,lookDwell-dt*3)
-        if lookDwell>=.24 and elapsed>=nextJoy and not targetIdentity then
-            joyUntil,nextJoy=elapsed+3.1,elapsed+5.5
-            lookDwell=0
+        if attentive and lookDwell>=.24 then
+            joyUntil=elapsed+.5
         end
         local desired,facePoint,hop,spin,tilt,speed=home,owner,0,0,0,13
         local target=targetIdentity and livePosition(self.Target)
-        if target then
+        if attentive then
+            -- Lock horizontal coordinates before any following/target branch.
+            -- Joy stays in place and the smile turns toward the actual camera.
+            desired=Vector3.new(attentionAnchor.X,centerY,attentionAnchor.Z)
+            position=desired
+            facePoint=cameraPosition or owner
+            self.State=elapsed<joyUntil and "Happy"or "Watching"
+            if elapsed<joyUntil then
+                hop=math.abs(math.sin(elapsed*8.5))*.72
+                tilt=math.sin(elapsed*5)*.045
+            end
+            if burstAt>-100 then hideSparks()end
+        elseif target then
             self.State="Playing with target"
             local phase=elapsed*3.9
             local pulse=(elapsed*2.2)%1
@@ -2053,14 +2102,6 @@ return function(window)
                 nextHit=elapsed+.46;burstAt=elapsed;self.Hits+=1
                 self.HitPosition=target-UP*.25
             end
-        elseif elapsed<joyUntil then
-            self.State="Happy"
-            local phase=(3.1-(joyUntil-elapsed))*2.65
-            desired=owner+Vector3.new(math.cos(phase)*3.1,0,math.sin(phase)*3.1)
-            desired=Vector3.new(desired.X,centerY,desired.Z)
-            hop=math.abs(math.sin(phase*3))*1.5
-            spin=math.sin(phase*1.8)*.45
-            facePoint,speed,tilt=owner,19,math.sin(phase*3)*.22
         else
             local distance=(home-position).Magnitude
             if distance>1.2 then
@@ -2071,7 +2112,6 @@ return function(window)
                 tilt=math.sin(elapsed*7)*.09
             else
                 self.State="Idle"
-                desired+=right*(math.sin(elapsed*.8)*.16)+forward*(math.sin(elapsed*.47)*.12)
                 if elapsed>=nextHop then nextHop=elapsed+5.4 end
                 local since=elapsed-(nextHop-5.4)
                 if since>=0 and since<.55 then hop=math.sin(since/.55*math.pi)*.65 end
@@ -2091,6 +2131,7 @@ return function(window)
         local renderPosition=position+UP*hop
         self.Model:PivotTo(CFrame.lookAt(renderPosition,renderPosition+facing)*CFrame.Angles(0,spin,tilt))
         self.Position,self.Hop,self.LookedAt=renderPosition,hop,looked
+        self.Attentive,self.Facing=attentive,facing
         local age=elapsed-burstAt
         for _,item in ipairs(self.Sparks)do
             if age>=0 and age<.28 and self.HitPosition then
@@ -2184,7 +2225,7 @@ return function(window)
     end
     section=visualTab:Section({Title="Verity Pet",Sub="World"})
     toggle=section:Toggle({Text="Verity Pet",Default=session.Cfg.VerityPetEnabled==true,
-        Tooltip="A playful knitted companion. Looks, colors and smile are fixed.",
+        Tooltip="A smooth yellow companion. Looks, colors and smile are fixed.",
         Callback=function(value)if not syncing then controller:SetEnabled(value)end end})
     controller.Toggle,controller.Section=toggle,section
     session.Changed,session.Destroy=replacementChanged,replacementDestroy
@@ -2197,7 +2238,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-6-ore-verity", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-7-verity-still", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
