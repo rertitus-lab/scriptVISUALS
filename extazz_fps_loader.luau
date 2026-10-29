@@ -1826,11 +1826,19 @@ return function(window)
     local INK=Color3.fromRGB(22,23,0)
     local RADIUS=1.05
     local originalChanged,originalDestroy,originalApply=session.Changed,session.Destroy,window.ApplyConfig
-    local controller={Active=true,Version=2,State="Disabled",CreatedInstances=0,Hits=0,Owner={},Target={},Sparks={}}
+    local controller={Active=true,Version=3,State="Disabled",CreatedInstances=0,Hits=0,Owner={},Target={},Sparks={}}
     local connection,section,toggle,replacementChanged,replacementDestroy,replacementApply
     local position,facing,ownerCharacter,targetIdentity
     local followOffset,attentionAnchor
     local attentionUntil=0
+    local motionVelocity,motionAcceleration,ownerVelocity=Vector3.zero,Vector3.zero,Vector3.zero
+    local lastOwnerPosition,heading
+    local headingVelocity,verticalVelocity=0,0
+    local gaitPhase,joyPhase,combatPhase,orbitPhase=0,0,0,0
+    local gaitWeight,joyWeight,combatWeight=0,0,0
+    local gaitWeightVelocity,joyWeightVelocity,combatWeightVelocity=0,0,0
+    local posePitch,poseRoll,posePitchVelocity,poseRollVelocity=0,0,0,0
+    local combatIdentity
     local elapsed,nextRead,lookDwell,joyUntil,nextJoy,nextHop,nextHit=0,0,0,0,0,3.5,0
     local burstAt=-100
     local syncing=false
@@ -1845,6 +1853,7 @@ return function(window)
     end
     local function clearActor(record)
         record.Root,record.Position,record.Feet,record.Character,record.Value=nil,nil,nil,nil,nil
+        record.Entity,record.Unit,record.NativeHeight=nil,nil,nil
     end
     local function readActor(value,record)
         clearActor(record)
@@ -1865,6 +1874,19 @@ return function(window)
             root=model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
         end
         if not root then root=safeCall(session.GetPlace103TargetRoot,session,value) end
+        local ctx=entity and safeCall(session.GetVoxelActorContext,session)
+        if type(entity)=="table" and vector(entity.Pos) and type(ctx)=="table" and finite(ctx.BlockSize)
+            and ctx.BlockSize>0 and ctx.BlockSize<=64 then
+            -- The native renderer subtracts half a cell on all three axes.
+            -- Entity.Pos is the feet in physics units, not the visual root.
+            local feet=(entity.Pos-Vector3.new(.5,.5,.5))*ctx.BlockSize
+            local height=vector(entity.Size)and entity.Size.Y or 1.8
+            if not finite(height) or height<=0 then height=1.8 end
+            record.Root,record.Character,record.Value=root,model,value
+            record.Entity,record.Unit,record.NativeHeight=entity,ctx.BlockSize,height
+            record.Position,record.Feet=feet+UP*(height*ctx.BlockSize*.5),feet.Y
+            return true
+        end
         if typeof(root)=="Instance" and root:IsA("BasePart") and root.Parent and vector(root.Position) then
             local humanoid=model and model:FindFirstChildOfClass("Humanoid")
             if humanoid then
@@ -1885,17 +1907,16 @@ return function(window)
             record.Character,record.Value=model,value
             return true
         end
-        local ctx=entity and safeCall(session.GetVoxelActorContext,session)
-        if type(entity)=="table" and vector(entity.Pos) and type(ctx)=="table" and finite(ctx.BlockSize) and ctx.BlockSize>0 then
-            local feet=entity.Pos*ctx.BlockSize
-            local height=vector(entity.Size)and entity.Size.Y or 1.8
-            if not finite(height) or height<=0 then height=1.8 end
-            record.Position,record.Feet,record.Value=feet+UP*(height*ctx.BlockSize*.5),feet.Y,value
-            return true
-        end
         return false
     end
     local function livePosition(record)
+        if record.Entity then
+            local entity=record.Entity
+            if not vector(entity.Pos) or not finite(entity.Health) or entity.Health<=0 then return nil end
+            local feet=(entity.Pos-Vector3.new(.5,.5,.5))*record.Unit
+            record.Feet,record.Position=feet.Y,feet+UP*(record.NativeHeight*record.Unit*.5)
+            return record.Position
+        end
         local root=record.Root
         if root then
             if not root.Parent or not vector(root.Position)then return nil end
@@ -1904,6 +1925,161 @@ return function(window)
         end
         return record.Position
     end
+    -- Ground queries are bounded and independent of the owner's foot height.
+    -- A missing streamed chunk retains the last known support instead of
+    -- manufacturing a floor at zero or following a descending actor root.
+    local ground={NextProbe=0}
+    local nativeGroundContext,nativeGroundChunks=nil,{}
+    local groundOffsets={{0,0},{RADIUS*.7,0},{-RADIUS*.7,0},{0,RADIUS*.7},{0,-RADIUS*.7}}
+    local groundFilters,groundParams={},nil
+    local filterEffects,filterOwner,filterTarget
+    local function resetGround()
+        table.clear(ground)
+        table.clear(nativeGroundChunks);nativeGroundContext=nil
+        table.clear(groundFilters)
+        if groundParams then pcall(function()groundParams.FilterDescendantsInstances=groundFilters end)end
+        filterEffects,filterOwner,filterTarget=nil,nil,nil
+        ground.NextProbe=0
+        controller.GroundFloor,controller.GroundY,controller.GroundKnown=nil,nil,false
+    end
+    local function groundSolid(env,raw)
+        local id=type(raw)=="table"and raw.id or raw
+        local info=type(env.idinfo)=="table"and env.idinfo[id]
+        return finite(id)and id~=0 and type(info)=="table"and info.block==true
+            and not info.nonsolid and not info.fluid and not info.model and not info.shape
+    end
+    local function nativeFloor(ctx,x,z,reference)
+        local env,unit=ctx.Env,ctx.BlockSize
+        if type(env)~="table"or type(env.getChunk)~="function"or not finite(unit)or unit<=0 or unit>64 then return nil end
+        local step=math.max(unit,RADIUS*1.3)
+        local startY=math.floor((reference+step)/unit-.5+1e-6)
+        local bottomY=math.max(0,startY-math.min(24,math.ceil(24/unit)))
+        if finite(env.heightlimit)then startY=math.min(startY,math.floor(env.heightlimit)-1)end
+        table.clear(nativeGroundChunks);nativeGroundContext=ctx
+        local highest
+        for _,offset in ipairs(groundOffsets)do
+            -- Cube centers are cell*unit; native physics coordinates differ
+            -- by half a cell. math.floor(...+.5) also handles negative chunks.
+            local cellX,cellZ=math.floor((x+offset[1])/unit+.5),math.floor((z+offset[2])/unit+.5)
+            local chunk=safeCall(env.getChunk,math.floor(cellX/16),math.floor(cellZ/16))
+            nativeGroundChunks[math.floor(cellX/16)..":"..math.floor(cellZ/16)]=chunk or false
+            if type(chunk)=="table"and chunk.loaded==true and type(chunk.blockdata)=="table"then
+                local column=chunk.blockdata[cellX%16]
+                if type(column)=="table"then
+                    for y=startY,bottomY,-1 do
+                        local row=column[y]
+                        local raw=type(row)=="table"and row[cellZ%16]or 0
+                        if groundSolid(env,raw)then
+                            local above=column[y+1]
+                            local aboveRaw=type(above)=="table"and above[cellZ%16]or 0
+                            -- Ignore buried cubes: noclip through a tall wall
+                            -- must not turn its interior into a support plane.
+                            if not groundSolid(env,aboveRaw)then
+                                local top=(y+.5)*unit
+                                if top<=reference+step+.001 and(not highest or top>highest)then highest=top end
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return highest
+    end
+    local function cachedNativeRise(x,z,floor)
+        local ctx=nativeGroundContext
+        if type(ctx)~="table"or not finite(floor)then return nil,false end
+        local env,unit=ctx.Env,ctx.BlockSize
+        if type(env)~="table"or not finite(unit)or unit<=0 then return nil,false end
+        local base=math.floor(floor/unit-.5+.001)
+        local highest
+        for _,offset in ipairs(groundOffsets)do
+            local cellX,cellZ=math.floor((x+offset[1])/unit+.5),math.floor((z+offset[2])/unit+.5)
+            local chunk=nativeGroundChunks[math.floor(cellX/16)..":"..math.floor(cellZ/16)]
+            if chunk==nil then return nil,true end
+            if type(chunk)=="table"and chunk.loaded==true and type(chunk.blockdata)=="table"then
+                local column=chunk.blockdata[cellX%16]
+                local row=type(column)=="table"and column[base+1]
+                local above=type(column)=="table"and column[base+2]
+                if groundSolid(env,type(row)=="table"and row[cellZ%16]or 0)
+                    and not groundSolid(env,type(above)=="table"and above[cellZ%16]or 0)then
+                    local height=(base+1.5)*unit
+                    if not highest or height>highest then highest=height end
+                end
+            end
+        end
+        return highest,false
+    end
+    local function rayFloor(x,z,reference)
+        if type(workspace.Raycast)~="function"or type(RaycastParams)~="table"or type(RaycastParams.new)~="function"then return nil end
+        if not groundParams then
+            local ok,result=pcall(RaycastParams.new)
+            if not ok then return nil end
+            groundParams=result
+            groundParams.FilterType=Enum.RaycastFilterType.Exclude
+            groundParams.IgnoreWater=true
+            pcall(function()groundParams.RespectCanCollide=true end)
+        end
+        local own,target=controller.Owner.Character,controller.Target.Character
+        if filterEffects~=session.Effects or filterOwner~=own or filterTarget~=target then
+            table.clear(groundFilters)
+            if session.Effects then groundFilters[#groundFilters+1]=session.Effects end
+            if own then groundFilters[#groundFilters+1]=own end
+            if target and target~=own then groundFilters[#groundFilters+1]=target end
+            groundParams.FilterDescendantsInstances=groundFilters
+            filterEffects,filterOwner,filterTarget=session.Effects,own,target
+        end
+        local highest
+        for _,offset in ipairs(groundOffsets)do
+            local hit=safeCall(workspace.Raycast,workspace,Vector3.new(x+offset[1],reference+3,z+offset[2]),Vector3.new(0,-27,0),groundParams)
+            if hit and vector(hit.Position)and vector(hit.Normal)and hit.Normal.Y>.65
+                and hit.Position.Y<=reference+3.001 then
+                local instance=hit.Instance
+                local eligible=not instance or instance.CanCollide~=false
+                if eligible and(not highest or hit.Position.Y>highest)then highest=hit.Position.Y end
+            end
+        end
+        return highest
+    end
+    local function groundHeightAt(x,z,reference)
+        if not finite(x)or not finite(z)or not finite(reference)then return nil end
+        if session.PlaceSupport and session.PlaceSupport.VoxelCraft then
+            local ctx=safeCall(session.GetVoxelActorContext,session)
+            if type(ctx)=="table"then
+                local height=nativeFloor(ctx,x,z,reference)
+                if finite(height)then return height end
+            end
+        end
+        return rayFloor(x,z,reference)
+    end
+    local function resolveGroundY(x,z,feetHint,dt,reset)
+        if reset then resetGround()end
+        if not finite(feetHint)then feetHint=ground.Floor end
+        if not finite(feetHint)then return nil,nil,false end
+        local raised,unknownChunk=cachedNativeRise(x,z,ground.Floor)
+        if finite(raised)and raised>(ground.Floor or -math.huge)then
+            ground.Floor,ground.Y,ground.Known=raised,raised+RADIUS+.045,true
+        end
+        local rayMoved=not nativeGroundContext and finite(ground.X)and math.abs(x-ground.X)+math.abs(z-ground.Z)>RADIUS*.6
+        if elapsed>=ground.NextProbe or ground.Y==nil or unknownChunk or rayMoved then
+            local reference=ground.Floor
+            if not finite(reference)or math.abs(reference-feetHint)>18 then reference=feetHint end
+            local floor=groundHeightAt(x,z,reference)
+            ground.X,ground.Z=x,z
+            ground.NextProbe=elapsed+.05
+            controller.GroundProbes=(controller.GroundProbes or 0)+1
+            if finite(floor)then
+                ground.Floor,ground.Known=floor,true
+                ground.Y=floor+RADIUS+.045
+            elseif ground.Y==nil then
+                ground.Y,ground.Known=feetHint+RADIUS+.045,false
+            end
+        end
+        controller.GroundFloor,controller.GroundY,controller.GroundKnown=ground.Floor,ground.Y,ground.Known==true
+        return ground.Y,ground.Floor,ground.Known==true
+    end
+    controller.GroundHeightAt,controller.ResolveGroundY=groundHeightAt,resolveGroundY
+    controller.ResetGround=resetGround
     local function part(name,size,color,parent)
         local p=Instance.new("Part")
         controller.CreatedInstances+=1
@@ -1921,12 +2097,21 @@ return function(window)
         burstAt=-100
     end
     local function destroyWorld()
+        resetGround()
         if controller.Folder then controller.Folder:Destroy() end
         controller.Folder,controller.Model,controller.Body=nil,nil,nil
         table.clear(controller.Sparks)
         position,facing,ownerCharacter,targetIdentity=nil,nil,nil,nil
         followOffset,attentionAnchor,attentionUntil=nil,nil,0
         controller.Attentive,controller.Facing,controller.LookedAt=false,nil,false
+        motionVelocity,motionAcceleration,ownerVelocity=Vector3.zero,Vector3.zero,Vector3.zero
+        lastOwnerPosition,heading,combatIdentity=nil,nil,nil
+        headingVelocity,verticalVelocity=0,0
+        gaitPhase,joyPhase,combatPhase,orbitPhase=0,0,0,0
+        gaitWeight,joyWeight,combatWeight=0,0,0
+        gaitWeightVelocity,joyWeightVelocity,combatWeightVelocity=0,0,0
+        posePitch,poseRoll,posePitchVelocity,poseRollVelocity=0,0,0,0
+        controller.Velocity,controller.Acceleration,controller.BasePosition=nil,nil,nil
         clearActor(controller.Owner);clearActor(controller.Target)
         lookDwell,joyUntil,burstAt=0,0,-100
     end
@@ -1953,12 +2138,22 @@ return function(window)
         end
         local function onFace(name,x,y,size,lift)
             local point,normal=facePoint(x,y,lift or .012)
-            local p=part(name,size,INK,model)
+            -- Ball primitives always render as spheres using their smallest
+            -- dimension. A Sphere mesh on a unit Block keeps true oval axes.
+            local p=part(name,Vector3.one,INK,model)
+            p.Shape=Enum.PartType.Block
+            local mesh=Instance.new("SpecialMesh")
+            controller.CreatedInstances+=1
+            mesh.Name="Oval geometry"
+            mesh.MeshType=Enum.MeshType.Sphere
+            mesh.Scale=size
+            mesh.Offset=Vector3.zero
+            mesh.Parent=p
             p.CFrame=CFrame.lookAt(point,point+normal,UP)
             return p
         end
-        onFace("Left eye",-.25,.19,Vector3.new(.15,.28,.035))
-        onFace("Right eye",.25,.19,Vector3.new(.15,.28,.035))
+        onFace("Left eye",-.27,.20,Vector3.new(.18,.36,.06),.004)
+        onFace("Right eye",.27,.20,Vector3.new(.18,.36,.06),.004)
         -- Overlapping short cylinders make a thin continuous stroke rather
         -- than a row of beads. Its centerline follows the sphere in 3D.
         local smileHalfWidth,smileBottom,smileRise=.60,-.43,.30
@@ -2012,6 +2207,55 @@ return function(window)
         if toggle then toggle:SetSilent(session.Cfg.VerityPetEnabled==true)end
         syncing=false
     end
+    local function limited(value,maximum)
+        local length=value.Magnitude
+        return length>maximum and value*(maximum/length)or value
+    end
+    local function springScalar(value,velocity,target,omega,dt)
+        local offset=value-target
+        local impulse=(velocity+omega*offset)*dt
+        local decay=math.exp(-omega*dt)
+        return target+(offset+impulse)*decay,(velocity-omega*impulse)*decay
+    end
+    local function resetMotion(owner)
+        motionVelocity,motionAcceleration,ownerVelocity=Vector3.zero,Vector3.zero,Vector3.zero
+        lastOwnerPosition,heading,combatIdentity=owner,nil,nil
+        headingVelocity,verticalVelocity=0,0
+        gaitWeight,joyWeight,combatWeight=0,0,0
+        gaitWeightVelocity,joyWeightVelocity,combatWeightVelocity=0,0,0
+        posePitch,poseRoll,posePitchVelocity,poseRollVelocity=0,0,0,0
+    end
+    local function moveHorizontal(goal,feedForward,maximum,dt)
+        -- Continuous velocity/acceleration survive replication updates and
+        -- mode changes. Bounded substeps keep the servo consistent at low FPS.
+        local count=math.max(1,math.ceil(dt*120))
+        local h=dt/count
+        for _=1,count do
+            local errorXZ=Vector3.new(goal.X-position.X,0,goal.Z-position.Z)
+            local desiredVelocity=limited(errorXZ*2.8+feedForward,maximum)
+            local desiredAcceleration=(desiredVelocity-motionVelocity)*11.5
+            desiredAcceleration=limited(desiredAcceleration,58)
+            motionAcceleration+=limited(desiredAcceleration-motionAcceleration,300*h)
+            -- Mode changes alter the servo goal, never clamp the current
+            -- velocity to a smaller mode limit in a single frame.
+            local nextVelocity=limited(motionVelocity+motionAcceleration*h,34)
+            position+=(motionVelocity+nextVelocity)*(h*.5)
+            motionVelocity=nextVelocity
+        end
+    end
+    local function turnHeading(direction,dt)
+        local goal=math.atan2(direction.X,direction.Z)
+        if not heading then heading=goal;headingVelocity=0 end
+        local count=math.max(1,math.ceil(dt*120))
+        local h=dt/count
+        for _=1,count do
+            local difference=(goal-heading+math.pi)%(2*math.pi)-math.pi
+            local acceleration=math.clamp(difference*144-headingVelocity*24,-85,85)
+            headingVelocity=math.clamp(headingVelocity+acceleration*h,-8,8)
+            heading+=headingVelocity*h
+        end
+        return Vector3.new(math.sin(heading),0,math.cos(heading))
+    end
     function controller:Step(dt)
         if not self.Active or not session.Alive or window.Destroyed then return end
         if session.Cfg.VerityPetEnabled~=true then
@@ -2022,43 +2266,57 @@ return function(window)
         dt=finite(dt)and math.clamp(dt,0,.1)or 0
         if dt<=0 then return end
         elapsed+=dt
-        if elapsed>=nextRead then
-            nextRead=elapsed+.05
-            refreshActors()
-        end
+        if elapsed>=nextRead then nextRead=elapsed+.05;refreshActors()end
         local owner=livePosition(self.Owner)
         if not owner then
             self.State="Waiting for character"
             if self.Folder then destroyWorld()end
             return
         end
-        if not self.Model or not self.Model.Parent then createWorld();refreshActors();owner=livePosition(self.Owner);if not owner then return end end
+        if not self.Model or not self.Model.Parent then
+            createWorld();refreshActors();owner=livePosition(self.Owner)
+            if not owner then return end
+        end
         local ownerRoot=self.Owner.Root
         local frame=ownerRoot and ownerRoot.CFrame
         local forward=frame and frame.LookVector or Vector3.new(0,0,-1)
         forward=Vector3.new(forward.X,0,forward.Z)
-        if forward.Magnitude<.001 then forward=Vector3.new(0,0,-1)else forward=forward.Unit end
+        forward=forward.Magnitude>.001 and forward.Unit or Vector3.new(0,0,-1)
         local right=Vector3.new(-forward.Z,0,forward.X)
-        local centerY=self.Owner.Feet+RADIUS
-        -- Capture the following side once. Turning the character/camera must
-        -- never rotate the destination away from someone inspecting the pet.
         followOffset=followOffset or (-forward*3+right*2.6)
+        local feetHint=self.Owner.Feet
         local home=owner+followOffset
-        home=Vector3.new(home.X,centerY,home.Z)
-        position=position or home
+        home=Vector3.new(home.X,feetHint+RADIUS,home.Z)
+        local relocated=false
+        if not position or (home-position).Magnitude>90
+            or (lastOwnerPosition and (owner-lastOwnerPosition).Magnitude>75)then
+            position=home;relocated=true
+            attentionAnchor,attentionUntil=nil,0
+            joyUntil,lookDwell=0,0
+            resetMotion(owner)
+        end
+        if lastOwnerPosition then
+            local delta=owner-lastOwnerPosition
+            local horizontal=Vector3.new(delta.X,0,delta.Z)
+            local alpha=1-math.exp(-9*dt)
+            -- Filter displacement before limiting velocity. Clipping delta/dt
+            -- first would suppress 20 Hz snapshots differently at 144 FPS.
+            ownerVelocity=limited(ownerVelocity*(1-alpha)+horizontal*(alpha/dt),50)
+        end
+        lastOwnerPosition=owner
         local camera=workspace.CurrentCamera
         local looked,approachingLook=false,false
         local cameraPosition
-        if camera and not window.IsOpen and vector(camera.CFrame.Position) and vector(camera.CFrame.LookVector)then
+        if camera and not window.IsOpen and vector(camera.CFrame.Position)and vector(camera.CFrame.LookVector)then
             cameraPosition=camera.CFrame.Position
-            local delta=position-camera.CFrame.Position
+            local seenPosition=self.Position or position
+            local delta=seenPosition-cameraPosition
             local distance=delta.Magnitude
             if distance>.05 and distance<38 then
                 local angularRadius=math.atan(RADIUS/distance)
-                local threshold=math.cos(angularRadius+math.rad(4))
                 local look=camera.CFrame.LookVector
                 local alignment=dot(delta,look)/(distance*math.max(look.Magnitude,.001))
-                looked=alignment>=threshold
+                looked=alignment>=math.cos(angularRadius+math.rad(4))
                 approachingLook=alignment>=math.cos(angularRadius+math.rad(18))
             end
         end
@@ -2066,80 +2324,95 @@ return function(window)
         if approachingLook and ownerDistance<18 then
             attentionAnchor=attentionAnchor or position
             attentionUntil=elapsed+.85
-        elseif ownerDistance>=18 then
-            attentionAnchor,attentionUntil=nil,0
-        end
+        elseif ownerDistance>=18 then attentionAnchor,attentionUntil=nil,0 end
         local attentive=attentionAnchor~=nil and elapsed<attentionUntil
         if not attentive then attentionAnchor=nil end
         lookDwell=looked and math.min(1,lookDwell+dt)or math.max(0,lookDwell-dt*3)
-        if attentive and lookDwell>=.24 then
-            joyUntil=elapsed+.5
-        end
-        local desired,facePoint,hop,spin,tilt,speed=home,owner,0,0,0,13
+        if attentive and lookDwell>=.24 then joyUntil=elapsed+.5 end
+        local desired,facePoint,feedForward,maximum=home,owner,ownerVelocity,19
         local target=targetIdentity and livePosition(self.Target)
+        local wantsJoy=attentive and elapsed<joyUntil
+        local wantsCombat=not attentive and target~=nil
         if attentive then
-            -- Lock horizontal coordinates before any following/target branch.
-            -- Joy stays in place and the smile turns toward the actual camera.
-            desired=Vector3.new(attentionAnchor.X,centerY,attentionAnchor.Z)
+            desired=Vector3.new(attentionAnchor.X,position.Y,attentionAnchor.Z)
             position=desired
+            motionVelocity,motionAcceleration=Vector3.zero,Vector3.zero
             facePoint=cameraPosition or owner
-            self.State=elapsed<joyUntil and "Happy"or "Watching"
-            if elapsed<joyUntil then
-                hop=math.abs(math.sin(elapsed*8.5))*.72
-                tilt=math.sin(elapsed*5)*.045
-            end
+            self.State=wantsJoy and "Happy"or "Watching"
             if burstAt>-100 then hideSparks()end
         elseif target then
             self.State="Playing with target"
-            local phase=elapsed*3.9
-            local pulse=(elapsed*2.2)%1
-            local radius=2.2-(pulse<.22 and math.sin(pulse/.22*math.pi)*1.35 or 0)
-            desired=target+Vector3.new(math.cos(phase)*radius,0,math.sin(phase)*radius)
-            desired=Vector3.new(desired.X,self.Target.Feet+RADIUS,desired.Z)
-            hop=math.abs(math.sin(elapsed*8.2))*.95
-            facePoint,speed,tilt=target,23,math.sin(elapsed*8)*.18
-            if (position-target).Magnitude<4.7 and elapsed>=nextHit then
-                nextHit=elapsed+.46;burstAt=elapsed;self.Hits+=1
+            feetHint=self.Target.Feet or feetHint
+            if combatIdentity~=targetIdentity then
+                local relative=position-target
+                orbitPhase=math.atan2(relative.Z,relative.X)
+                combatIdentity=targetIdentity
+            end
+            orbitPhase+=dt*1.45
+            local lunge=.5-.5*math.cos(combatPhase)
+            local radius=2.65-lunge*.65
+            desired=target+Vector3.new(math.cos(orbitPhase)*radius,0,math.sin(orbitPhase)*radius)
+            feedForward=Vector3.new(-math.sin(orbitPhase),0,math.cos(orbitPhase))*(radius*1.45)
+            maximum,facePoint=21,target
+            if lunge>.82 and (position-target).Magnitude<4.7 and elapsed>=nextHit then
+                nextHit=elapsed+.72;burstAt=elapsed;self.Hits+=1
                 self.HitPosition=target-UP*.25
             end
         else
-            local distance=(home-position).Magnitude
-            if distance>1.2 then
-                self.State=distance>12 and "Catching up"or "Following"
-                hop=math.abs(math.sin(elapsed*9))*math.min(.38,distance*.03)
-                speed=distance>12 and 38 or 13
-                facePoint=home+forward
-                tilt=math.sin(elapsed*7)*.09
-            else
-                self.State="Idle"
-                if elapsed>=nextHop then nextHop=elapsed+5.4 end
-                local since=elapsed-(nextHop-5.4)
-                if since>=0 and since<.55 then hop=math.sin(since/.55*math.pi)*.65 end
-            end
+            combatIdentity=nil
+            local difference=Vector3.new(home.X-position.X,0,home.Z-position.Z)
+            if difference.Magnitude>1.15 or motionVelocity.Magnitude>1.6 then
+                self.State=difference.Magnitude>12 and "Catching up"or "Following"
+                maximum=difference.Magnitude>12 and 34 or 19
+                if motionVelocity.Magnitude>.4 then facePoint=position+motionVelocity end
+            else self.State="Idle"end
         end
-        local delta=desired-position
-        if delta.Magnitude>90 then position=home;delta=desired-position;self.State="Returning"end
-        if delta.Magnitude>.0001 then
-            local fraction=math.min(1,(1-math.exp(-9*dt)),speed*dt/delta.Magnitude)
-            position+=delta*fraction
-        end
+        if not attentive then moveHorizontal(desired,feedForward,maximum,dt)end
+        local targetY,floorY=resolveGroundY(position.X,position.Z,feetHint,dt,relocated)
+        local baseY
+        if relocated then baseY=targetY;verticalVelocity=0
+        else baseY,verticalVelocity=springScalar(position.Y,verticalVelocity,targetY,12,dt)end
+        local minimumY=finite(floorY)and floorY+RADIUS+.045 or targetY
+        if baseY<minimumY then baseY=minimumY;verticalVelocity=math.max(0,verticalVelocity)end
+        position=Vector3.new(position.X,baseY,position.Z)
+        local speed=motionVelocity.Magnitude
+        local gaitTarget=not attentive and math.clamp(speed/10,0,1)or 0
+        gaitWeight,gaitWeightVelocity=springScalar(gaitWeight,gaitWeightVelocity,gaitTarget,11,dt)
+        joyWeight,joyWeightVelocity=springScalar(joyWeight,joyWeightVelocity,wantsJoy and 1 or 0,10,dt)
+        combatWeight,combatWeightVelocity=springScalar(combatWeight,combatWeightVelocity,wantsCombat and 1 or 0,10,dt)
+        gaitPhase+=dt*(2.2+math.min(speed,30)*1.1)
+        joyPhase+=dt*(2*math.pi*.95)
+        combatPhase+=dt*(2*math.pi*1.05)
+        local hop=math.max(0,gaitWeight*.105*(.5-.5*math.cos(gaitPhase))
+            +joyWeight*.62*(.5-.5*math.cos(joyPhase))
+            +combatWeight*.28*(.5-.5*math.cos(combatPhase)))
         local direction=facePoint-position
         direction=Vector3.new(direction.X,0,direction.Z)
-        if direction.Magnitude<.001 then direction=forward else direction=direction.Unit end
-        facing=facing and facing:Lerp(direction,1-math.exp(-11*dt))or direction
-        if facing.Magnitude<.001 then facing=direction else facing=facing.Unit end
-        local renderPosition=position+UP*hop
-        self.Model:PivotTo(CFrame.lookAt(renderPosition,renderPosition+facing)*CFrame.Angles(0,spin,tilt))
+        direction=direction.Magnitude>.001 and direction.Unit or forward
+        facing=turnHeading(direction,dt)
+        local side=Vector3.new(facing.Z,0,-facing.X)
+        local wantedRoll=math.clamp(-dot(motionAcceleration,side)*.0009,-.065,.065)
+            +math.sin(gaitPhase)*gaitWeight*.018+math.sin(joyPhase)*joyWeight*.025
+        local wantedPitch=-math.clamp(speed/25,0,1)*.055+math.sin(joyPhase)*joyWeight*.018
+        poseRoll,poseRollVelocity=springScalar(poseRoll,poseRollVelocity,wantedRoll,12,dt)
+        posePitch,posePitchVelocity=springScalar(posePitch,posePitchVelocity,wantedPitch,12,dt)
+        local renderPosition=Vector3.new(position.X,math.max(position.Y+hop,minimumY),position.Z)
+        self.Model:PivotTo(CFrame.lookAt(renderPosition,renderPosition+facing)*CFrame.Angles(posePitch,0,poseRoll))
         self.Position,self.Hop,self.LookedAt=renderPosition,hop,looked
         self.Attentive,self.Facing=attentive,facing
+        self.Velocity,self.Acceleration,self.Yaw=motionVelocity,motionAcceleration,heading
+        self.BasePosition,self.GaitWeight,self.JoyWeight,self.CombatWeight=position,gaitWeight,joyWeight,combatWeight
         local age=elapsed-burstAt
         for _,item in ipairs(self.Sparks)do
-            if age>=0 and age<.28 and self.HitPosition then
-                item.Part.Position=self.HitPosition+item.Direction*(.25+age*6)
-                item.Part.Transparency=math.clamp(age/.28,0,1)
+            if age>=0 and age<.34 and self.HitPosition then
+                local t=age/.34
+                local eased=1-(1-t)^3
+                item.Part.Position=self.HitPosition+item.Direction*(.16+eased*1.1)
+                item.Part.Transparency=t*t
             elseif item.Part.Transparency~=1 then item.Part.Transparency=1 end
         end
     end
+
     local function updateEnabled()
         if connection then connection:Disconnect();connection=nil end
         if controller.Active and session.Alive and session.Cfg.VerityPetEnabled==true then
@@ -2238,7 +2511,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-7-verity-still", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-8-verity-grounded", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
