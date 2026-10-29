@@ -1565,10 +1565,20 @@ return function(window)
         end
         return mask
     end
-    local controller = {Active = true, Version = 1, Controls = {}, Mask = maskOf, Labels = table.clone(labels)}
+    local function selectedValues(mask)
+        local values = {}
+        for i = 1, #labels do
+            if bit32.band(mask, 2 ^ (i - 1)) ~= 0 then values[#values + 1] = i end
+        end
+        return values
+    end
+    local options = {}
+    for i, label in ipairs(labels) do options[i] = {value = i, label = label} end
+    local controller = {Active = true, Version = 2, Controls = {}, Mask = maskOf, Labels = table.clone(labels)}
     local originalChanged, originalStep, originalDestroy = session.Changed, session.StepXray, session.Destroy
     local originalApply = window.ApplyConfig
     local created, hidden, sections = {}, {}, {}
+    local popupConnections, ownedPopups = {}, {}
     local syncing = false
     local seenXrayMask
     local replacementChanged, replacementStep, replacementDestroy, replacementApply
@@ -1583,10 +1593,8 @@ return function(window)
         syncing = true
         for candidate in pairs(keys) do
             if key == nil or key == candidate then
-                local mask = self.GetMask(candidate)
-                for i, item in ipairs(self.Controls[candidate] or {}) do
-                    item:SetSilent(bit32.band(mask, 2 ^ (i - 1)) ~= 0)
-                end
+                local item = self.Controls[candidate]
+                if item then item:SetSilent(selectedValues(self.GetMask(candidate))) end
             end
         end
         syncing = false
@@ -1610,11 +1618,25 @@ return function(window)
         if session.StepXray == replacementStep then session.StepXray = originalStep end
         if session.Destroy == replacementDestroy then session.Destroy = originalDestroy end
         if window.ApplyConfig == replacementApply then window.ApplyConfig = originalApply end
+        for _, connection in ipairs(popupConnections) do connection:Disconnect() end
+        local closeOwned = false
+        for _, active in ipairs(type(window.Popups) == "table" and window.Popups or {}) do
+            for _, owned in pairs(ownedPopups) do if active == owned then closeOwned = true end end
+        end
+        if closeOwned and type(window.ClosePopups) == "function" then pcall(window.ClosePopups, window) end
         for _, item in ipairs(created) do
             local row = item.RowObj
             if row then
-                remove(row.Section.Rows, row)
-                remove(row.Section.Tab.Rows, row.Entry)
+                local section = row.Section
+                remove(section.Rows, row)
+                remove(section.Tab.Rows, row.Entry)
+                if section.Page and section.Tab.Loads and section.Page.Key then
+                    local key = section.Page.Key
+                    section.Tab.Loads[key] = math.max(0, (section.Tab.Loads[key] or 0) - 1)
+                end
+                if not section.ParentSection and section.Page and section.Page.Load and section.Side then
+                    section.Page.Load[section.Side] = math.max(0, (section.Page.Load[section.Side] or 0) - 1)
+                end
             end
             if item.Row then item.Row:Destroy() end
         end
@@ -1622,6 +1644,7 @@ return function(window)
         for _, section in ipairs(sections) do section:_refreshVisibility() end
         if session.__ExtazzOreSelection == self then session.__ExtazzOreSelection = nil end
         table.clear(created); table.clear(hidden); table.clear(self.Controls)
+        table.clear(popupConnections); table.clear(ownedPopups)
     end
     replacementChanged = function(self, key, ...)
         if self == session and keys[key] then controller.GetMask(key); controller:Sync(key) end
@@ -1657,26 +1680,30 @@ return function(window)
         for _, section in ipairs(tab.Sections or {}) do
             local key = section.Key == "Visuals/Xray" and "XrayBlockMask"
                 or section.Key == "Movement/Baritone" and "BaritoneBlockMask" or nil
-            if key and type(section.Toggle) == "function" then
+            if key and type(section.Dropdown) == "function" then
                 sections[#sections + 1] = section
                 for _, row in ipairs(section.Rows) do
                     if row.Section == section and row.Opts and row.Opts.Text == "Blocks" then
                         hidden[#hidden + 1] = {Row = row, WasHidden = row.selfHidden == true}
                     end
                 end
-                local controls = {}
-                controller.Controls[key] = controls
-                for i, label in ipairs(labels) do
-                    local bit = 2 ^ (i - 1)
-                    local item = section:Toggle({Text = label, Default = bit32.band(controller.GetMask(key), bit) ~= 0,
-                        Tooltip = "Select any combination. All switches off means no blocks.", Order = 2 + i / 10,
-                        Callback = function(on)
-                            if syncing or not controller.Active then return end
-                            local mask = controller.GetMask(key)
-                            controller.SetMask(key, on and bit32.bor(mask, bit) or bit32.band(mask, bit32.bnot(bit)))
-                        end})
-                    controls[i] = item
-                    created[#created + 1] = item
+                local item = section:Dropdown({Text = "Blocks", Options = options, Multi = true,
+                    Default = selectedValues(controller.GetMask(key)),
+                    Tooltip = "Select any combination. An empty selection means no blocks.", Order = 2,
+                    Callback = function(values)
+                        if not syncing and controller.Active then controller.SetMask(key, values) end
+                    end})
+                controller.Controls[key] = item
+                created[#created + 1] = item
+                local box = item.Row and item.Row:FindFirstChild("Box", true)
+                if box and box:IsA("TextButton") then
+                    -- Native Dropdown opens synchronously in its first Box
+                    -- handler. Remember only its current popup, so Restore can
+                    -- leave a popup belonging to another control untouched.
+                    popupConnections[#popupConnections + 1] = box.MouseButton1Click:Connect(function()
+                        local popups = window.Popups
+                        ownedPopups[item] = type(popups) == "table" and popups[#popups] or nil
+                    end)
                 end
             end
         end
@@ -2511,7 +2538,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-8-verity-grounded", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-9-native-multiselect", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
