@@ -3009,6 +3009,7 @@ return function(api)
         state.FlightStrength,state.FlightStarted,state.FlightDuration=0,0,0
         state.FlightSideAmount,state.FlightArcHeight=0,0
         state.GhostSwitching=false
+        state.GhostSmoothness,state.GhostSubsteps=nil,0
     end
     function control.Reset()
         resetGhost()
@@ -3050,25 +3051,47 @@ return function(api)
         state.GhostAnchor,state.GhostVelocity,state.GhostTarget=s.Feet,Vector3.zero,s.Identity
         state.GhostEpoch=state.GhostEpoch or s.Time
         state.GhostSwitching,state.FlightFrom,state.FlightStrength=false,nil,0
+        state.GhostSubsteps=0
         state.HistoryCursor,state.HistoryCount=0,0
         table.clear(state.History);table.clear(state.Times)
         remember(s.Time)
         return 0
     end
-    local function updateGhost(s,unit,dt)
+    local function updateGhost(s,unit,dt,smoothness)
+        local previousSmoothness=state.GhostSmoothness
+        state.GhostSmoothness=smoothness
+        state.GhostSubsteps=0
+        if smoothness==0 then
+            -- Only the positional follower is locked. Keep GhostEpoch so the
+            -- orbit and the local trail phase continue when this changes live.
+            startGhost(s)
+            state.FlightSide,state.FlightSideAmount,state.FlightArcHeight=Vector3.zero,0,0
+            state.FlightStarted,state.FlightDuration=0,0
+            return 0
+        end
+        local lagScale=smoothness/50
+        local motionDt=dt/lagScale
         local live=s.Live~=false and (not finite(s.Health)or s.Health>0)
-        if not state.GhostAnchor then return startGhost(s)end
+        if not state.GhostAnchor or previousSmoothness==0 then return startGhost(s)end
         if not live then
             state.GhostSwitching=false
-            state.GhostVelocity*=math.exp(-dt*6)
-            state.GhostAnchor+=state.GhostVelocity*dt
-            state.FlightStrength*=math.exp(-dt*2.5)
+            state.GhostVelocity*=math.exp(-motionDt*6)
+            state.GhostAnchor+=state.GhostVelocity*motionDt
+            state.FlightStrength*=math.exp(-motionDt*2.5)
             remember(s.Time)
             return math.clamp(state.FlightStrength,0,1)
         end
         local target=s.Feet
         local anchorDistance=(target-state.GhostAnchor).Magnitude/unit
         if not finite(anchorDistance)or anchorDistance>14 then return startGhost(s)end
+        if previousSmoothness and previousSmoothness>0 and previousSmoothness~=smoothness
+            and state.GhostSwitching and state.FlightFrom and state.FlightDuration>0 then
+            -- Retiming the current flight preserves its geometric progress;
+            -- the slider changes its remaining speed without a position jump.
+            local progress=math.clamp((s.Time-state.FlightStarted)/state.FlightDuration,0,1)
+            state.FlightDuration*=smoothness/previousSmoothness
+            state.FlightStarted=s.Time-progress*state.FlightDuration
+        end
         if state.GhostTarget~=s.Identity then
             local toTarget=target-state.GhostAnchor
             local distance=toTarget.Magnitude/unit
@@ -3076,7 +3099,7 @@ return function(api)
             local side=Vector3.new(-toTarget.Z,0,toTarget.X)
             side=side.Magnitude<.001 and Vector3.new(1,0,0)or side.Unit
             state.FlightFrom,state.FlightSide=state.GhostAnchor,side*direction
-            state.FlightStarted,state.FlightDuration=s.Time,math.clamp(1.05+distance*.095,1.15,1.9)
+            state.FlightStarted,state.FlightDuration=s.Time,math.clamp(1.05+distance*.095,1.15,1.9)*lagScale
             state.FlightSideAmount,state.FlightArcHeight=math.min(1.35,.22+distance*.14)*unit,math.min(1.15,.24+distance*.09)*unit
             state.GhostSwitching,state.GhostTarget=true,s.Identity
             state.GhostVelocity*=.2
@@ -3085,9 +3108,10 @@ return function(api)
         local tickMotion=vector(s.Velocity)and limited(s.Velocity/20,.8*unit)or Vector3.zero
         local leadTicks=2.1+math.min(anchorDistance*.16,2.2)
         local desired=target+tickMotion*leadTicks
-        local stepTotal=math.clamp(dt,.001,.1)
+        local stepTotal=math.clamp(dt,.001,.1)/lagScale
         local switchVisual=0
         if state.GhostSwitching and state.FlightFrom then
+            state.GhostSubsteps=1
             local progress=math.clamp((s.Time-state.FlightStarted)/state.FlightDuration,0,1)
             local eased,arc=smoothest(progress),math.sin(progress*math.pi)
             local nextAnchor=state.FlightFrom:Lerp(desired,eased)+state.FlightSide*(arc*state.FlightSideAmount)+UP*(arc*state.FlightArcHeight)
@@ -3095,23 +3119,42 @@ return function(api)
             state.GhostAnchor,switchVisual=nextAnchor,arc
             if progress>=1 then state.GhostSwitching=false;state.GhostVelocity=tickMotion*20 end
         else
-            local substeps=math.max(1,math.ceil(stepTotal*60))
+            local substeps=math.min(12,math.max(1,math.ceil(stepTotal*60)))
+            state.GhostSubsteps=substeps
             local step=stepTotal/substeps
             for _=1,substeps do
                 local offset=desired-state.GhostAnchor
                 local distance=offset.Magnitude/unit
                 local stiffness=25+math.min(distance*2,22)
                 local damping=2*math.sqrt(stiffness)*1.18
-                state.GhostVelocity+=(offset*stiffness-state.GhostVelocity*damping)*step
-                state.GhostVelocity=limited(state.GhostVelocity,(4.2+math.min(distance*1.8,14))*unit)
-                state.GhostAnchor+=state.GhostVelocity*step
+                local maximum=(4.2+math.min(distance*1.8,14))*unit
+                if step<=1/60+1e-12 then
+                    -- At 50 this is the original Java spring, including its
+                    -- integration order and at most six ordinary substeps.
+                    state.GhostVelocity+=(offset*stiffness-state.GhostVelocity*damping)*step
+                    state.GhostVelocity=limited(state.GhostVelocity,maximum)
+                    state.GhostAnchor+=state.GhostVelocity*step
+                else
+                    -- Small smoothing values advance more follower time. An
+                    -- exact overdamped spring handles a long step without a
+                    -- large Euler step or hundreds of per-frame iterations.
+                    local gap=math.sqrt(damping*damping-4*stiffness)
+                    local slow,fast=(-damping+gap)*.5,(-damping-gap)*.5
+                    local error=-offset
+                    local a=(state.GhostVelocity-error*fast)/gap
+                    local b=error-a
+                    local slowDecay,fastDecay=math.exp(slow*step),math.exp(fast*step)
+                    local nextAnchor=desired+a*slowDecay+b*fastDecay
+                    state.GhostVelocity=limited(a*(slow*slowDecay)+b*(fast*fastDecay),maximum)
+                    state.GhostAnchor+=limited(nextAnchor-state.GhostAnchor,maximum*step)
+                end
             end
         end
         local remaining=(target-state.GhostAnchor).Magnitude/unit
         local speed=state.GhostVelocity.Magnitude/unit
         local wanted=math.clamp((remaining-.18)/3.8+speed/28*.55,0,1)
         if state.GhostSwitching then wanted=math.max(wanted,.42+switchVisual*.38)end
-        local response=1-math.exp(-dt*(wanted>state.FlightStrength and 5 or 2.4))
+        local response=1-math.exp(-motionDt*(wanted>state.FlightStrength and 5 or 2.4))
         state.FlightStrength+=(wanted-state.FlightStrength)*response
         remember(s.Time)
         return math.clamp(state.FlightStrength,0,1)
@@ -3149,12 +3192,14 @@ return function(api)
         end
     end
     local function renderGhosts(s,cfg,unit,sizeScale,rotation,alpha,damage,glow,dt)
-        local flight=updateGhost(s,unit,dt)
+        local smoothness=math.floor(setting(cfg.TargetESPDivineGhostSmoothness,50,0,100)+.5)
+        local lagScale=smoothness/50
+        local flight=updateGhost(s,unit,dt,smoothness)
         local time=(s.Time-(state.GhostEpoch or s.Time))*rotation
         for particle=0,29 do
             local delay=particle*(.018+flight*.016)
             state.Delays[particle+1]=delay
-            state.Bases[particle+1]=sampleHistory(s.Time-delay)
+            state.Bases[particle+1]=smoothness==0 and s.Feet or sampleHistory(s.Time-delay*lagScale)
         end
         for lane=0,2 do
             local laneOffset=lane*TAU/3
@@ -3498,6 +3543,7 @@ return function(window, onChanged)
     end
     define("MarkerSkin","Marker texture",1,3,1,4,1)
     define("MarkerSize","Marker size",.55,3,.2,2,.05)
+    define("GhostSmoothness","Follow smoothness",50,5,0,100,1)
     define("ConStars","Stars",8,6,3,16,1)
     define("ConSpeed","Constellation speed",1,6,.2,3,.1)
     define("ConOrbit","Constellation orbit",1.2,6,.5,2.5,.1)
@@ -4875,7 +4921,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-13-voxel-hit-audio", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-14-ghost-follow", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
