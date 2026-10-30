@@ -2754,9 +2754,1553 @@ return function(window)
 end
 
 end)()}
+featureInstallers[#featureInstallers+1]={Name="target_esp_port",Install=(function()
+local AssetFactory=(function()
+-- Platform: Roblox client / Luau; target: lazy local Target ESP PNG assets.
+-- Original PNG bytes and the Java pixel-painted sword are versioned by content.
+local files = {
+    ["chain-031f67635be52816.png"] = {Bytes = 10597},
+    ["circle-4091097b5e4a7586.png"] = {Bytes = 292457},
+    ["cross-c03a9d9e3a34b657.png"] = {Bytes = 64695},
+    ["dashbloom-d41771ca05d6e7b8.png"] = {Bytes = 10429},
+    ["dashbloomsample-d972a92f09eeb6dc.png"] = {Bytes = 8862},
+    ["heart-998ab02f656ebd63.png"] = {Bytes = 62291},
+    ["lightarroundscreen-fd40c6d9cc6adbcf.png"] = {Bytes = 574866},
+    ["lightning-2a75cf0b015207c2.png"] = {Bytes = 62291},
+    ["marker-304f22fde873fb23.png"] = {Bytes = 144762},
+    ["marker1-d009431456565d38.png"] = {Bytes = 277404},
+    ["marker2-e8a9589169c550bf.png"] = {Bytes = 514900},
+    ["marker3-6b950eb27f0ab7d2.png"] = {Bytes = 392619},
+    ["snowflake-02c0fb40f554db85.png"] = {Bytes = 76164},
+    ["star-239fd301ae682d31.png"] = {Bytes = 65197},
+    ["star1-139b5c926f421b1c.png"] = {Bytes = 26518},
+    ["sword-7b7ee7f7c38dd0ce.png"] = {Bytes = 267},
+}
+local aliases = {
+    ["bloom"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["chain"] = "chain-031f67635be52816.png",
+    ["circle"] = "circle-4091097b5e4a7586.png",
+    ["cross"] = "cross-c03a9d9e3a34b657.png",
+    ["dashbloom"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["dashbloomsample"] = "dashbloomsample-d972a92f09eeb6dc.png",
+    ["ghost"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["ghost-glow"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["ghostglow"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["glow"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["heart"] = "heart-998ab02f656ebd63.png",
+    ["lightarroundscreen"] = "lightarroundscreen-fd40c6d9cc6adbcf.png",
+    ["lightning"] = "lightning-2a75cf0b015207c2.png",
+    ["marker"] = "marker-304f22fde873fb23.png",
+    ["marker1"] = "marker1-d009431456565d38.png",
+    ["marker2"] = "marker2-e8a9589169c550bf.png",
+    ["marker3"] = "marker3-6b950eb27f0ab7d2.png",
+    ["snowflake"] = "snowflake-02c0fb40f554db85.png",
+    ["star"] = "star-239fd301ae682d31.png",
+    ["star1"] = "star1-139b5c926f421b1c.png",
+    ["starglow"] = "dashbloom-d41771ca05d6e7b8.png",
+    ["sword"] = "sword-7b7ee7f7c38dd0ce.png",
+    ["test"] = "dashbloom-d41771ca05d6e7b8.png",
+}
+local BASE_URL = "https://raw.githubusercontent.com/rertitus-lab/scriptVISUALS/refs/heads/main/assets/targetesp/"
+local CACHE_FOLDER = "extazz_targetesp_assets"
+local PNG = "\137PNG\r\n\26\n"
+return function(window, onError)
+    local manager = {Active = true, Version = 1, States = {}, Errors = {}, Loaded = 0, Downloads = 0}
+    local queue, cursor, working = {}, 1, false
+    local uris, reported = {}, {}
+    local customAsset = type(getcustomasset) == "function" and getcustomasset
+        or type(getsynasset) == "function" and getsynasset or nil
+    local function alive()
+        return manager.Active and (not window or not window.Destroyed)
+            and (not window or not window.Runtime or window.Runtime.Alive ~= false)
+    end
+    local function keyFile(key)
+        return type(key) == "string" and aliases[key:lower()] or nil
+    end
+    local function valid(data, entry)
+        return type(data) == "string" and #data == entry.Bytes and data:sub(1, 8) == PNG
+    end
+    local function report(key, file, problem)
+        manager.Errors[file] = problem
+        manager.LastError = problem
+        if alive() and not reported[file] then
+            reported[file] = true
+            if type(onError) == "function" then pcall(onError, key, problem) end
+        end
+    end
+    local function loadFile(key, filename)
+        if not alive() then return end
+        local entry, path = files[filename], CACHE_FOLDER .. "/" .. filename
+        if not customAsset then
+            report(key, filename, "Target ESP textures require getcustomasset or getsynasset")
+            return
+        end
+        local cached = false
+        if type(readfile) == "function" then
+            local ok, data = pcall(readfile, path)
+            cached = ok and valid(data, entry)
+        end
+        if not cached then
+            if type(writefile) ~= "function" then
+                report(key, filename, "Target ESP texture cache cannot be written in this executor")
+                return
+            end
+            local ok, data = pcall(function() return game:HttpGet(BASE_URL .. filename) end)
+            if not alive() then return end
+            if not ok then
+                report(key, filename, "Target ESP texture download failed: " .. key)
+                return
+            end
+            if not valid(data, entry) then
+                report(key, filename, "Target ESP texture download is incomplete or is not a PNG: " .. key)
+                return
+            end
+            manager.Downloads += 1
+            if type(makefolder) == "function" then pcall(makefolder, CACHE_FOLDER) end
+            local written = pcall(writefile, path, data)
+            if not written then
+                report(key, filename, "Target ESP texture cache write failed: " .. key)
+                return
+            end
+        end
+        if not alive() then return end
+        local ok, uri = pcall(customAsset, path)
+        if not alive() then return end
+        if not ok or type(uri) ~= "string" or uri == "" then
+            report(key, filename, "Target ESP texture could not be registered: " .. key)
+            return
+        end
+        uris[filename] = uri
+        manager.Loaded += 1
+    end
+    function manager:Get(key)
+        if not self.Active then return "" end
+        local filename = keyFile(key)
+        return filename and uris[filename] or ""
+    end
+    function manager:Ready(key)
+        return self:Get(key) ~= ""
+    end
+    function manager:Request(keys)
+        if not alive() then return false end
+        if type(keys) == "string" then keys = {keys} end
+        if type(keys) ~= "table" then return false end
+        local accepted = false
+        for _, key in ipairs(keys) do
+            local filename = keyFile(key)
+            if filename then
+                accepted = true
+                if self.States[filename] == nil then
+                    self.States[filename] = "queued"
+                    queue[#queue + 1] = {Key = key, File = filename}
+                end
+            end
+        end
+        if working or cursor > #queue then return accepted end
+        if type(task) ~= "table" or type(task.spawn) ~= "function" then
+            return false
+        end
+        working = true
+        task.spawn(function()
+            while alive() and cursor <= #queue do
+                local item = queue[cursor]
+                cursor += 1
+                manager.States[item.File] = "loading"
+                local ok = pcall(loadFile, item.Key, item.File)
+                if not alive() then break end
+                if not ok then report(item.Key, item.File, "Target ESP texture loading failed: " .. item.Key) end
+                manager.States[item.File] = uris[item.File] and "ready" or "failed"
+            end
+            table.clear(queue)
+            cursor, working = 1, false
+        end)
+        return accepted
+    end
+    function manager:Destroy()
+        if not self.Active then return end
+        self.Active = false
+        table.clear(queue); table.clear(uris); table.clear(reported)
+        table.clear(self.States); table.clear(self.Errors)
+        self.LastError = nil
+    end
+    return manager
+end
+
+end)()
+local ClassicFactory=(function()
+-- Platform: Roblox client / Luau; target: Divine TargetESP marker, ring, ghosts and constellation.
+-- Formula port from the supplied TargetESP.java; draw primitives are owned by the caller.
+return function(api)
+    assert(type(api)=="table" and type(api.Sprite)=="function" and type(api.Line)=="function"
+        and type(api.Ribbon)=="function" and type(api.Color)=="function","Missing Target ESP draw primitives")
+    local TAU,UP=math.pi*2,Vector3.new(0,1,0)
+    local markerParameters={
+        {110,2.8,.5,1.6,.06,3}, {220,2.2,0,2.4,.07,4},
+        {-180,2.6,1,1.8,.12,0}, {140,3,2,1.2,.1,6},
+    }
+    local markerAssets={"Marker","Marker1","Marker2","Marker3"}
+    local ringIds,ringCos,ringSin,ringGrad={},{},{},{}
+    for i=0,64 do
+        local angle=i*TAU/64
+        ringCos[i+1],ringSin[i+1],ringGrad[i+1]=math.cos(angle),math.sin(angle),.5-.5*math.cos(angle)
+        if i<64 then ringIds[i+1]="classic.ring."..i end
+    end
+    local ghostIds,ghostHeadIds,starIds,starGlowIds,starLineIds={},{},{},{},{}
+    for lane=0,2 do
+        ghostIds[lane+1]={}
+        ghostHeadIds[lane+1]="classic.ghost.head."..lane
+        for particle=0,29 do ghostIds[lane+1][particle+1]="classic.ghost."..lane.."."..particle end
+    end
+    for i=1,16 do
+        starIds[i],starGlowIds[i],starLineIds[i]="classic.star."..i,"classic.star.glow."..i,"classic.star.line."..i
+    end
+    local state={History=table.create(256),Times=table.create(256),Bases=table.create(30),Delays=table.create(30),
+        StarPoints=table.create(16),StarColors=table.create(16),HistoryCursor=0,HistoryCount=0,
+        GhostVelocity=Vector3.zero,FlightSide=Vector3.zero,FlightStrength=0,
+        CircleStep=0,CircleSpeed=0,ReverseSpeed=false,SmoothY=0,SmoothY2=0,HistorySamples=0}
+    local control={State=state,Modes={Marker=true,Ring=true,Ghosts=true,Constellation=true}}
+    local function finite(n)return type(n)=="number" and n==n and math.abs(n)<math.huge end
+    local function vector(v)return typeof(v)=="Vector3" and finite(v.X) and finite(v.Y) and finite(v.Z)end
+    local function setting(v,fallback,low,high)
+        return finite(v)and math.clamp(v,low,high)or fallback
+    end
+    local function limited(v,maximum)
+        local length=v.Magnitude
+        return length>maximum and v*(maximum/length)or v
+    end
+    local function smoothest(t)return t*t*t*(t*(t*6-15)+10)end
+    local function color(frac,time,s)
+        return api.Color(frac,time,s.Color)
+    end
+    local function resetGhost()
+        table.clear(state.History);table.clear(state.Times);table.clear(state.Bases);table.clear(state.Delays)
+        state.HistoryCursor,state.HistoryCount,state.HistorySamples=0,0,0
+        state.GhostAnchor,state.GhostTarget,state.FlightFrom,state.GhostEpoch=nil,nil,nil,nil
+        state.GhostVelocity,state.FlightSide=Vector3.zero,Vector3.zero
+        state.FlightStrength,state.FlightStarted,state.FlightDuration=0,0,0
+        state.FlightSideAmount,state.FlightArcHeight=0,0
+        state.GhostSwitching=false
+    end
+    function control.Reset()
+        resetGhost()
+        table.clear(state.StarPoints);table.clear(state.StarColors)
+        state.CircleStep,state.CircleSpeed,state.SmoothY,state.SmoothY2=0,0,0,0
+        state.ReverseSpeed=false
+        state.MarkerEpoch,state.AnimationEpoch,state.AnimationTarget,state.LastTime=nil,nil,nil,nil
+    end
+    control.Destroy=control.Reset
+    function control.Supports(mode)return control.Modes[mode]==true end
+    local function remember(time)
+        if not state.GhostAnchor then return end
+        if state.HistoryCount>0 and state.Times[state.HistoryCursor]==time then
+            state.History[state.HistoryCursor]=state.GhostAnchor
+        else
+            state.HistoryCursor=state.HistoryCursor%256+1
+            state.History[state.HistoryCursor],state.Times[state.HistoryCursor]=state.GhostAnchor,time
+            state.HistoryCount=math.min(256,state.HistoryCount+1)
+        end
+    end
+    local function sampleHistory(time)
+        state.HistorySamples+=1
+        local count,cursor=state.HistoryCount,state.HistoryCursor
+        if count==0 then return state.GhostAnchor or Vector3.zero end
+        if time>=state.Times[cursor]then return state.History[cursor]end
+        local oldest=(cursor-count)%256+1
+        if time<=state.Times[oldest]then return state.History[oldest]end
+        local low,high=0,count-1
+        while high-low>1 do
+            local middle=math.floor((low+high)*.5)
+            local index=(oldest+middle-1)%256+1
+            if state.Times[index]<=time then low=middle else high=middle end
+        end
+        local a,b=(oldest+low-1)%256+1,(oldest+high-1)%256+1
+        local interval=state.Times[b]-state.Times[a]
+        return state.History[a]:Lerp(state.History[b],interval>0 and math.clamp((time-state.Times[a])/interval,0,1)or 1)
+    end
+    local function startGhost(s)
+        state.GhostAnchor,state.GhostVelocity,state.GhostTarget=s.Feet,Vector3.zero,s.Identity
+        state.GhostEpoch=state.GhostEpoch or s.Time
+        state.GhostSwitching,state.FlightFrom,state.FlightStrength=false,nil,0
+        state.HistoryCursor,state.HistoryCount=0,0
+        table.clear(state.History);table.clear(state.Times)
+        remember(s.Time)
+        return 0
+    end
+    local function updateGhost(s,unit,dt)
+        local live=s.Live~=false and (not finite(s.Health)or s.Health>0)
+        if not state.GhostAnchor then return startGhost(s)end
+        if not live then
+            state.GhostSwitching=false
+            state.GhostVelocity*=math.exp(-dt*6)
+            state.GhostAnchor+=state.GhostVelocity*dt
+            state.FlightStrength*=math.exp(-dt*2.5)
+            remember(s.Time)
+            return math.clamp(state.FlightStrength,0,1)
+        end
+        local target=s.Feet
+        local anchorDistance=(target-state.GhostAnchor).Magnitude/unit
+        if not finite(anchorDistance)or anchorDistance>14 then return startGhost(s)end
+        if state.GhostTarget~=s.Identity then
+            local toTarget=target-state.GhostAnchor
+            local distance=toTarget.Magnitude/unit
+            local direction=finite(s.Id)and math.floor(s.Id)%2==1 and -1 or 1
+            local side=Vector3.new(-toTarget.Z,0,toTarget.X)
+            side=side.Magnitude<.001 and Vector3.new(1,0,0)or side.Unit
+            state.FlightFrom,state.FlightSide=state.GhostAnchor,side*direction
+            state.FlightStarted,state.FlightDuration=s.Time,math.clamp(1.05+distance*.095,1.15,1.9)
+            state.FlightSideAmount,state.FlightArcHeight=math.min(1.35,.22+distance*.14)*unit,math.min(1.15,.24+distance*.09)*unit
+            state.GhostSwitching,state.GhostTarget=true,s.Identity
+            state.GhostVelocity*=.2
+            state.FlightStrength=math.max(state.FlightStrength,.25)
+        end
+        local tickMotion=vector(s.Velocity)and limited(s.Velocity/20,.8*unit)or Vector3.zero
+        local leadTicks=2.1+math.min(anchorDistance*.16,2.2)
+        local desired=target+tickMotion*leadTicks
+        local stepTotal=math.clamp(dt,.001,.1)
+        local switchVisual=0
+        if state.GhostSwitching and state.FlightFrom then
+            local progress=math.clamp((s.Time-state.FlightStarted)/state.FlightDuration,0,1)
+            local eased,arc=smoothest(progress),math.sin(progress*math.pi)
+            local nextAnchor=state.FlightFrom:Lerp(desired,eased)+state.FlightSide*(arc*state.FlightSideAmount)+UP*(arc*state.FlightArcHeight)
+            state.GhostVelocity=(nextAnchor-state.GhostAnchor)/stepTotal
+            state.GhostAnchor,switchVisual=nextAnchor,arc
+            if progress>=1 then state.GhostSwitching=false;state.GhostVelocity=tickMotion*20 end
+        else
+            local substeps=math.max(1,math.ceil(stepTotal*60))
+            local step=stepTotal/substeps
+            for _=1,substeps do
+                local offset=desired-state.GhostAnchor
+                local distance=offset.Magnitude/unit
+                local stiffness=25+math.min(distance*2,22)
+                local damping=2*math.sqrt(stiffness)*1.18
+                state.GhostVelocity+=(offset*stiffness-state.GhostVelocity*damping)*step
+                state.GhostVelocity=limited(state.GhostVelocity,(4.2+math.min(distance*1.8,14))*unit)
+                state.GhostAnchor+=state.GhostVelocity*step
+            end
+        end
+        local remaining=(target-state.GhostAnchor).Magnitude/unit
+        local speed=state.GhostVelocity.Magnitude/unit
+        local wanted=math.clamp((remaining-.18)/3.8+speed/28*.55,0,1)
+        if state.GhostSwitching then wanted=math.max(wanted,.42+switchVisual*.38)end
+        local response=1-math.exp(-dt*(wanted>state.FlightStrength and 5 or 2.4))
+        state.FlightStrength+=(wanted-state.FlightStrength)*response
+        remember(s.Time)
+        return math.clamp(state.FlightStrength,0,1)
+    end
+    local function renderMarker(s,cfg,unit,sizeScale,rotation,alpha,damage,glow)
+        if not state.MarkerEpoch then state.MarkerEpoch=s.Time end
+        local time=(s.Time-state.MarkerEpoch)*rotation
+        local skin=math.floor(setting(cfg.TargetESPDivineMarkerSkin,1,1,4)+.5)
+        local p=markerParameters[skin]
+        local omega=TAU/p[2]
+        local angle=-(p[1]/omega)*math.cos(omega*(time+p[3]))+p[6]*math.sin(time*.7)
+        local pulse=math.sin(time*p[4]*TAU)
+        local half=setting(cfg.TargetESPDivineMarkerSize,.55,.2,2)*unit*sizeScale*(1+p[5]*pulse)*(1+.25*damage)
+        local opacity=alpha*(.85+.15*pulse)
+        if glow>.001 then api.Sprite("classic.marker.glow","Glow",s.Center,half*2.15,half*2.15,-angle*.25,color(0,time,s),alpha*glow*.28,s.ThroughWalls)end
+        api.Sprite("classic.marker",markerAssets[skin],s.Center,half*2,half*2,angle,color(1,time,s),opacity,s.ThroughWalls)
+    end
+    local function renderRing(s,cfg,unit,sizeScale,rotation,alpha,damage)
+        local frame=math.clamp(s.Dt or 1/60,0,.1)*60*rotation
+        state.CircleStep+=.06*frame
+        if state.CircleSpeed>25 then state.ReverseSpeed=true end
+        if state.CircleSpeed< -25 then state.ReverseSpeed=false end
+        state.CircleSpeed+=(state.ReverseSpeed and -.5 or .5)*frame
+        state.CircleStep+=state.CircleSpeed*.0008*frame
+        local wave,wave2=.5-.5*math.cos(state.CircleStep),.5-.5*math.cos(state.CircleStep-.35)
+        state.SmoothY+=(wave*s.Height-state.SmoothY)*(1-.88^frame)
+        state.SmoothY2+=(wave2*s.Height-state.SmoothY2)*(1-.90^frame)
+        local radius=s.Width*sizeScale*setting(cfg.TargetJelloSize,1,.5,3)*(1+math.sin(math.min(damage*2,1)*math.pi)*.18)
+        local thickness=setting(cfg.TargetJelloThickness,.06,.02,.5)
+        for i=1,64 do
+            local a=s.Feet+Vector3.new(ringCos[i]*radius,state.SmoothY,ringSin[i]*radius)
+            local b=s.Feet+Vector3.new(ringCos[i+1]*radius,state.SmoothY,ringSin[i+1]*radius)
+            api.Ribbon(ringIds[i],a,b,state.SmoothY2-state.SmoothY,thickness,
+                color(ringGrad[i],s.Time,s),alpha,s.ThroughWalls,color(ringGrad[i+1],s.Time,s))
+        end
+    end
+    local function renderGhosts(s,cfg,unit,sizeScale,rotation,alpha,damage,glow,dt)
+        local flight=updateGhost(s,unit,dt)
+        local time=(s.Time-(state.GhostEpoch or s.Time))*rotation
+        for particle=0,29 do
+            local delay=particle*(.018+flight*.016)
+            state.Delays[particle+1]=delay
+            state.Bases[particle+1]=sampleHistory(s.Time-delay)
+        end
+        for lane=0,2 do
+            local laneOffset=lane*TAU/3
+            for particle=0,29 do
+                local trail=particle/29
+                local delayedTime=(s.Time-state.Delays[particle+1]-(state.GhostEpoch or s.Time))*rotation
+                local base=state.Bases[particle+1]
+                local phase=delayedTime*(.72+flight*.1)+laneOffset-trail*.32
+                local radius=(.72+.1*math.sin(delayedTime*1.4+lane))*unit*sizeScale*(1+damage*.18)*(1-flight*.18)
+                local pos=base+Vector3.new(math.sin(phase)*radius,
+                    s.Height*(.24+lane*.24)+math.sin(delayedTime*1.35+particle*.12+laneOffset)*(.13+flight*.05)*unit*sizeScale,
+                    math.cos(phase)*radius)
+                local pulse=.94+.06*math.sin(time*4.2+laneOffset-trail*2)
+                local half=(.27-trail*.16)*unit*sizeScale*pulse*(1+damage*.22+flight*(1-trail)*.16)
+                local tailAlpha=.08+.92*(1-trail)^1.45
+                local c=color(.5+.5*math.sin(phase+trail*2),time,s)
+                local roll=time*16+particle*5+lane*18+flight*math.sin(time*1.4+laneOffset)*10
+                if particle==0 and glow>.001 then
+                    api.Sprite(ghostHeadIds[lane+1],"Ghost",pos,half*4.3,half*3.8,roll*.72,c,alpha*tailAlpha*(.2+flight*.18)*glow,s.ThroughWalls)
+                end
+                api.Sprite(ghostIds[lane+1][particle+1],"Ghost",pos,half*2*(1+flight*(1-trail)*.62),half*2*(1-flight*(1-trail)*.12),roll,c,alpha*tailAlpha,s.ThroughWalls)
+            end
+        end
+    end
+    local function renderConstellation(s,cfg,unit,sizeScale,rotation,alpha,damage,glow)
+        local stars=math.floor(setting(cfg.TargetESPDivineConStars,8,3,16)+.5)
+        local speed=setting(cfg.TargetESPDivineConSpeed,1,.2,3)
+        local orbit=setting(cfg.TargetESPDivineConOrbit,1.2,.5,2.5)*s.Width*sizeScale
+        local pointSize=setting(cfg.TargetESPDivineConPointSize,.27,.1,.6)
+        local pointGlow=setting(cfg.TargetESPDivineConGlow,.5,0,1)*glow
+        local time=(s.Time-(state.AnimationEpoch or s.Time))*rotation
+        local spin=time*speed*1.2
+        for i=0,stars-1 do
+            local frac=i/stars
+            local foundation=frac*TAU
+            local incl=math.pi*.35*math.sin(frac*math.pi*1.5+.5)
+            local angle=spin+foundation
+            local radius=orbit*(.85+.15*math.sin(foundation*2.3))
+            local pos=s.Feet+Vector3.new(math.cos(angle)*radius,
+                s.Height*.5+math.sin(angle)*math.sin(incl)*radius*.7+math.sin(time*1.2+frac*TAU)*.2*unit*sizeScale,
+                math.sin(angle)*math.cos(incl)*radius)
+            local c=color(.5+.5*math.sin(frac*TAU*2+time*1.4),time,s)
+            state.StarPoints[i+1],state.StarColors[i+1]=pos,c
+            local pulse=.75+.25*math.sin(time*3+frac*TAU*1.7)
+            local half=pointSize*unit*sizeScale*pulse*1.4*(1+damage*.2)
+            local roll=time*40+i*12
+            api.Sprite(starIds[i+1],"Star",pos,half*2,half*2,roll,c,alpha,s.ThroughWalls)
+            if pointGlow>.01 then api.Sprite(starGlowIds[i+1],"Glow",pos,half*6.4,half*6.4,-roll*.6,c,alpha*pointGlow*.3,s.ThroughWalls)end
+        end
+        if cfg.TargetESPDivineConLines~=false then
+            local width=.06*unit*sizeScale
+            for i=1,stars do
+                local nextIndex=i%stars+1
+                api.Line(starLineIds[i],state.StarPoints[i],state.StarPoints[nextIndex],width,state.StarColors[i],alpha*.55,s.ThroughWalls,state.StarColors[nextIndex])
+            end
+        end
+    end
+    function control.Render(mode,s,cfg)
+        if not control.Supports(mode)or type(s)~="table"or not vector(s.Feet)or not vector(s.Center)
+            or not finite(s.Height)or s.Height<=0 or not finite(s.Width)or s.Width<=0
+            or not finite(s.Time)then return false end
+        cfg=type(cfg)=="table"and cfg or {}
+        local unit=setting(s.Unit,s.Height/1.8,.001,100)
+        local sizeScale=setting(s.SizeScale,1,.05,10)
+        local rotation=setting(s.RotationScale,1,0,5)
+        local alpha=setting(s.Alpha,1,0,1)
+        local damage=setting(s.Damage,0,0,1)
+        local glow=setting(s.Glow,.6,0,1)
+        local dt=setting(s.Dt,1/60,0,.1)
+        if state.LastTime and s.Time<state.LastTime then control.Reset()end
+        state.LastTime=s.Time
+        if mode~="Ghosts"and state.AnimationTarget~=s.Identity then
+            state.AnimationTarget,state.AnimationEpoch,state.MarkerEpoch=s.Identity,s.Time,s.Time
+        end
+        if mode=="Marker"then renderMarker(s,cfg,unit,sizeScale,rotation,alpha,damage,glow)
+        elseif mode=="Ring"then renderRing(s,cfg,unit,sizeScale,rotation,alpha,damage)
+        elseif mode=="Ghosts"then renderGhosts(s,cfg,unit,sizeScale,rotation,alpha,damage,glow,dt)
+        else renderConstellation(s,cfg,unit,sizeScale,rotation,alpha,damage,glow)end
+        return true
+    end
+    return control
+end
+
+end)()
+local ExtraFactory=(function()
+-- Platform: Roblox client / Luau; target: Divine TargetESP Bloom, Swords, Test and Lightning.
+-- Geometry follows the supplied Java module; sizes passed to Sprite are full extents.
+return function(api)
+    assert(type(api)=="table" and type(api.Sprite)=="function" and type(api.Line)=="function", "Missing Target ESP drawing API")
+    local TAU,UP=math.pi*2,Vector3.new(0,1,0)
+    local ZERO=Vector3.zero
+    local control={Version=1,Active=true,Calls=0,Mode=nil,Identity=nil,SwordCount=0,BoltCount=0}
+    local function finite(value)return type(value)=="number"and value==value and math.abs(value)<math.huge end
+    local function vector(value)return typeof(value)=="Vector3"and finite(value.X)and finite(value.Y)and finite(value.Z)end
+    local function setting(cfg,key,fallback,low,high)
+        local value=cfg["TargetESPDivine"..key]
+        return finite(value)and math.clamp(value,low,high)or fallback
+    end
+    local function flag(cfg,key,fallback)
+        local value=cfg["TargetESPDivine"..key]
+        return type(value)=="boolean"and value or(value==nil and fallback or false)
+    end
+    local function theme(frac,time,color)
+        return type(api.Color)=="function"and api.Color(frac,time,color)or color
+    end
+    -- java.util.Random's 48-bit LCG, split into 24-bit limbs so all integer
+    -- products remain exactly representable in Luau doubles.
+    local function random48(seed)
+        local hi=bit32.bxor(math.floor(seed/16777216),1502)%16777216
+        local lo=bit32.bxor(seed%16777216,15525485)%16777216
+        return function()
+            local product=lo*15525485+11
+            local carry=math.floor(product/16777216)
+            hi=(hi*15525485+lo*1502+carry)%16777216
+            lo=product%16777216
+            return hi/16777216
+        end
+    end
+    local seeds=table.create(64)
+    for index=0,63 do
+        local nextFloat=random48(index*2654435761+987654321)
+        local direction=index%2==0 and 1 or -1
+        seeds[index+1]={H=index/64+(nextFloat()-.5)*.06,R=.45+nextFloat()*.55,
+            Angle=nextFloat()*TAU,Orbit=direction*(.8+nextFloat()*1.2),Vertical=.25+nextFloat()*.45,
+            PulseSpeed=2+nextFloat()*3.5,PulsePhase=nextFloat()*TAU,SpinSpeed=(nextFloat()-.5)*90,
+            Spin=nextFloat()*360,Size=.75+nextFloat()*.5,RadialFrequency=1.2+nextFloat()*2,
+            RadialAmplitude=.04+nextFloat()*.09}
+    end
+    local eventRandom=random48(774531)
+    local swords=table.create(12)
+    for i=1,12 do swords[i]={P=ZERO,V=ZERO,Roll=0,Pitch=0,Ready=false}end
+    local bolts=table.create(6)
+    for i=1,6 do bolts[i]={Points=table.create(10,ZERO),Branch=table.create(4,ZERO),Active=false,Branched=false,Born=0,Life=.2}end
+    local lastSwordDamage,lastSwordCount,nextBoltAt=0,0,0
+    function control:Reset()
+        self.Mode,self.Identity,self.SwordCount,self.BoltCount=nil,nil,0,0
+        lastSwordDamage,lastSwordCount,nextBoltAt=0,0,0
+        for _,sword in ipairs(swords)do sword.P,sword.V,sword.Roll,sword.Pitch,sword.Ready=ZERO,ZERO,0,0,false end
+        for _,bolt in ipairs(bolts)do bolt.Active,bolt.Branched=false,false end
+    end
+    local function bloom(t,cfg,unit,sizeScale,alpha,glow,rotationScale)
+        local count=math.floor(setting(cfg,"BloomCount",36,12,64)+.5)
+        local size=setting(cfg,"BloomSize",.2,.08,.5)*unit*sizeScale
+        local time=(t.Time%36000)*setting(cfg,"BloomSpeed",1,.2,3)*rotationScale
+        local color=theme(.5,time,t.Color)
+        for i=1,count do
+            local seed=seeds[i]
+            local height=(seed.H+time*seed.Vertical*.22)%1.15
+            local fade=height<.12 and height/.12 or(height>.92 and math.max(0,(1.15-height)/.23)or 1)
+            local angle=seed.Angle+time*seed.Orbit+math.sin(time*seed.RadialFrequency+seed.PulsePhase)*.35
+            local radius=t.Width*.65*seed.R*sizeScale+math.sin(time*seed.RadialFrequency*1.4+seed.PulsePhase)*seed.RadialAmplitude*unit*sizeScale
+            local position=t.Feet+Vector3.new(math.cos(angle)*radius,height*t.Height,math.sin(angle)*radius)
+            local pulse=.78+.32*math.sin(time*seed.PulseSpeed+seed.PulsePhase)
+            local dimension=size*seed.Size*pulse*(1+(t.Damage or 0)*.2)*2
+            local opacity=fade*(.6+.4*math.cos(time*seed.PulseSpeed+seed.PulsePhase))
+            if opacity>.01 and dimension>.02*unit then
+                local rotation=seed.Spin+time*seed.SpinSpeed
+                if glow>0 then api.Sprite("bloom_glow_"..i,"Glow",position,dimension*1.55,dimension*1.55,rotation,color,alpha*opacity*.43*glow,t.ThroughWalls)end
+                api.Sprite("bloom_core_"..i,"Glow",position,dimension,dimension,rotation,color,alpha*opacity*.86,t.ThroughWalls)
+            end
+        end
+    end
+    local function swordMode(t,cfg,unit,sizeScale,alpha,glow,rotationScale)
+        local count=math.floor(setting(cfg,"SwordCount",8,2,12)+.5)
+        local radius=(t.Width+.35*unit)*setting(cfg,"SwordRadius",1,.3,2.5)*sizeScale
+        local period=setting(cfg,"SwordSpeed",1200,200,4000)/1000
+        local time=t.Time*rotationScale
+        local angle=(time%period)/period*TAU
+        local size=setting(cfg,"SwordSize",1,.3,2.5)*unit*sizeScale
+        local bobAmplitude=setting(cfg,"SwordBob",.12,0,.5)*unit*sizeScale
+        local center=t.Feet+UP*(t.Height*.45)
+        local dt=math.clamp(t.Dt,0,.1)
+        local step=dt>0 and math.clamp(dt*60,.2,2)or 0
+        local damage=finite(t.Damage)and math.clamp(t.Damage,0,1)or 0
+        local justDamaged=damage>lastSwordDamage+.05 and damage>.65
+        lastSwordDamage=damage
+        local physics=flag(cfg,"SwordPhysics",true)
+        local right=vector(t.CameraRight)and t.CameraRight or Vector3.new(1,0,0)
+        for i=1,count do
+            local sword=swords[i]
+            local theta=angle+(i-1)*TAU/count
+            local ideal=center+Vector3.new(math.cos(theta)*radius,math.sin(time*3.5+(i-1)*math.pi/4)*bobAmplitude,math.sin(theta)*radius)
+            if not sword.Ready or i>lastSwordCount or(sword.P-ideal).Magnitude>math.max(64*unit,32)then
+                sword.P,sword.V,sword.Roll,sword.Pitch,sword.Ready=ideal,ZERO,0,0,true
+            end
+            if justDamaged then
+                local radial=Vector3.new(sword.P.X-center.X,0,sword.P.Z-center.Z)
+                if radial.Magnitude>.001 then sword.V+=radial.Unit*((.16+eventRandom()*.06)*unit)+UP*(.07*unit)end
+                sword.Roll+=(eventRandom()-.5)*28
+            end
+            if physics and step>0 then
+                sword.V=(sword.V+(ideal-sword.P)*(.22*step))*math.pow(.78,step)
+                sword.P+=sword.V*step
+                local rightVelocity=-(sword.V:Dot(right))/unit
+                local targetRoll=math.clamp(rightVelocity*130,-42,42)
+                local targetPitch=math.clamp(-sword.V.Y/unit*85,-32,32)
+                local mix=math.min(1,.25*step)
+                sword.Roll+=(targetRoll-sword.Roll)*mix
+                sword.Pitch+=(targetPitch-sword.Pitch)*mix
+            elseif not physics then sword.P,sword.V,sword.Roll,sword.Pitch=ideal,ZERO,0,0 end
+            local color=theme(.5+.5*math.sin((i-1)*.785+t.Time/.45),t.Time,t.Color)
+            if flag(cfg,"SwordGlow",true)and glow>0 then
+                api.Sprite("sword_glow_"..i,"Glow",sword.P,.4*size*1.35,.8*size*1.35,sword.Roll,color,alpha*(115/255)*glow,t.ThroughWalls,sword.Pitch)
+            end
+            api.Sprite("sword_"..i,"Sword",sword.P,.4*size,.8*size,sword.Roll,color,alpha,t.ThroughWalls,sword.Pitch)
+        end
+        lastSwordCount=count
+        control.SwordCount=count
+    end
+    local function testMode(t,cfg,unit,sizeScale,alpha,glow,rotationScale)
+        local time=t.Time*setting(cfg,"TestSpeed",1,.2,3)*rotationScale
+        local radius=setting(cfg,"TestRadius",.725,.3,1.5)*unit*sizeScale
+        local userSize=setting(cfg,"TestSize",1,.3,2.5)*unit*sizeScale
+        local color=theme(.5,time,t.Color)
+        for lane=0,2 do
+            for particle=0,9 do
+                local angle=time*9+lane*TAU/3-particle*.1
+                local y=(math.sin(time*3.25-particle*.05)*.5+.5)*(t.Height*.975)
+                local position=t.Feet+Vector3.new(math.cos(angle)*radius,y,math.sin(angle)*radius)
+                local halfSize=math.max(.03*unit,(.30-particle*.015)*userSize*alpha)
+                local opacity=math.min(1,1.35-particle/13.5)*alpha
+                local id=lane*10+particle+1
+                if glow>0 then api.Sprite("test_glow_"..id,"Glow",position,halfSize*3.1,halfSize*3.1,0,color,opacity*.43*glow,t.ThroughWalls)end
+                api.Sprite("test_core_"..id,"Glow",position,halfSize*2,halfSize*2,0,color,opacity,t.ThroughWalls)
+            end
+        end
+    end
+    local function createBolt(bolt,t,size,length,time)
+        local top=t.Feet+Vector3.new((eventRandom()-.5)*2*size,t.Height+length*(.7+eventRandom()*.6),(eventRandom()-.5)*2*size)
+        local bottom=t.Feet+Vector3.new((eventRandom()-.5)*.6*size,t.Height*.45,(eventRandom()-.5)*.6*size)
+        for index=0,9 do
+            local fraction=index/9
+            local internal=index~=0 and index~=9
+            local x=internal and(eventRandom()-.5)*.7*size or 0
+            local z=internal and(eventRandom()-.5)*.7*size or 0
+            bolt.Points[index+1]=top:Lerp(bottom,fraction)+Vector3.new(x,0,z)
+        end
+        bolt.Branched=eventRandom()<.7
+        if bolt.Branched then
+            local from=bolt.Points[4+math.floor(eventRandom()*3)]
+            local x,z=eventRandom()-.5,eventRandom()-.5
+            local magnitude=math.max(.2,math.sqrt(x*x+z*z))
+            local direction=Vector3.new(x/magnitude*.35,-.3,z/magnitude*.35)*size
+            for index=0,3 do bolt.Branch[index+1]=from+direction*index end
+        end
+        bolt.Born,bolt.Life,bolt.Active=time,.12+eventRandom()*.14,true
+    end
+    local function lightning(t,cfg,unit,sizeScale,alpha,glow)
+        local time=t.Time
+        local count=math.floor(setting(cfg,"LightningCount",3,1,6)+.5)
+        local size=setting(cfg,"LightningSize",1,.3,2.5)*unit*sizeScale
+        local length=setting(cfg,"LightningLength",3,1.5,6)*unit*sizeScale
+        local active=0
+        for _,bolt in ipairs(bolts)do
+            if bolt.Active and time-bolt.Born>bolt.Life then bolt.Active=false end
+            if bolt.Active then active+=1 end
+        end
+        while active>count do
+            local oldest
+            for _,bolt in ipairs(bolts)do if bolt.Active and(not oldest or bolt.Born<oldest.Born)then oldest=bolt end end
+            if oldest then oldest.Active=false;active-=1 else break end
+        end
+        if active<count and time>=nextBoltAt then
+            for _,bolt in ipairs(bolts)do if not bolt.Active then createBolt(bolt,t,size,length,time);active+=1;break end end
+            nextBoltAt=time+(.08+eventRandom()*.14)/setting(cfg,"LightningSpeed",1,.3,3)
+        end
+        local color=theme(.5,time,t.Color)
+        local bright=Color3.fromRGB(235,242,255)
+        local lineColor=bright:Lerp(color,.4)
+        for slot,bolt in ipairs(bolts)do
+            if bolt.Active then
+                local age=math.clamp((time-bolt.Born)/math.max(.001,bolt.Life),0,1)
+                local opacity=math.sin(age*math.pi)*alpha
+                if opacity>.01 then
+                    local width=math.max(.007*unit,.012*size)
+                    for index=1,9 do
+                        if flag(cfg,"LightningGlow",true)and glow>0 then api.Line("bolt_glow_"..slot.."_"..index,bolt.Points[index],bolt.Points[index+1],width*3,color,opacity*.17*glow,t.ThroughWalls)end
+                        api.Line("bolt_"..slot.."_"..index,bolt.Points[index],bolt.Points[index+1],width,lineColor,opacity,t.ThroughWalls)
+                    end
+                    if bolt.Branched then
+                        for index=1,3 do api.Line("branch_"..slot.."_"..index,bolt.Branch[index],bolt.Branch[index+1],width,lineColor,opacity,t.ThroughWalls)end
+                    end
+                    if flag(cfg,"LightningGlow",true)and glow>0 then
+                        for index=3,9,3 do api.Sprite("bolt_joint_"..slot.."_"..index,"Glow",bolt.Points[index],.44*size,.44*size,0,color,opacity*.5*glow,t.ThroughWalls)end
+                    end
+                    if flag(cfg,"LightningFlash",true)then
+                        local dimension=1.1*size*(.7+.6*opacity)
+                        api.Sprite("bolt_flash_"..slot,"Glow",bolt.Points[10],dimension,dimension,0,bright,opacity,t.ThroughWalls)
+                    end
+                end
+            end
+        end
+        control.BoltCount=active
+    end
+    function control:Render(mode,t,cfg)
+        if not self.Active or type(t)~="table"or type(cfg)~="table"then return false end
+        if mode~="Bloom"and mode~="Swords"and mode~="Test"and mode~="Lightning"then return false end
+        if not vector(t.Feet)or not finite(t.Height)or t.Height<=0 or not finite(t.Width)or t.Width<=0
+            or not finite(t.Unit)or t.Unit<=0 or not finite(t.Time)or not finite(t.Dt)then return false end
+        if self.Mode~=mode or self.Identity~=t.Identity then self:Reset();self.Mode,self.Identity=mode,t.Identity end
+        local unit=t.Unit
+        local scale=finite(t.SizeScale)and math.clamp(t.SizeScale,.05,8)or 1
+        local alpha=finite(t.Alpha)and math.clamp(t.Alpha,0,1)or 1
+        local glow=finite(t.Glow)and math.clamp(t.Glow,0,1)or 0
+        local rotation=finite(t.RotationScale)and math.clamp(t.RotationScale,0,5)or 1
+        if alpha<=0 then return true end
+        self.Calls+=1
+        if mode=="Bloom"then bloom(t,cfg,unit,scale,alpha,glow,rotation)
+        elseif mode=="Swords"then swordMode(t,cfg,unit,scale,alpha,glow,rotation)
+        elseif mode=="Test"then testMode(t,cfg,unit,scale,alpha,glow,rotation)
+        else lightning(t,cfg,unit,scale,alpha,glow)end
+        return true
+    end
+    function control:Destroy()self:Reset();self.Active=false end
+    control.Seeds=seeds
+    return control
+end
+
+end)()
+local SettingsFactory=(function()
+-- Platform: Roblox client / Luau; target: Extazz r135 Target ESP settings and profile compatibility.
+return function(window, onChanged)
+    local session=type(window)=="table" and window.Runtime
+    if type(session)~="table" or not session.Alive or not session.Ready or type(session.Cfg)~="table"
+        or type(session.Defaults)~="table" or type(session.Changed)~="function"
+        or type(session.Save)~="function" or type(window.ApplyConfig)~="function" then return nil,"Settings runtime unavailable" end
+    if session.__ExtazzTargetEspSettings then return session.__ExtazzTargetEspSettings end
+    local section
+    for _,tab in ipairs(window.TabList or {})do for _,entry in ipairs(tab.Sections or {})do
+        if entry.Key=="Visuals/Target ESP"then section=entry end
+    end end
+    if not section or type(section.Button)~="function"or type(section.Slider)~="function"or type(section.Toggle)~="function"then
+        return nil,"Target ESP section unavailable"
+    end
+    local modeNames={"Square","Jello","Маркер","Кольцо","Призраки","Созвездие","Bloom","Мечи","Test","Молния"}
+    local definitions,ordered={},{}
+    local function define(suffix,label,default,mode,low,high,step)
+        local key="TargetESPDivine"..suffix
+        local entry={Key=key,Label=label,Default=default,Mode=mode,Min=low,Max=high,Step=step}
+        definitions[key]=entry;ordered[#ordered+1]=entry
+    end
+    define("MarkerSkin","Marker texture",1,3,1,4,1)
+    define("MarkerSize","Marker size",.55,3,.2,2,.05)
+    define("ConStars","Stars",8,6,3,16,1)
+    define("ConSpeed","Constellation speed",1,6,.2,3,.1)
+    define("ConOrbit","Constellation orbit",1.2,6,.5,2.5,.1)
+    define("ConLines","Constellation lines",true,6)
+    define("ConPointSize","Star size",.27,6,.1,.6,.01)
+    define("ConGlow","Constellation glow",.5,6,0,1,.05)
+    define("BloomCount","Bloom count",36,7,12,64,2)
+    define("BloomSize","Bloom size",.2,7,.08,.5,.02)
+    define("BloomSpeed","Bloom speed",1,7,.2,3,.1)
+    define("SwordSpeed","Sword orbit period (ms)",1200,8,200,4000,50)
+    define("SwordRadius","Sword radius",1,8,.3,2.5,.05)
+    define("SwordSize","Sword size",1,8,.3,2.5,.05)
+    define("SwordBob","Sword bob",.12,8,0,.5,.01)
+    define("SwordCount","Sword count",8,8,2,12,1)
+    define("SwordGlow","Sword glow",true,8)
+    define("SwordPhysics","Sword physics",true,8)
+    define("TestSpeed","Test speed",1,9,.2,3,.05)
+    define("TestSize","Test size",1,9,.3,2.5,.05)
+    define("TestRadius","Test radius",.725,9,.3,1.5,.025)
+    define("LightningCount","Lightning strikes",3,10,1,6,1)
+    define("LightningSpeed","Lightning speed",1,10,.3,3,.05)
+    define("LightningSize","Lightning size",1,10,.3,2.5,.05)
+    define("LightningLength","Lightning length",3,10,1.5,6,.25)
+    define("LightningGlow","Lightning glow",true,10)
+    define("LightningFlash","Lightning flash",true,10)
+    local modeDefinition={Key="TargetESPMode",Default=1,Min=1,Max=10,Step=1}
+    local controller={Active=true,Version=1,Definitions=definitions,ModeNames=modeNames,Controls={}}
+    local originalChanged,originalApply,originalRefresh,originalClose=session.Changed,window.ApplyConfig,session.TargetEspSettingsChanged,window.Close
+    local replacementChanged,replacementApply,replacementRefresh,replacementClose
+    local created,originalRows,defaultBackup={},{},{}
+    local absent={}
+    local syncing=false
+    local activePopup
+    local white,muted,accent=Color3.fromRGB(239,241,245),Color3.fromRGB(153,161,177),Color3.fromRGB(113,174,255)
+    local function finite(value)return type(value)=="number"and value==value and math.abs(value)<math.huge end
+    local function validate(value,entry)
+        if type(entry.Default)=="boolean"then
+            if type(value)=="boolean"then return value,true end
+            return nil,false
+        end
+        if not finite(value)or value<entry.Min or value>entry.Max then return nil,false end
+        local rounded=entry.Min+math.floor((value-entry.Min)/entry.Step+.5)*entry.Step
+        return math.clamp(rounded,entry.Min,entry.Max),true
+    end
+    local function make(class,properties)
+        local object=Instance.new(class)
+        for key,value in pairs(properties)do object[key]=value end
+        return object
+    end
+    local function remove(array,value)
+        if type(array)~="table"then return end
+        for i=#array,1,-1 do if array[i]==value then table.remove(array,i)end end
+    end
+    local function notify(key)if type(onChanged)=="function"then pcall(onChanged,key)end end
+    local function closePopup()
+        local record=activePopup
+        if not record then return end
+        local registered=false
+        for _,entry in ipairs(window.Popups or {})do if entry==record.Native then registered=true end end
+        if registered and type(window.ClosePopups)=="function"then window:ClosePopups()end
+        record.Destroy()
+    end
+    function controller:Set(key,value)
+        if not self.Active or syncing or not session.Alive or window.Destroyed then return false end
+        local definition=key=="TargetESPMode"and modeDefinition or definitions[key]
+        if not definition then return false end
+        local normalized,valid=validate(value,definition)
+        if not valid then return false end
+        if session.Cfg[key]==normalized then self:Sync();return true end
+        session.Cfg[key]=normalized
+        session:Changed(key)
+        session:Save()
+        return true
+    end
+    local function choice(key,label,names)
+        local item={Type="Choice",Labels=names,Value=session.Cfg[key]}
+        local host=section:Button({Text=label,Callback=function()end})
+        item.Row,item.RowObj=host.Row,host.RowObj
+        local button=host.Base
+        if typeof(button)~="Instance"or not button:IsA("GuiButton")then
+            button=item.Row and item.Row:FindFirstChildWhichIsA("TextButton",true)
+        end
+        assert(button,"Choice button unavailable")
+        item.Base=button
+        for _,child in ipairs(button:GetDescendants())do if child:IsA("TextLabel")then child.Visible=false end end
+        if button:IsA("TextButton")then button.Text=""end
+        item.Caption=make("TextLabel",{Name="TargetEspChoiceCaption",BackgroundTransparency=1,
+            Size=UDim2.new(1,-16,1,0),Position=UDim2.fromOffset(8,0),Font=Enum.Font.GothamMedium,
+            TextSize=13,TextColor3=white,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=12,Parent=button})
+        function item:Get()return self.Value end
+        function item:SetSilent(value)
+            self.Value=value
+            self.Caption.Text=label..": "..(names[value]or names[1]).."  ▾"
+        end
+        function item:Set(value)controller:Set(key,value)end
+        function item:SetVisible(value)
+            if self.RowObj and type(self.RowObj.SetVisible)=="function"then self.RowObj.SetVisible(value)
+            elseif self.Row then self.Row.Visible=value==true end
+        end
+        function item:Open()
+            if not controller.Active or not session.Alive or window.Destroyed then return end
+            if activePopup and activePopup.Key==key then closePopup();return end
+            closePopup()
+            local record={Key=key,Connections={},Buttons={}}
+            activePopup=record
+            function record.Destroy()
+                for _,connection in ipairs(record.Connections)do connection:Disconnect()end
+                table.clear(record.Connections)
+                if record.Frame then record.Frame:Destroy()end
+                if record.Layer then record.Layer:Destroy()end
+                if activePopup==record then activePopup=nil end
+            end
+            local width,height=286,math.min(#names,9)*32+14
+            local layer=window.PopLayer or window.Gui
+            if typeof(layer)=="Instance"then
+                local ok,size=pcall(function()return layer.AbsoluteSize end)
+                local zoom=window.PopScale and tonumber(window.PopScale.Scale)or 1
+                zoom=zoom and zoom>0 and zoom or 1
+                if ok and typeof(size)=="Vector2"and size.X>0 and size.Y>0 then
+                    width=math.max(1,math.min(width,size.X/zoom-16))
+                    height=math.max(1,math.min(height,size.Y/zoom-16))
+                end
+            end
+            local popup,shell,scale
+            if type(window.PopupShell)=="function"and type(window.PopupPlace)=="function"and type(window.OpenPopup)=="function"then
+                local ok,frame,body,zoom=pcall(window.PopupShell,window,width,height)
+                if ok and typeof(frame)=="Instance"and typeof(body)=="Instance"then
+                    popup,shell,scale=frame,body,zoom
+                    local placed,x,y,_,up=pcall(window.PopupPlace,window,button,width,height,"right")
+                    if placed then popup.Position=UDim2.fromOffset(x,y)end
+                    if type(window.PopupReveal)=="function"then pcall(window.PopupReveal,window,popup,shell,scale,up==1)
+                    else pcall(function()shell.GroupTransparency=0 end)end
+                elseif typeof(frame)=="Instance"then frame:Destroy()end
+            end
+            if not popup then
+                local parent=window.Gui
+                if typeof(parent)~="Instance"then record.Destroy();return end
+                record.Layer=make("Frame",{Name="TargetEspChoiceOverlay",BackgroundTransparency=1,
+                    Size=UDim2.fromScale(1,1),ZIndex=200,Parent=parent})
+                local outside=make("TextButton",{Name="Outside",Text="",BackgroundTransparency=1,
+                    Size=UDim2.fromScale(1,1),ZIndex=200,Parent=record.Layer})
+                record.Connections[#record.Connections+1]=outside.MouseButton1Click:Connect(closePopup)
+                popup=make("Frame",{Name="TargetEspChoicePopup",AnchorPoint=Vector2.new(.5,.5),
+                    Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(width,height),
+                    BackgroundColor3=Color3.fromRGB(29,32,40),BorderSizePixel=0,ZIndex=201,Parent=record.Layer})
+                make("UICorner",{CornerRadius=UDim.new(0,10),Parent=popup})
+                shell=popup
+            end
+            record.Frame=popup
+            popup.Name="TargetEspChoicePopup"
+            local list=make("ScrollingFrame",{Name="ChoiceList",Position=UDim2.fromOffset(6,6),
+                Size=UDim2.new(1,-12,1,-12),CanvasSize=UDim2.fromOffset(0,#names*32),
+                BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=muted,ZIndex=212,Parent=shell})
+            for index,name in ipairs(names)do
+                local selected=session.Cfg[key]==index
+                local option=make("TextButton",{Name="ChoiceOption",Text=name,AutoButtonColor=false,
+                    Font=Enum.Font.Gotham,TextSize=13,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,
+                    Position=UDim2.fromOffset(0,(index-1)*32),Size=UDim2.new(1,-3,0,30),
+                    BackgroundColor3=accent,BackgroundTransparency=selected and .78 or 1,BorderSizePixel=0,
+                    LayoutOrder=index,ZIndex=213,Parent=list})
+                make("UICorner",{CornerRadius=UDim.new(0,6),Parent=option})
+                make("UIPadding",{PaddingLeft=UDim.new(0,10),Parent=option})
+                record.Buttons[index]=option
+                record.Connections[#record.Connections+1]=option.MouseButton1Click:Connect(function()
+                    if controller:Set(key,index)then closePopup()end
+                end)
+            end
+            if not record.Layer then record.Native={close=record.Destroy};window:OpenPopup(record.Native)end
+        end
+        item.Connection=button.MouseButton1Click:Connect(function()item:Open()end)
+        item:SetSilent(session.Cfg[key])
+        return item
+    end
+    local function readControl(control)
+        local getter=control.Get or control.GetValue
+        if type(getter)~="function"then return nil,false end
+        return pcall(getter,control)
+    end
+    local function setSilent(control,value)
+        if control.Type=="Choice"then control:SetSilent(value);return end
+        local setter=control.SetSilent
+        if type(setter)~="function"then return end
+        local ok=pcall(setter,control,value)
+        local read,current=readControl(control)
+        local matches=current==value
+        if finite(current)and finite(value)then matches=math.abs(current-value)<=.000001*math.max(1,math.abs(value))end
+        if not ok or(read and not matches)then pcall(setter,value)end
+    end
+    function controller:Sync()
+        if not self.Active or syncing then return end
+        syncing=true
+        local mode,validMode=validate(session.Cfg.TargetESPMode,modeDefinition)
+        if not validMode then mode=1 end
+        session.Cfg.TargetESPMode=mode
+        for key,control in pairs(self.Controls)do
+            local entry=definitions[key]
+            if entry then
+                local value,valid=validate(session.Cfg[key],entry)
+                if valid then session.Cfg[key]=value else session.Cfg[key]=entry.Default end
+            end
+            setSilent(control,session.Cfg[key])
+            if entry then control:SetVisible(mode==entry.Mode)end
+        end
+        for _,entry in ipairs(originalRows)do
+            local text=entry.Row.Opts and entry.Row.Opts.Text
+            local visible=not entry.WasHidden
+            if text=="Mode"then visible=false
+            elseif text=="Size (at 20 studs)"or text=="Glow"or text=="Rotation speed"then visible=mode~=2
+            elseif text=="Jello thickness (studs)"then visible=mode==2 or mode==4 or mode==6 or mode==10
+            elseif text=="Jello size (x)"then visible=mode==2 or mode==4
+            elseif text=="Through walls (Jello)"then
+                visible=mode>=2
+                if entry.Row.Title then entry.Row.Title.Text="Through walls"end
+            end
+            entry.Row.SetVisible(visible)
+        end
+        syncing=false
+    end
+    local previousKey=string.char(103,101,109,105,110,105)
+    local function payload(doc)
+        if type(doc)~="table"then return nil end
+        if doc.notification~=nil then return doc.notification,"notification"end
+        if doc[previousKey]~=nil then return doc[previousKey],previousKey end
+    end
+    local function callApply(self,doc,values,...)
+        local before={TargetESPMode=session.Cfg.TargetESPMode}
+        for key in pairs(definitions)do before[key]=session.Cfg[key]end
+        -- Keep the protected decoder and its rollback backup unaware of new
+        -- numeric fields which have no entries in its private NumberRanges.
+        local defaults=session.Defaults
+        local bridgeDefaults=table.clone(defaults)
+        for key in pairs(definitions)do bridgeDefaults[key]=nil end
+        session.Defaults=bridgeDefaults
+        local results=table.pack(pcall(originalApply,self,doc,...))
+        if session.Defaults==bridgeDefaults then session.Defaults=defaults end
+        if not results[1]or not results[2]then
+            for key,value in pairs(before)do session.Cfg[key]=value end
+        elseif values and controller.Active and session.Alive then
+            for key,value in pairs(values)do session.Cfg[key]=value end
+            for key in pairs(values)do session:Changed(key)end
+            session:Save()
+        end
+        controller:Sync()
+        if not results[1]then error(results[2],0)end
+        return table.unpack(results,2,results.n)
+    end
+    replacementApply=function(self,doc,...)
+        if self~=window or not controller.Active then return originalApply(self,doc,...)end
+        local feature,container=payload(doc)
+        if type(feature)~="table"or type(feature.values)~="table"then
+            return callApply(self,doc,nil,...)
+        end
+        local requested={}
+        for key,entry in pairs(definitions)do
+            local value=feature.values[key]
+            if value==nil then value=entry.Default end
+            local normalized,valid=validate(value,entry)
+            if not valid then return false,"Invalid Target ESP setting: "..key end
+            requested[key]=normalized
+        end
+        local mode=feature.values.TargetESPMode
+        if mode==nil then mode=1 end
+        local normalized,valid=validate(mode,modeDefinition)
+        if not valid then return false,"Invalid Target ESP mode"end
+        requested.TargetESPMode=normalized
+        local copy=table.clone(doc)
+        local featureCopy=table.clone(feature)
+        featureCopy.values=table.clone(feature.values)
+        for key in pairs(definitions)do featureCopy.values[key]=nil end
+        featureCopy.values.TargetESPMode=math.min(normalized,2)
+        copy[container]=featureCopy
+        return callApply(self,copy,requested,...)
+    end
+    replacementChanged=function(self,key,...)
+        local results=table.pack(originalChanged(self,key,...))
+        if self==session and type(key)=="string"and key:match("^Target")and controller.Active then
+            controller:Sync();notify(key)
+        end
+        return table.unpack(results,1,results.n)
+    end
+    replacementRefresh=function(...)
+        local results
+        if type(originalRefresh)=="function"then results=table.pack(originalRefresh(...))else results=table.pack()end
+        controller:Sync()
+        return table.unpack(results,1,results.n)
+    end
+    replacementClose=function(self,...)
+        if self==window then closePopup()end
+        return originalClose(self,...)
+    end
+    function controller:Restore()
+        if not self.Active then return end
+        self.Active=false;closePopup()
+        if session.Changed==replacementChanged then session.Changed=originalChanged end
+        if session.TargetEspSettingsChanged==replacementRefresh then session.TargetEspSettingsChanged=originalRefresh end
+        if window.ApplyConfig==replacementApply then window.ApplyConfig=originalApply end
+        if window.Close==replacementClose then window.Close=originalClose end
+        for _,item in ipairs(created)do
+            if item.Connection then item.Connection:Disconnect()end
+            local row=item.RowObj
+            if row then
+                remove(row.Section.Rows,row);remove(row.Section.Tab.Rows,row.Entry)
+                local sec=row.Section
+                if sec.Page and sec.Tab.Loads and sec.Page.Key then sec.Tab.Loads[sec.Page.Key]=math.max(0,(sec.Tab.Loads[sec.Page.Key]or 0)-1)end
+                if not sec.ParentSection and sec.Page and sec.Page.Load and sec.Side then sec.Page.Load[sec.Side]=math.max(0,(sec.Page.Load[sec.Side]or 0)-1)end
+            end
+            if item.Row then item.Row:Destroy()end
+        end
+        for _,entry in ipairs(originalRows)do
+            entry.Row.SetVisible(not entry.WasHidden)
+            if entry.OriginalText and entry.Row.Title then entry.Row.Title.Text=entry.OriginalText end
+        end
+        for key,old in pairs(defaultBackup)do
+            if session.Defaults[key]==definitions[key].Default then
+                if old==absent then session.Defaults[key]=nil else session.Defaults[key]=old end
+            end
+        end
+        section:_refreshVisibility()
+        if session.__ExtazzTargetEspSettings==self then session.__ExtazzTargetEspSettings=nil end
+        table.clear(created);table.clear(self.Controls)
+    end
+    for _,row in ipairs(section.Rows or {})do
+        local originalText=row.Opts and row.Opts.Text=="Through walls (Jello)"and row.Title and row.Title.Text or nil
+        originalRows[#originalRows+1]={Row=row,WasHidden=row.selfHidden==true,OriginalText=originalText}
+    end
+    local persisted
+    if type(readfile)=="function"then pcall(function()
+        local raw=readfile("MenuSettings/notification.json")
+        if type(raw)=="string"and #raw<=1048576 then
+            local saved=game:GetService("HttpService"):JSONDecode(raw)
+            if type(saved)=="table"and type(saved.values)=="table"then persisted=saved.values end
+        end
+    end)end
+    for key,entry in pairs(definitions)do
+        defaultBackup[key]=session.Defaults[key]==nil and absent or session.Defaults[key]
+        session.Defaults[key]=entry.Default
+        local value=persisted and persisted[key]
+        if value==nil then value=session.Cfg[key]end
+        local normalized,valid=validate(value,entry)
+        if valid then session.Cfg[key]=normalized else session.Cfg[key]=entry.Default end
+    end
+    if persisted and persisted.TargetESPMode~=nil then
+        local mode,valid=validate(persisted.TargetESPMode,modeDefinition)
+        if valid then session.Cfg.TargetESPMode=mode end
+    end
+    local mode,valid=validate(session.Cfg.TargetESPMode,modeDefinition)
+    session.Cfg.TargetESPMode=valid and mode or 1
+    controller.Controls.TargetESPMode=choice("TargetESPMode","Mode",modeNames)
+    created[#created+1]=controller.Controls.TargetESPMode
+    for _,entry in ipairs(ordered)do
+        local control
+        if entry.Key=="TargetESPDivineMarkerSkin"then
+            control=choice(entry.Key,entry.Label,{"Marker","Marker1","Marker2","Marker3"})
+        elseif type(entry.Default)=="boolean"then
+            control=section:Toggle({Text=entry.Label,Default=session.Cfg[entry.Key],Callback=function(value)controller:Set(entry.Key,value)end})
+        else
+            local decimals=0
+            while decimals<4 and math.abs(entry.Step*10^decimals-math.floor(entry.Step*10^decimals+.5))>.00001 do decimals+=1 end
+            control=section:Slider({Text=entry.Label,Min=entry.Min,Max=entry.Max,Decimals=decimals,
+                Default=session.Cfg[entry.Key],Callback=function(value)controller:Set(entry.Key,value)end})
+        end
+        controller.Controls[entry.Key]=control;created[#created+1]=control
+    end
+    session.Changed,session.TargetEspSettingsChanged=replacementChanged,replacementRefresh
+    window.ApplyConfig=replacementApply
+    if type(originalClose)=="function"then window.Close=replacementClose end
+    session.__ExtazzTargetEspSettings=controller
+    controller:Sync()
+    return controller
+end
+
+end)()
+-- Platform: Roblox client / Luau; target: r135 Target ESP Java renderer adapter.
+return function(window)
+    if type(window)~="table" or type(window.Startup)~="table" or window.Startup.Revision~=135 then return nil,"Unsupported Target ESP runtime"end
+    local session=window.Runtime
+    if type(session)~="table" or not session.Alive or not session.Ready or type(session.Cfg)~="table"
+        or type(session.Destroy)~="function" or type(session.UpdateTargetEspLayout)~="function"
+        or type(session.UpdateTargetHUD)~="function" then return nil,"Target ESP runtime not ready"end
+    if session.__ExtazzTargetEspPort then return session.__ExtazzTargetEspPort end
+    local cfg=session.Cfg
+    local players=game:GetService("Players")
+    local runService=game:GetService("RunService")
+    local localPlayer=players.LocalPlayer
+    local UP=Vector3.new(0,1,0)
+    local HALF=Vector3.new(.5,.5,.5)
+    local EMPTY={}
+    local modes={[3]="Marker",[4]="Ring",[5]="Ghosts",[6]="Constellation",[7]="Bloom",[8]="Swords",[9]="Test",[10]="Lightning"}
+    local control={Active=true,Version=1,UIKind="TargetEspModes",FrameCount=0,Time=0,Mode=1,CreatedInstances=0,
+        Pools={Sprites={},Lines={},Ribbons={}},Snapshot={},ActiveSprites=0,ActiveLines=0,ActiveRibbons=0}
+    local originalLayout,originalHud,originalDestroy=session.UpdateTargetEspLayout,session.UpdateTargetHUD,session.Destroy
+    local replacementLayout,replacementHud,replacementDestroy,connection,ui
+    local classic,extra,assets
+    local worldFolder,anchor
+    local spriteUsed,lineUsed,ribbonUsed=0,0,0
+    local lastMode,commonTarget,commonAt,fallbackTarget,nextFallback=nil,nil,-100,nil,0
+    local lastHealth,lastIdentity,lastFeet,lastCharacter
+    local alpha,damage=0,0
+    local appearing,animationAt=false,0
+    local FADE_DOWN,FADE_UP=NumberSequence.new(0,1),NumberSequence.new(1,0)
+    local rayParams,rayExclusions
+    local notified={}
+    local requestedAssets={}
+    local function finite(n)return type(n)=="number"and n==n and math.abs(n)<math.huge end
+    local function vector(v)return typeof(v)=="Vector3"and finite(v.X)and finite(v.Y)and finite(v.Z)end
+    local function setting(v,fallback,low,high)return finite(v)and math.clamp(v,low,high)or fallback end
+    local function color(v,fallback)return typeof(v)=="Color3"and v or fallback end
+    local function call(fn,...)
+        if type(fn)~="function"then return nil end
+        local ok,a,b,c,d=pcall(fn,...)
+        if ok then return a,b,c,d end
+        return nil
+    end
+    local function notice(message)
+        if notified[message]or not control.Active or window.Destroyed then return end
+        notified[message]=true
+        if type(window.Notify)=="function"then pcall(window.Notify,window,{Title="Target ESP",Text=message,Kind="warning"})end
+    end
+    local function new(class)
+        control.CreatedInstances+=1
+        return Instance.new(class)
+    end
+    local function carrier(name,parent)
+        local p=new("Part")
+        p.Name,p.Size=name,Vector3.new(.05,.05,.05)
+        p.Anchored,p.CanCollide,p.CanTouch,p.CanQuery=true,false,false,false
+        p.Transparency,p.CastShadow=1,false
+        p.CFrame=CFrame.identity;p.Parent=parent
+        return p
+    end
+    local function ensureWorld()
+        if worldFolder and worldFolder.Parent then return end
+        if worldFolder then worldFolder:Destroy()end
+        table.clear(control.Pools.Sprites);table.clear(control.Pools.Lines);table.clear(control.Pools.Ribbons)
+        worldFolder=new("Folder");worldFolder.Name="Extazz_DivineTargetESP"
+        worldFolder.Parent=session.Effects or workspace
+        anchor=carrier("World origin",worldFolder)
+    end
+    local function adornment(parent)
+        local box=new("BoxHandleAdornment")
+        box.Adornee=anchor;box.ZIndex=1;box.Visible=false
+        box.AdornCullingMode=Enum.AdornCullingMode.Never
+        box.Parent=parent
+        return box
+    end
+    local function hideAll()
+        for _,item in ipairs(control.Pools.Sprites)do
+            item.Gui.Enabled=false
+            for _,surface in ipairs(item.Surfaces or EMPTY)do surface.Gui.Enabled=false end
+        end
+        for _,item in ipairs(control.Pools.Lines)do item.Visible=false end
+        for _,item in ipairs(control.Pools.Ribbons)do
+            item.Edge.Visible=false
+            for _,surface in ipairs(item.Surfaces)do surface.Gui.Enabled=false end
+        end
+        spriteUsed,lineUsed,ribbonUsed=0,0,0
+        control.ActiveSprites,control.ActiveLines,control.ActiveRibbons=0,0,0
+    end
+    local function endFrame()
+        for i=spriteUsed+1,#control.Pools.Sprites do
+            local item=control.Pools.Sprites[i];item.Gui.Enabled=false
+            for _,surface in ipairs(item.Surfaces or EMPTY)do surface.Gui.Enabled=false end
+        end
+        for i=lineUsed+1,#control.Pools.Lines do control.Pools.Lines[i].Visible=false end
+        for i=ribbonUsed+1,#control.Pools.Ribbons do
+            local item=control.Pools.Ribbons[i];item.Edge.Visible=false
+            for _,surface in ipairs(item.Surfaces)do surface.Gui.Enabled=false end
+        end
+        control.ActiveSprites,control.ActiveLines,control.ActiveRibbons=spriteUsed,lineUsed,ribbonUsed
+    end
+    local function destroyWorld()
+        if worldFolder then worldFolder:Destroy()end
+        worldFolder,anchor=nil,nil
+        table.clear(control.Pools.Sprites);table.clear(control.Pools.Lines);table.clear(control.Pools.Ribbons)
+        spriteUsed,lineUsed,ribbonUsed=0,0,0
+        control.ActiveSprites,control.ActiveLines,control.ActiveRibbons=0,0,0
+    end
+    local api={}
+    function api.Color(frac,time,base)
+        base=color(base,Color3.new(1,1,1))
+        local amount=(.5-.5*math.cos((frac+time*.12)*math.pi*2))*.28
+        return base:Lerp(Color3.new(1,1,1),amount)
+    end
+    function api.Sprite(_,key,position,width,height,rotation,tint,opacity,throughWalls,pitch)
+        if not vector(position)or not finite(width)or not finite(height)or width<=0 or height<=0
+            or not finite(opacity)or opacity<=.001 or spriteUsed>=128 then return false end
+        local uri=assets:Get(key)
+        if uri==""then
+            if not requestedAssets[key]then requestedAssets[key]=true;assets:Request(key)end
+            return false
+        end
+        ensureWorld();spriteUsed+=1
+        local item=control.Pools.Sprites[spriteUsed]
+        if not item then
+            local p=carrier("Sprite "..spriteUsed,worldFolder)
+            local gui=new("BillboardGui")
+            gui.Name,gui.Adornee="World sprite",p
+            gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0
+            gui.Active=false;gui.ClipsDescendants=false;gui.Parent=p
+            local image=new("ImageLabel")
+            image.Name="Texture";image.BackgroundTransparency=1
+            image.AnchorPoint=Vector2.new(.5,.5);image.Position=UDim2.fromScale(.5,.5)
+            image.Size=UDim2.fromScale(1,1);image.ScaleType=Enum.ScaleType.Stretch;image.Parent=gui
+            item={Part=p,Gui=gui,Image=image};control.Pools.Sprites[spriteUsed]=item
+        end
+        local roll=finite(rotation)and rotation%360 or 0
+        tint=color(tint,Color3.new(1,1,1))
+        local transparency=1-math.clamp(opacity,0,1)
+        if finite(pitch)then
+            if not item.Surfaces then
+                item.Surfaces={}
+                for _,face in ipairs({Enum.NormalId.Front,Enum.NormalId.Back})do
+                    local gui=new("SurfaceGui")
+                    gui.Name="Sword quad";gui.Adornee,gui.Face=item.Part,face
+                    gui.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;gui.CanvasSize=Vector2.new(32,64)
+                    gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0;gui.Active=false
+                    local image=new("ImageLabel");image.BackgroundTransparency=1
+                    image.Size=UDim2.fromScale(1,1);image.ScaleType=Enum.ScaleType.Stretch;image.Parent=gui
+                    gui.Parent=item.Part;item.Surfaces[#item.Surfaces+1]={Gui=gui,Image=image}
+                end
+            end
+            local camera=workspace.CurrentCamera
+            if not camera then return false end
+            item.Gui.Enabled=false
+            item.Part.Size=Vector3.new(math.min(width,256),math.min(height,256),.005)
+            local rotationFrame=camera.CFrame-camera.CFrame.Position
+            item.Part.CFrame=CFrame.new(position)*rotationFrame*CFrame.Angles(0,0,math.rad(roll))*CFrame.Angles(math.rad(pitch),0,0)
+            for _,surface in ipairs(item.Surfaces)do
+                surface.Gui.AlwaysOnTop=throughWalls==true;surface.Gui.Enabled=true
+                surface.Image.Image,surface.Image.ImageColor3,surface.Image.ImageTransparency=uri,tint,transparency
+            end
+        else
+            for _,surface in ipairs(item.Surfaces or EMPTY)do surface.Gui.Enabled=false end
+            item.Part.CFrame=CFrame.new(position)
+            item.Gui.Size=UDim2.fromScale(math.min(width,256),math.min(height,256))
+            item.Gui.AlwaysOnTop=throughWalls==true;item.Gui.Enabled=true
+            item.Image.Image,item.Image.ImageColor3,item.Image.ImageTransparency=uri,tint,transparency
+            item.Image.Rotation=roll
+        end
+        return true
+    end
+    local function drawLine(from,to,width,tint,opacity,throughWalls)
+        if lineUsed>=256 then return false end
+        local delta=to-from
+        if delta.Magnitude<.0001 then return false end
+        ensureWorld();lineUsed+=1
+        local box=control.Pools.Lines[lineUsed]
+        if not box then box=adornment(worldFolder);control.Pools.Lines[lineUsed]=box end
+        box.CFrame=CFrame.lookAt((from+to)*.5,to)*CFrame.Angles(0,math.pi*.5,0)
+        box.Size=Vector3.new(delta.Magnitude,width,width)
+        box.Color3=tint;box.Transparency=1-math.clamp(opacity,0,1)
+        box.AlwaysOnTop=throughWalls==true;box.Visible=true
+        return true
+    end
+    function api.Line(_,from,to,width,tint,opacity,throughWalls,lastColor)
+        if not vector(from)or not vector(to)or not finite(width)or width<=0 or not finite(opacity)or opacity<=.001 then return false end
+        width=math.clamp(width*setting(cfg.TargetJelloThickness,.06,.02,.5)/.06,.001,8)
+        tint=color(tint,Color3.new(1,1,1))
+        if typeof(lastColor)=="Color3"and lastColor~=tint then
+            local mid=(from+to)*.5
+            drawLine(from,mid,width,tint:Lerp(lastColor,.25),opacity,throughWalls)
+            return drawLine(mid,to,width,tint:Lerp(lastColor,.75),opacity,throughWalls)
+        end
+        return drawLine(from,to,width,tint,opacity,throughWalls)
+    end
+    function api.Ribbon(_,from,to,tail,width,tint,opacity,throughWalls,lastColor)
+        if not vector(from)or not vector(to)or not finite(tail)or not finite(width)or width<=0
+            or not finite(opacity)or opacity<=.001 or ribbonUsed>=64 then return false end
+        local delta=to-from
+        if delta.Magnitude<.0001 then return false end
+        local tangent=delta.Unit
+        if math.abs(tangent.Y)>.99 then return false end
+        ensureWorld();ribbonUsed+=1
+        local item=control.Pools.Ribbons[ribbonUsed]
+        if not item then
+            local part=carrier("Ring ribbon "..ribbonUsed,worldFolder)
+            local surfaces={}
+            for _,face in ipairs({Enum.NormalId.Front,Enum.NormalId.Back})do
+                local gui=new("SurfaceGui")
+                gui.Adornee,gui.Face=part,face
+                gui.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;gui.CanvasSize=Vector2.new(64,256)
+                gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0;gui.Active=false
+                local fill=new("Frame");fill.Name="Fade";fill.Size=UDim2.fromScale(1,1);fill.BorderSizePixel=0;fill.Parent=gui
+                local gradient=new("UIGradient");gradient.Rotation=90;gradient.Parent=fill
+                gui.Parent=part;surfaces[#surfaces+1]={Gui=gui,Fill=fill,Gradient=gradient}
+            end
+            item={Part=part,Edge=adornment(worldFolder),Surfaces=surfaces}
+            control.Pools.Ribbons[ribbonUsed]=item
+        end
+        tint=color(tint,Color3.new(1,1,1))
+        if typeof(lastColor)=="Color3"then tint=tint:Lerp(lastColor,.5)end
+        local mid=(from+to)*.5
+        item.Part.CFrame=CFrame.fromMatrix(mid+UP*(tail*.5),tangent,UP)
+        item.Part.Size=Vector3.new(delta.Magnitude,math.max(.001,math.abs(tail)),.005)
+        item.Edge.CFrame=CFrame.fromMatrix(mid,tangent,UP)
+        item.Edge.Size=Vector3.new(delta.Magnitude,width,width)
+        item.Edge.Color3=tint;item.Edge.Transparency=1-math.clamp(opacity,0,1)
+        item.Edge.AlwaysOnTop=throughWalls==true;item.Edge.Visible=true
+        for _,surface in ipairs(item.Surfaces)do
+            surface.Gui.AlwaysOnTop=throughWalls==true;surface.Gui.Enabled=math.abs(tail)>.001
+            surface.Fill.BackgroundColor3=tint;surface.Fill.BackgroundTransparency=1-math.clamp(opacity,0,1)
+            surface.Gradient.Transparency=tail<0 and FADE_DOWN or FADE_UP
+        end
+        return true
+    end
+    assets=AssetFactory(window,notice)
+    classic,extra=ClassicFactory(api),ExtraFactory(api)
+    control.Assets=assets
+    local function resetRenderers()
+        classic.Reset();extra:Reset();hideAll()
+    end
+    local function targetBounds(target,out)
+        if not target or target==localPlayer or call(session.IsFriend,session,target)==true then return false end
+        local model=typeof(target)=="Instance"and(target:IsA("Player")and target.Character or target:IsA("Model")and target)or type(target)=="table"and target.Character
+        if session.PlaceSupport and session.PlaceSupport.VoxelCraft then
+            local entity=call(session.GetVoxelCombatEntity,session,target)
+            local context=entity and call(session.GetVoxelActorContext,session)
+            if type(entity)~="table"or not vector(entity.Pos)or type(context)~="table"or not finite(context.BlockSize)or context.BlockSize<=0 then return false end
+            local unit=context.BlockSize
+            local size=vector(entity.Size)and entity.Size or Vector3.new(.6,1.8,.6)
+            local feet=(entity.Pos-HALF)*unit
+            if not vector(feet)or not finite(entity.Health)or entity.Health<=0 then return false end
+            out.Feet,out.Height,out.Width=feet,math.max(.1,size.Y*unit),math.max(.1,math.max(size.X,size.Z)*unit)
+            out.Health,out.Character,out.Scene=entity.Health,model,context.Env
+        else
+            if session.PlaceSupport and session.PlaceSupport.Place103 then model=call(session.GetPlace103TargetModel,session,target)or model end
+            local root=typeof(model)=="Instance"and(model:FindFirstChild("HumanoidRootPart")or model.PrimaryPart)
+            root=root or call(session.GetPlace103TargetRoot,session,target)
+            if typeof(root)~="Instance"or not root:IsA("BasePart")or not root.Parent or not vector(root.Position)then return false end
+            local humanoid=model and model:FindFirstChildOfClass("Humanoid")
+            local health=call(session.GetPlayerHealth,session,target,humanoid)
+            if not finite(health)or health<=0 then return false end
+            -- Reuse the legacy bounds when present: it knows original part
+            -- sizes before the script's optional hitbox enlargement.
+            local originalFeet,originalHeight,originalWidth=call(session.GetTargetJelloBounds,session,target)
+            if vector(originalFeet)and finite(originalHeight)and originalHeight>0 and finite(originalWidth)and originalWidth>0 then
+                out.Feet,out.Height,out.Width=originalFeet,originalHeight,originalWidth
+            else
+                local down=root.Size.Y*.5+(humanoid and math.max(0,tonumber(humanoid.HipHeight)or 0)or 2)
+                if humanoid and humanoid.RigType==Enum.HumanoidRigType.R6 then
+                    local leg=model:FindFirstChild("Left Leg")or model:FindFirstChild("Right Leg")
+                    if leg and leg:IsA("BasePart")then down+=leg.Size.Y end
+                end
+                local feet=root.Position-UP*down
+                local head=model and model:FindFirstChild("Head")
+                local top=head and head:IsA("BasePart")and head.Position.Y+head.Size.Y*.5 or root.Position.Y+root.Size.Y*.5
+                out.Feet,out.Height,out.Width=feet,math.max(.2,top-feet.Y),math.max(.1,root.Size.X,root.Size.Z)
+            end
+            out.Health,out.Character,out.Scene=health,model,workspace
+        end
+        out.Identity,out.Unit=target,out.Height/1.8
+        out.Center=out.Feet+UP*(out.Height*.5)
+        return true
+    end
+    control.ReadBounds=targetBounds
+    local fallbackBounds={}
+    local function visible(target,model,position)
+        local root=model and model:FindFirstChild("HumanoidRootPart")
+        local native=root and call(session.IsVoxelTargetVisible,session,root,{session.Effects})
+        if type(native)=="boolean"then return native end
+        local camera=workspace.CurrentCamera
+        if not camera or not vector(camera.CFrame.Position)then return false end
+        if type(workspace.Raycast)~="function"then return true end
+        if not rayParams then
+            rayParams=RaycastParams.new();rayParams.FilterType=Enum.RaycastFilterType.Exclude
+            rayExclusions={}
+        end
+        table.clear(rayExclusions)
+        if localPlayer.Character then rayExclusions[#rayExclusions+1]=localPlayer.Character end
+        if model then rayExclusions[#rayExclusions+1]=model end
+        if session.Effects then rayExclusions[#rayExclusions+1]=session.Effects end
+        rayParams.FilterDescendantsInstances=rayExclusions
+        local ok,result=pcall(workspace.Raycast,workspace,camera.CFrame.Position,position-camera.CFrame.Position,rayParams)
+        return ok and result==nil
+    end
+    local function fallbackGeneral()
+        if control.Time<nextFallback then return fallbackTarget end
+        nextFallback=control.Time+.15;fallbackTarget=nil
+        local ownRoot=localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local ownEntity=session.PlaceSupport.VoxelCraft and call(session.GetVoxelCombatEntity,session,localPlayer)
+        local ctx=ownEntity and call(session.GetVoxelActorContext,session)
+        local ownPosition=ctx and(ownEntity.Pos-HALF)*ctx.BlockSize or ownRoot and ownRoot.Position
+        if not vector(ownPosition)then return nil end
+        local maximum=setting(cfg.AimbotMaxDistance,500,1,100000)
+        local bestDistance,bestId=math.huge,math.huge
+        for _,candidate in ipairs(players:GetPlayers())do
+            if candidate~=localPlayer and targetBounds(candidate,fallbackBounds)then
+                local team=candidate.Team
+                local allowed=(not cfg.AimbotTeamCheck or team==nil or team~=localPlayer.Team)
+                    and not(team and cfg["AimbotIgnore_"..team.Name])
+                local distance=(fallbackBounds.Center-ownPosition).Magnitude
+                local id=tonumber(candidate.UserId)or 0
+                if allowed and distance<=maximum and(distance<bestDistance or distance==bestDistance and id<bestId)
+                    and(not cfg.AimbotWallCheck or visible(candidate,fallbackBounds.Character,fallbackBounds.Center))then
+                    fallbackTarget,bestDistance,bestId=candidate,distance,id
+                end
+            end
+        end
+        return fallbackTarget
+    end
+    local function chooseTarget(silent)
+        if silent then return call(session.GetSilentAimEspTarget,session)end
+        if cfg.TargetESPOnlyKillaura then return session.KaTarget end
+        if session.AimbotTarget or session.StrafeTarget then return session.AimbotTarget or session.StrafeTarget end
+        if cfg.TargetHudOnlyKillaura~=true and control.Time-commonAt<.3 then return commonTarget end
+        return fallbackGeneral()
+    end
+    local candidateBounds={}
+    function control:Step(dt)
+        if not self.Active or not session.Alive or window.Destroyed then return end
+        dt=finite(dt)and math.clamp(dt,0,.1)or 0
+        if dt<=0 then return end
+        self.Time+=dt;self.FrameCount+=1
+        local mode=math.floor(setting(cfg.TargetESPMode,1,1,10))
+        self.Mode=mode
+        if mode~=lastMode then
+            resetRenderers();alpha,damage=0,0;lastIdentity,lastHealth,lastFeet=nil,nil,nil
+            table.clear(self.Snapshot);appearing=false;animationAt=self.Time
+            lastMode=mode
+        end
+        if mode<=2 then
+            if self.WasRendering then resetRenderers();destroyWorld()end
+            self.WasRendering=false;alpha=0;appearing=false;table.clear(self.Snapshot);return
+        end
+        local silent=cfg.SilentAimTargetEsp==true and call(session.IsSilentAimEspEnabled,session)==true
+        if not(cfg.TargetESPSquareEnabled==true or silent)then
+            if self.WasRendering then resetRenderers();destroyWorld()end
+            self.WasRendering=false;alpha=0;appearing=false;table.clear(self.Snapshot);return
+        end
+        local camera=workspace.CurrentCamera
+        if not camera then hideAll();return end
+        if lastCharacter~=localPlayer.Character then
+            resetRenderers();alpha,damage=0,0;lastIdentity,lastHealth,lastFeet=nil,nil,nil
+            table.clear(self.Snapshot);appearing=false;animationAt=self.Time
+            lastCharacter=localPlayer.Character
+        end
+        if call(session.IsPlayerTargetable,session,localPlayer)==false then
+            hideAll();table.clear(self.Snapshot);alpha=0;appearing=false;return
+        end
+        local target=chooseTarget(silent)
+        local live=targetBounds(target,candidateBounds)
+        local snapshot=self.Snapshot
+        damage=math.max(0,damage-dt/.6)
+        if live then
+            if lastIdentity~=target then
+                lastHealth,lastFeet=candidateBounds.Health,nil
+                if not(appearing and mode==5)then animationAt=self.Time end
+            end
+            if lastHealth and candidateBounds.Health<lastHealth then damage=1 end
+            snapshot.Velocity=lastFeet and(candidateBounds.Feet-lastFeet).Magnitude<candidateBounds.Unit*64
+                and(snapshot.Velocity or Vector3.zero):Lerp((candidateBounds.Feet-lastFeet)/dt,1-math.exp(-12*dt))or Vector3.zero
+            lastHealth,lastIdentity,lastFeet=candidateBounds.Health,target,candidateBounds.Feet
+            for key,value in pairs(candidateBounds)do snapshot[key]=value end
+        elseif not snapshot.Identity then hideAll();return end
+        if snapshot.Identity and call(session.IsFriend,session,snapshot.Identity)==true then alpha=0;hideAll();return end
+        if live~=appearing then appearing=live;animationAt=self.Time end
+        if mode==5 then alpha+=((live and 1 or 0)-alpha)*(1-math.exp(-(live and 12 or 6)*dt))
+        else
+            local progress=math.clamp((self.Time-animationAt)/.3,0,1)
+            local shift=progress-1
+            alpha=live and(1+2.70158*shift^3+1.70158*shift^2)or(1-progress*progress*(3-2*progress))
+        end
+        if alpha<.005 then
+            hideAll()
+            if not live then
+                classic.Reset();extra:Reset();table.clear(snapshot)
+                lastIdentity,lastHealth,lastFeet=nil,nil,nil
+            end
+            return
+        end
+        local base=color(cfg.TargetESPSquareColor,Color3.new(1,1,1))
+        snapshot.Color=cfg.TargetESPDamageColorEnabled==true and base:Lerp(color(cfg.TargetESPDamageColor,Color3.fromRGB(255,0,0)),damage)or base
+        snapshot.Damage,snapshot.Alpha,snapshot.Live=damage,alpha,live
+        snapshot.Time,snapshot.Dt=self.Time,dt
+        snapshot.SizeScale=setting(cfg.TargetESPSquareSize,110,20,300)/110
+        snapshot.Glow=setting(cfg.TargetESPGlow,.6,0,1)
+        snapshot.RotationScale=setting(cfg.TargetESPRotationSpeed,1,0,5)
+        snapshot.ThroughWalls=cfg.TargetJelloThroughWalls~=false
+        snapshot.CameraRight=camera.CFrame.RightVector
+        snapshot.Id=typeof(snapshot.Identity)=="Instance"and snapshot.Identity:IsA("Player")and snapshot.Identity.UserId
+            or type(snapshot.Identity)=="table"and tonumber(snapshot.Identity.UserId or snapshot.Identity.Id)or 0
+        spriteUsed,lineUsed,ribbonUsed=0,0,0
+        if mode<=6 then classic.Render(modes[mode],snapshot,cfg)else extra:Render(modes[mode],snapshot,cfg)end
+        endFrame();self.WasRendering=true;self.LastError=nil
+    end
+    ui=SettingsFactory(window,function(key)
+        if key=="TargetESPMode"then lastMode=nil end
+    end)
+    if type(ui)~="table"or not ui.Active then assets:Destroy();return nil,"Target ESP settings unavailable"end
+    control.UI=ui
+    replacementLayout=function(self,...)
+        if self==session and control.Active and setting(cfg.TargetESPMode,1,1,10)>=3 then
+            originalLayout(self,nil,false,nil,nil)
+            return false
+        end
+        return originalLayout(self,...)
+    end
+    replacementHud=function(self,target,...)
+        if self==session and cfg.TargetHudOnlyKillaura~=true then commonTarget,commonAt=target,control.Time end
+        return originalHud(self,target,...)
+    end
+    function control:Restore()
+        if not self.Active then return end
+        self.Active=false
+        if connection then connection:Disconnect();connection=nil end
+        if session.UpdateTargetEspLayout==replacementLayout then session.UpdateTargetEspLayout=originalLayout end
+        if session.UpdateTargetHUD==replacementHud then session.UpdateTargetHUD=originalHud end
+        if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
+        ui:Restore();assets:Destroy();classic.Destroy();extra:Destroy();destroyWorld()
+        if rayParams then rayParams.FilterDescendantsInstances={}end
+        if rayExclusions then table.clear(rayExclusions)end
+        table.clear(notified);table.clear(requestedAssets);table.clear(self.Snapshot)
+        lastFeet,lastIdentity,lastHealth,lastCharacter,commonTarget,fallbackTarget=nil,nil,nil,nil,nil,nil
+        if session.__ExtazzTargetEspPort==self then session.__ExtazzTargetEspPort=nil end
+    end
+    replacementDestroy=function(self,...)
+        if self==session then control:Restore()end
+        return originalDestroy(self,...)
+    end
+    session.UpdateTargetEspLayout,session.UpdateTargetHUD,session.Destroy=replacementLayout,replacementHud,replacementDestroy
+    session.__ExtazzTargetEspPort=control
+    connection=runService.RenderStepped:Connect(function(dt)
+        local ok,why=pcall(control.Step,control,dt)
+        if not ok then control.LastError=tostring(why);hideAll();notice("Renderer: "..control.LastError)end
+    end)
+    return control
+end
+
+end)()}
 
 if window then
-    local status = {Build = "whole-runtime-10-multi-checkbox", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-11-divine-targetesp", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
