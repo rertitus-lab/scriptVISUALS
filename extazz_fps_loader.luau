@@ -4701,9 +4701,181 @@ return function(window)
 end
 
 end)()}
+featureInstallers[#featureInstallers+1]={Name="voxel_native_hit_sound",Install=(function()
+-- Platform: Roblox client / Luau; target: Voxels Craft native player-hit audio while Extazz Hit Sound is enabled.
+return function(window)
+    local session=type(window)=="table"and window.Runtime
+    if type(session)~="table"or not session.Alive or type(session.Cfg)~="table"
+        or type(session.Changed)~="function"or type(session.Destroy)~="function"then
+        return nil,"Hit Sound runtime unavailable"
+    end
+    if session.__ExtazzVoxelNativeHitSound then return session.__ExtazzVoxelNativeHitSound end
+    local controller={Active=true,Version=1,Supported=false,Enabled=false,ContextReads=0,StoppedNativeSounds=0}
+    local originalChanged,originalDestroy=session.Changed,session.Destroy
+    local replacementChanged,replacementDestroy
+    local binding,heartbeat
+    local elapsed=0
+    local function supported()
+        return game.PlaceId==116416579266393 and type(session.PlaceSupport)=="table"
+            and session.PlaceSupport.VoxelCraft==true
+    end
+    local function disconnect()
+        if heartbeat then heartbeat:Disconnect();heartbeat=nil end
+        elapsed=0
+    end
+    local function release()
+        local old=binding
+        binding=nil;controller.Tuple=nil
+        if old then
+            -- A later writer owns a nonzero value; do not overwrite it.
+            pcall(function()if old.Tuple[2]==0 then old.Tuple[2]=old.Value end end)
+        end
+    end
+    local function descriptor(environment)
+        if type(environment)~="table"then return nil end
+        local info=environment.soundinfo
+        local entities=type(info)=="table"and info.entity
+        local player=type(entities)=="table"and entities.player
+        local tuple=type(player)=="table"and player.hurt
+        if type(tuple)=="table"then return tuple end
+        return nil
+    end
+    local function lookup()
+        controller.ContextReads+=1
+        for _,name in ipairs({"GetVoxelActorContext","GetVoxelContext"})do
+            local method=session[name]
+            if type(method)=="function"then
+                local ok,context=pcall(method,session)
+                if ok and type(context)=="table"then
+                    local tuple=descriptor(context.Env)
+                    if tuple then return tuple end
+                end
+            end
+        end
+        -- The named game script is the only environment fallback. No GC walk,
+        -- closure scan, sound-name heuristic or function/namecall hook is used.
+        if type(getsenv)=="function"then
+            local ok,environment=pcall(function()
+                local player=game:GetService("Players").LocalPlayer
+                local scripts=player and player:FindFirstChild("PlayerScripts")
+                local client=scripts and scripts:FindFirstChild("Client")
+                local main=client and client:FindFirstChild("ClientScript")
+                if main and main:IsA("LocalScript")then return getsenv(main)end
+            end)
+            if ok then return descriptor(environment)end
+        end
+        return nil
+    end
+    local function ownSound(sound)
+        return type(sound.Name)=="string"and sound.Name:sub(1,16)=="NotificationHit_"
+            or type(session.LocalHitSoundSlots)=="table"and session.LocalHitSoundSlots[sound]~=nil
+            or type(session.HitFeedbackSounds)=="table"and session.HitFeedbackSounds[sound]~=nil
+    end
+    local function stopExisting()
+        local roots={workspace.CurrentCamera,workspace:FindFirstChild("Terrain")}
+        local pending={}
+        for index=1,2 do if roots[index]then pending[#pending+1]=roots[index]end end
+        local visited=0
+        while #pending>0 and visited<4096 do
+            local object=pending[#pending];pending[#pending]=nil;visited+=1
+            if object:IsA("Sound")and not ownSound(object)then
+                local id=tostring(object.SoundId or ""):match("^rbxassetid://(%d+)$")
+                    or tostring(object.SoundId or ""):match("^(%d+)$")
+                if tonumber(id)==8595980577 and(object.IsPlaying or object.Playing)then
+                    local ok=pcall(object.Stop,object)
+                    if ok then controller.StoppedNativeSounds+=1 end
+                end
+            end
+            for _,child in ipairs(object:GetChildren())do
+                if #pending<4096 then pending[#pending+1]=child else break end
+            end
+        end
+    end
+    local function safeRefresh()
+        local ok,why=pcall(controller.Refresh,controller)
+        if not ok then controller.LastError=tostring(why)end
+    end
+    local function connect()
+        if heartbeat then return end
+        local ok,connection=pcall(function()
+            return game:GetService("RunService").Heartbeat:Connect(function(dt)
+                if not controller.Active then disconnect();return end
+                elapsed+=type(dt)=="number"and math.max(0,dt)or 0
+                if elapsed<.5 then return end
+                elapsed=0;safeRefresh()
+            end)
+        end)
+        if ok then heartbeat=connection else controller.LastError=tostring(connection)end
+    end
+    function controller:Refresh()
+        if not self.Active then return false end
+        self.Supported=supported()
+        local enabled=self.Supported and session.Alive and not window.Destroyed
+            and type(session.Cfg)=="table"and session.Cfg.HitSoundEnabled==true
+        if not enabled then
+            self.Enabled=false;release();disconnect()
+            return false
+        end
+        local starting=not self.Enabled
+        self.Enabled=true
+        local tuple=lookup()
+        if tuple and binding and binding.Tuple~=tuple then release()end
+        -- Context snapshots may briefly disappear during respawn/rebinding.
+        -- Keep the last valid descriptor muted until a replacement is known.
+        tuple=tuple or(binding and binding.Tuple)
+        if tuple then
+            if not binding then
+                local record={Tuple=tuple,Value=tuple[2]}
+                local ok,why=pcall(function()tuple[2]=0 end)
+                if ok then binding=record;self.Tuple=tuple else self.LastError=tostring(why)end
+            elseif tuple[2]~=0 then
+                -- Keep the latest deliberate game/pack volume, rather than the
+                -- stale value from the first enable, for the eventual restore.
+                binding.Value=tuple[2]
+                local ok,why=pcall(function()tuple[2]=0 end)
+                if not ok then release();self.LastError=tostring(why)end
+            end
+        end
+        if starting then
+            local ok,why=pcall(stopExisting)
+            if not ok then self.LastError=tostring(why)end
+        end
+        connect()
+        return binding~=nil
+    end
+    function controller:Restore()
+        if not self.Active then return end
+        self.Active=false;self.Enabled=false
+        disconnect();release()
+        if session.Changed==replacementChanged then session.Changed=originalChanged end
+        if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
+        if session.__ExtazzVoxelNativeHitSound==self then session.__ExtazzVoxelNativeHitSound=nil end
+    end
+    replacementChanged=function(self,...)
+        if self==session then
+            local desiredSupported=supported()
+            local desiredEnabled=controller.Active and desiredSupported and session.Alive and not window.Destroyed
+                and type(session.Cfg)=="table"and session.Cfg.HitSoundEnabled==true
+            if select(1,...)=="HitSoundEnabled"or desiredSupported~=controller.Supported or desiredEnabled~=controller.Enabled then
+                safeRefresh()
+            end
+        end
+        return originalChanged(self,...)
+    end
+    replacementDestroy=function(self,...)
+        if self==session then controller:Restore()end
+        return originalDestroy(self,...)
+    end
+    session.Changed,session.Destroy=replacementChanged,replacementDestroy
+    session.__ExtazzVoxelNativeHitSound=controller
+    safeRefresh()
+    return controller
+end
+
+end)()}
 
 if window then
-    local status = {Build = "whole-runtime-12-esp-stretch-ui", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-13-voxel-hit-audio", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
