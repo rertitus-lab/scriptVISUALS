@@ -1631,10 +1631,11 @@ return function(window)
         local popupConnections = {}
         local closing = false
         local host
-        local white = Color3.fromRGB(239, 241, 245)
-        local muted = Color3.fromRGB(153, 161, 177)
-        local surface = Color3.fromRGB(29, 32, 40)
-        local accent = Color3.fromRGB(113, 174, 255)
+        local white = Color3.fromRGB(243, 241, 255)
+        local muted = Color3.fromRGB(160, 151, 196)
+        local surface = Color3.fromRGB(24, 16, 69)
+        local accent = Color3.fromRGB(105, 53, 255)
+        local selectedSurface = Color3.fromRGB(43, 23, 137)
         local function instance(class, properties)
             local result = Instance.new(class)
             for name, value in pairs(properties) do result[name] = value end
@@ -1654,6 +1655,8 @@ return function(window)
             if fallbackLayer then fallbackLayer:Destroy() end
             popup, nativePopup, fallbackLayer = nil, nil, nil
             item.PopupFrame, item.IsOpen = nil, false
+            if item.Caret then item.Caret.Rotation = 0 end
+            if item.Outline then item.Outline.Color = Color3.fromRGB(88, 43, 228) end
         end
         function item:Close()
             if closing then return end
@@ -1673,15 +1676,15 @@ return function(window)
                 if selected then names[#names + 1] = label end
                 local button = item.OptionButtons[i]
                 if button then
-                    button.BackgroundColor3 = selected and accent or surface
-                    button.BackgroundTransparency = selected and .78 or 1
+                    button.BackgroundColor3 = selectedSurface
+                    button.BackgroundTransparency = selected and 0 or 1
                     local check = button:FindFirstChild("Check")
-                    if check then check.Text = selected and "✓" or "" end
+                    if check then check.Visible = selected end
                 end
             end
-            local summary = #names == 0 and "None" or #names <= 2 and table.concat(names, ", ")
+            local summary = #names == 0 and "None" or #names == 1 and names[1]
                 or (#names .. " selected")
-            item.Caption = "Blocks: " .. summary .. "  ▾"
+            item.Caption = summary
             if item.CaptionLabel then
                 item.CaptionLabel.Text = item.Caption
                 item.CaptionVerified = item.CaptionLabel.Text == item.Caption
@@ -1719,8 +1722,8 @@ return function(window)
                 end
             end
             local margin = math.min(8, viewWidth * .05, viewHeight * .05)
-            local width = math.max(1, math.min(296, viewWidth - margin * 2))
-            local height = math.max(1, math.min(334, viewHeight - margin * 2))
+            local width = math.max(1, math.min(154, viewWidth - margin * 2))
+            local height = math.max(1, math.min(#labels * 32 + 10, viewHeight - margin * 2))
             local shell, scale
             if nativeAvailable then
                 local ok, frame, body, zoom = pcall(window.PopupShell, window, width, height)
@@ -1742,7 +1745,7 @@ return function(window)
                 local ok, size = pcall(function() return parent.AbsoluteSize end)
                 if ok and typeof(size) == "Vector2" and size.X > 0 and size.Y > 0 then
                     local pad = math.min(8, size.X * .05, size.Y * .05)
-                    width, height = math.max(1, math.min(296, size.X - pad * 2)), math.max(1, math.min(334, size.Y - pad * 2))
+                    width, height = math.max(1, math.min(154, size.X - pad * 2)), math.max(1, math.min(#labels * 32 + 10, size.Y - pad * 2))
                 end
                 fallbackLayer = instance("Frame", {Name = "OreMultiOverlay", Size = UDim2.fromScale(1, 1),
                     BackgroundTransparency = 1, ZIndex = 200, Parent = parent})
@@ -1752,31 +1755,43 @@ return function(window)
                 popup = instance("Frame", {Name = "OreMultiPopup", AnchorPoint = Vector2.new(.5, .5),
                     Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(width, height),
                     BackgroundColor3 = surface, BorderSizePixel = 0, ZIndex = 201, Parent = fallbackLayer})
-                corner(popup, 10)
+                local placed, pos, boxSize, origin, screen = pcall(function()
+                    return item.Base.AbsolutePosition, item.Base.AbsoluteSize, parent.AbsolutePosition, parent.AbsoluteSize
+                end)
+                if placed and screen.X > 0 and screen.Y > 0 then
+                    local x = math.clamp(pos.X - origin.X + boxSize.X - width, 8, math.max(8, screen.X - width - 8))
+                    local y = pos.Y - origin.Y + boxSize.Y + 6
+                    if y + height > screen.Y - 8 then y = math.max(8, pos.Y - origin.Y - height - 6) end
+                    popup.AnchorPoint = Vector2.zero; popup.Position = UDim2.fromOffset(x, y)
+                end
                 shell = popup
             end
             popup.Name = "OreMultiPopup"
             item.PopupFrame, item.IsOpen = popup, true
-            instance("TextLabel", {Name = "Title", Text = "Select blocks", BackgroundTransparency = 1,
-                Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = white,
-                TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6),
-                Size = UDim2.new(1, -24, 0, 24), ZIndex = 212, Parent = shell})
-            local list = instance("ScrollingFrame", {Name = "OreMultiList", Position = UDim2.fromOffset(8, 36),
-                Size = UDim2.new(1, -16, 1, -78), CanvasSize = UDim2.fromOffset(0, #labels * 32),
-                BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+            item.Caret.Rotation = 180; item.Outline.Color = accent
+            shell.BackgroundColor3 = surface; shell.BorderSizePixel = 0
+            corner(shell, 12)
+            instance("UIStroke", {Name = "ChoiceOutline", Color = Color3.fromRGB(114, 101, 168),
+                Thickness = 1, Transparency = .15, Parent = shell})
+            local list = instance("ScrollingFrame", {Name = "OreMultiList", Position = UDim2.fromOffset(5, 5),
+                Size = UDim2.new(1, -10, 1, -10), CanvasSize = UDim2.fromOffset(0, #labels * 32 - 2),
+                BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
                 ScrollBarImageColor3 = muted, ZIndex = 212, Parent = shell})
             for i, label in ipairs(labels) do
                 local bit = choiceBits[i]
                 local button = instance("TextButton", {Name = "OreOption", Text = label, AutoButtonColor = false,
                     Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = white,
                     TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, (i - 1) * 32),
-                    Size = UDim2.new(1, -4, 0, 30), BorderSizePixel = 0, LayoutOrder = i, ZIndex = 213, Parent = list})
-                corner(button, 6)
-                instance("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 32), Parent = button})
-                instance("TextLabel", {Name = "Check", Text = "", BackgroundTransparency = 1,
-                    Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = accent,
-                    AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -2, .5, 0),
-                    Size = UDim2.fromOffset(22, 24), ZIndex = 214, Parent = button})
+                    Size = UDim2.new(1, 0, 0, 30), BorderSizePixel = 0, LayoutOrder = i, ZIndex = 213, Parent = list})
+                corner(button, 8)
+                instance("UIPadding", {PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 29), Parent = button})
+                local check = instance("Frame", {Name = "Check", BackgroundTransparency = 1,
+                    AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -10, .5, 0),
+                    Size = UDim2.fromOffset(14, 14), ZIndex = 214, Parent = button})
+                instance("Frame", {Name = "Short", AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset(3.8, 8.5),
+                    Size = UDim2.fromOffset(5, 2), Rotation = 45, BackgroundColor3 = accent, BorderSizePixel = 0, ZIndex = 215, Parent = check})
+                instance("Frame", {Name = "Long", AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset(8.3, 6.9),
+                    Size = UDim2.fromOffset(9, 2), Rotation = -45, BackgroundColor3 = accent, BorderSizePixel = 0, ZIndex = 215, Parent = check})
                 item.OptionButtons[i] = button
                 connect(button.MouseButton1Click, function()
                     if not controller.Active or not session.Alive then return end
@@ -1784,17 +1799,6 @@ return function(window)
                     controller.SetMask(key, bit32.bxor(mask, bit))
                 end)
             end
-            local clear = instance("TextButton", {Name = "Clear", Text = "Clear", AutoButtonColor = false,
-                Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = muted,
-                BackgroundTransparency = 1, Position = UDim2.new(0, 10, 1, -34),
-                Size = UDim2.fromOffset(90, 26), ZIndex = 213, Parent = shell})
-            local done = instance("TextButton", {Name = "Done", Text = "Done", AutoButtonColor = false,
-                Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = white,
-                BackgroundColor3 = accent, BackgroundTransparency = .82, BorderSizePixel = 0,
-                Position = UDim2.new(1, -100, 1, -34), Size = UDim2.fromOffset(90, 26), ZIndex = 213, Parent = shell})
-            corner(done, 6)
-            connect(clear.MouseButton1Click, function() controller.SetMask(key, 0) end)
-            connect(done.MouseButton1Click, function() item:Close() end)
             refresh()
             local verified = true
             for i, label in ipairs(labels) do
@@ -1807,31 +1811,56 @@ return function(window)
                 window:OpenPopup(nativePopup)
             end
         end
-        host = section:Button({Text = "Blocks", Order = 2,
-            Tooltip = "Select several blocks. Choices remain checked until you remove them.",
-            Callback = function() end})
-        item.Row, item.RowObj = host.Row, host.RowObj
-        if typeof(item.Row) ~= "Instance" and type(section.Rows) == "table" then
-            local last = section.Rows[#section.Rows]
-            if type(last) == "table" and last.Section == section then item.RowObj, item.Row = last, last.Frame end
-        end
-        item.Base = host.Base
-        if (typeof(item.Base) ~= "Instance" or not item.Base:IsA("GuiButton")) and typeof(item.Row) == "Instance" then
-            item.Base = item.Row:IsA("TextButton") and item.Row or item.Row:FindFirstChildWhichIsA("TextButton", true)
+        local options = {Text = "Blocks", Order = 2, Reserve = 190, Height = 40,
+            Tooltip = "Select several blocks. Click a selected block to remove it."}
+        if type(section._row) == "function" then
+            item.RowObj = section:_row(options)
+            item.Row = item.RowObj.Frame
+        else
+            options.Callback = function() end
+            host = section:Button(options)
+            item.Row, item.RowObj = host.Row, host.RowObj
+            if typeof(host.Base) == "Instance" then host.Base.Visible = false end
+            if type(item.RowObj) ~= "table" and type(section.Rows) == "table" then
+                local last = section.Rows[#section.Rows]
+                if type(last) == "table" and last.Section == section then item.RowObj, item.Row = last, last.Frame end
+            end
         end
         item.Host = host
-        if typeof(item.Base) ~= "Instance" then error("Selection button unavailable", 0) end
-        -- Keep the host's native interaction/style but bypass its setter ABI.
-        -- Protected builds can expose dot-style setters; passing self to one
-        -- would stringify a control table instead of showing an ore name.
-        for _, child in ipairs(item.Base:GetDescendants()) do
-            if child:IsA("TextLabel") then child.Visible = false end
+        if typeof(item.Row) ~= "Instance" or type(item.RowObj) ~= "table" then error("Selection row unavailable", 0) end
+        item.Row.Size = UDim2.new(1, 0, 0, 40)
+        local row = item.RowObj
+        if row.Title then
+            row.Title.Visible = true; row.Title.Text = "Blocks"; row.Title.Size = UDim2.new(1, -180, 1, 0)
+        else
+            row.Title = instance("TextLabel", {Name = "Title", Text = "Blocks", BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -180, 1, 0), Font = Enum.Font.GothamMedium,
+                TextSize = 14, TextColor3 = white, TextXAlignment = Enum.TextXAlignment.Left, Parent = item.Row})
         end
-        if item.Base:IsA("TextButton") then item.Base.Text = "" end
+        row.Opts.Text = "Blocks"
+        local right = row.Right
+        if typeof(right) ~= "Instance" then
+            right = instance("Frame", {Name = "Right", AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -10, .5, 0),
+                Size = UDim2.fromOffset(154, 34), BackgroundTransparency = 1, Parent = item.Row}); row.Right = right
+        end
+        right.Visible = true
+        item.Base = instance("TextButton", {Name = "Button", Text = "", AutoButtonColor = false,
+            Size = UDim2.fromOffset(154, 34), BackgroundColor3 = surface, BorderSizePixel = 0, ZIndex = 12, Parent = right})
+        corner(item.Base, 8)
+        item.Outline = instance("UIStroke", {Name = "Outline", Color = Color3.fromRGB(88, 43, 228),
+            Thickness = 1, Transparency = .2, Parent = item.Base})
+        instance("Frame", {Name = "Divider", AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -33, .5, 0),
+            Size = UDim2.new(0, 1, 1, -12), BorderSizePixel = 0, BackgroundColor3 = white, BackgroundTransparency = .88, ZIndex = 13, Parent = item.Base})
+        item.Caret = instance("Frame", {Name = "Caret", AnchorPoint = Vector2.new(.5, .5), Position = UDim2.new(1, -17, .5, 0),
+            Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, ZIndex = 13, Parent = item.Base})
+        for index, rotation in ipairs({45, -45}) do
+            instance("Frame", {Name = "CaretStroke" .. index, AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset(index == 1 and 5 or 9, 7),
+                Size = UDim2.fromOffset(6, 1.5), Rotation = rotation, BackgroundColor3 = accent, BorderSizePixel = 0, ZIndex = 14, Parent = item.Caret})
+        end
         item.CaptionLabel = instance("TextLabel", {Name = "OreSelectionCaption", Text = "",
-            BackgroundTransparency = 1, Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0),
+            BackgroundTransparency = 1, Size = UDim2.new(1, -48, 1, 0), Position = UDim2.fromOffset(12, 0),
             Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = white,
-            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 12, Parent = item.Base})
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 13, Parent = item.Base})
         item.HostConnection = item.Base.MouseButton1Click:Connect(function() item:Open() end)
         if item.RowObj then
             item.RowObj.SearchExtra = function() return item.Caption .. " " .. table.concat(labels, " ") end
@@ -3094,11 +3123,11 @@ return function(api)
         local p=markerParameters[skin]
         local omega=TAU/p[2]
         local angle=-(p[1]/omega)*math.cos(omega*(time+p[3]))+p[6]*math.sin(time*.7)
-        local pulse=math.sin(time*p[4]*TAU)
-        local half=setting(cfg.TargetESPDivineMarkerSize,.55,.2,2)*unit*sizeScale*(1+p[5]*pulse)*(1+.25*damage)
-        local opacity=alpha*(.85+.15*pulse)
-        if glow>.001 then api.Sprite("classic.marker.glow","Glow",s.Center,half*2.15,half*2.15,-angle*.25,color(0,time,s),alpha*glow*.28,s.ThroughWalls)end
-        api.Sprite("classic.marker",markerAssets[skin],s.Center,half*2,half*2,angle,color(1,time,s),opacity,s.ThroughWalls)
+        -- The marker keeps its configured dimensions and brightness. Only its
+        -- orientation animates; damage colour is already applied by the caller.
+        local half=setting(cfg.TargetESPDivineMarkerSize,.55,.2,2)*unit*sizeScale
+        if glow>.001 then api.Sprite("classic.marker.glow","Glow",s.Center,half*2.15,half*2.15,-angle*.25,s.Color,alpha*glow*.28,s.ThroughWalls)end
+        api.Sprite("classic.marker",markerAssets[skin],s.Center,half*2,half*2,angle,s.Color,alpha,s.ThroughWalls)
     end
     local function renderRing(s,cfg,unit,sizeScale,rotation,alpha,damage)
         local frame=math.clamp(s.Dt or 1/60,0,.1)*60*rotation
@@ -3502,7 +3531,8 @@ return function(window, onChanged)
     local absent={}
     local syncing=false
     local activePopup
-    local white,muted,accent=Color3.fromRGB(239,241,245),Color3.fromRGB(153,161,177),Color3.fromRGB(113,174,255)
+    local white,muted,accent=Color3.fromRGB(243,241,255),Color3.fromRGB(160,151,196),Color3.fromRGB(105,53,255)
+    local surface,selectedSurface=Color3.fromRGB(24,16,69),Color3.fromRGB(43,23,137)
     local function finite(value)return type(value)=="number"and value==value and math.abs(value)<math.huge end
     local function validate(value,entry)
         if type(entry.Default)=="boolean"then
@@ -3544,24 +3574,60 @@ return function(window, onChanged)
         return true
     end
     local function choice(key,label,names)
-        local item={Type="Choice",Labels=names,Value=session.Cfg[key]}
-        local host=section:Button({Text=label,Callback=function()end})
-        item.Row,item.RowObj=host.Row,host.RowObj
-        local button=host.Base
-        if typeof(button)~="Instance"or not button:IsA("GuiButton")then
-            button=item.Row and item.Row:FindFirstChildWhichIsA("TextButton",true)
+        local item={Type="Choice",Labels=names,Value=session.Cfg[key],OptionButtons={}}
+        local row
+        if type(section._row)=="function"then
+            row=section:_row({Text=label,Reserve=190,Height=40})
+        else
+            local host=section:Button({Text=label,Callback=function()end})
+            row=host.RowObj or(type(section.Rows)=="table"and section.Rows[#section.Rows])
+            item.Row=host.Row
+            if typeof(host.Base)=="Instance"then host.Base.Visible=false end
         end
-        assert(button,"Choice button unavailable")
-        item.Base=button
-        for _,child in ipairs(button:GetDescendants())do if child:IsA("TextLabel")then child.Visible=false end end
-        if button:IsA("TextButton")then button.Text=""end
+        assert(type(row)=="table"and typeof(row.Frame)=="Instance","Choice row unavailable")
+        item.Row,item.RowObj=row.Frame,row
+        row.Frame.Size=UDim2.new(1,0,0,40)
+        if row.Title then
+            row.Title.Visible=true;row.Title.Text=label;row.Title.Size=UDim2.new(1,-180,1,0)
+        else
+            row.Title=make("TextLabel",{Name="Title",Text=label,BackgroundTransparency=1,
+                Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-180,1,0),Font=Enum.Font.GothamMedium,
+                TextSize=14,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,Parent=row.Frame})
+        end
+        local right=row.Right
+        if typeof(right)~="Instance"then
+            right=make("Frame",{Name="Right",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),
+                Size=UDim2.fromOffset(154,34),BackgroundTransparency=1,Parent=row.Frame});row.Right=right
+        end
+        right.Visible=true
+        local button=make("TextButton",{Name="Button",Text="",AutoButtonColor=false,Size=UDim2.fromOffset(154,34),
+            BackgroundColor3=surface,BorderSizePixel=0,ZIndex=12,Parent=right})
+        make("UICorner",{CornerRadius=UDim.new(0,8),Parent=button})
+        local border=make("UIStroke",{Name="Outline",Color=Color3.fromRGB(88,43,228),Thickness=1,Transparency=.2,Parent=button})
+        make("Frame",{Name="Divider",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-33,.5,0),
+            Size=UDim2.new(0,1,1,-12),BorderSizePixel=0,BackgroundColor3=white,BackgroundTransparency=.88,ZIndex=13,Parent=button})
+        local caret=make("Frame",{Name="Caret",AnchorPoint=Vector2.new(.5,.5),Position=UDim2.new(1,-17,.5,0),
+            Size=UDim2.fromOffset(14,14),BackgroundTransparency=1,ZIndex=13,Parent=button})
+        for index,rotation in ipairs({45,-45})do
+            make("Frame",{Name="CaretStroke"..index,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(index==1 and 5 or 9,7),
+                Size=UDim2.fromOffset(6,1.5),Rotation=rotation,BackgroundColor3=accent,BorderSizePixel=0,ZIndex=14,Parent=caret})
+        end
+        item.Base,item.Caret=button,caret
         item.Caption=make("TextLabel",{Name="TargetEspChoiceCaption",BackgroundTransparency=1,
-            Size=UDim2.new(1,-16,1,0),Position=UDim2.fromOffset(8,0),Font=Enum.Font.GothamMedium,
-            TextSize=13,TextColor3=white,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=12,Parent=button})
+            Size=UDim2.new(1,-48,1,0),Position=UDim2.fromOffset(12,0),Font=Enum.Font.GothamMedium,
+            TextSize=13,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,
+            TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=13,Parent=button})
+        row.SearchExtra=function()return item.Caption.Text.." "..table.concat(names," ")end
         function item:Get()return self.Value end
         function item:SetSilent(value)
             self.Value=value
-            self.Caption.Text=label..": "..(names[value]or names[1]).."  ▾"
+            self.Caption.Text=names[value]or names[1]
+            for index,option in ipairs(self.OptionButtons)do
+                local selected=index==value
+                option.BackgroundTransparency=selected and 0 or 1
+                local check=option:FindFirstChild("Check")
+                if check then check.Visible=selected end
+            end
         end
         function item:Set(value)controller:Set(key,value)end
         function item:SetVisible(value)
@@ -3579,13 +3645,17 @@ return function(window, onChanged)
                 table.clear(record.Connections)
                 if record.Frame then record.Frame:Destroy()end
                 if record.Layer then record.Layer:Destroy()end
+                self.IsOpen,self.PopupFrame=false,nil
+                table.clear(self.OptionButtons)
+                caret.Rotation=0;border.Color=Color3.fromRGB(88,43,228)
                 if activePopup==record then activePopup=nil end
             end
-            local width,height=286,math.min(#names,9)*32+14
-            local layer=window.PopLayer or window.Gui
+            local nativeAvailable=type(window.PopupShell)=="function"and type(window.PopupPlace)=="function"and type(window.OpenPopup)=="function"
+            local width,height=154,math.min(#names,8)*32+10
+            local layer=nativeAvailable and window.PopLayer or window.Gui
             if typeof(layer)=="Instance"then
                 local ok,size=pcall(function()return layer.AbsoluteSize end)
-                local zoom=window.PopScale and tonumber(window.PopScale.Scale)or 1
+                local zoom=nativeAvailable and window.PopScale and tonumber(window.PopScale.Scale)or 1
                 zoom=zoom and zoom>0 and zoom or 1
                 if ok and typeof(size)=="Vector2"and size.X>0 and size.Y>0 then
                     width=math.max(1,math.min(width,size.X/zoom-16))
@@ -3593,7 +3663,7 @@ return function(window, onChanged)
                 end
             end
             local popup,shell,scale
-            if type(window.PopupShell)=="function"and type(window.PopupPlace)=="function"and type(window.OpenPopup)=="function"then
+            if nativeAvailable then
                 local ok,frame,body,zoom=pcall(window.PopupShell,window,width,height)
                 if ok and typeof(frame)=="Instance"and typeof(body)=="Instance"then
                     popup,shell,scale=frame,body,zoom
@@ -3613,29 +3683,46 @@ return function(window, onChanged)
                 record.Connections[#record.Connections+1]=outside.MouseButton1Click:Connect(closePopup)
                 popup=make("Frame",{Name="TargetEspChoicePopup",AnchorPoint=Vector2.new(.5,.5),
                     Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(width,height),
-                    BackgroundColor3=Color3.fromRGB(29,32,40),BorderSizePixel=0,ZIndex=201,Parent=record.Layer})
-                make("UICorner",{CornerRadius=UDim.new(0,10),Parent=popup})
+                    BackgroundColor3=surface,BorderSizePixel=0,ZIndex=201,Parent=record.Layer})
+                local ok,pos,size,origin,screen=pcall(function()return button.AbsolutePosition,button.AbsoluteSize,parent.AbsolutePosition,parent.AbsoluteSize end)
+                if ok and screen.X>0 and screen.Y>0 then
+                    local x=math.clamp(pos.X-origin.X+size.X-width,8,math.max(8,screen.X-width-8))
+                    local y=pos.Y-origin.Y+size.Y+6
+                    if y+height>screen.Y-8 then y=math.max(8,pos.Y-origin.Y-height-6)end
+                    popup.AnchorPoint=Vector2.zero;popup.Position=UDim2.fromOffset(x,y)
+                end
                 shell=popup
             end
             record.Frame=popup
             popup.Name="TargetEspChoicePopup"
-            local list=make("ScrollingFrame",{Name="ChoiceList",Position=UDim2.fromOffset(6,6),
-                Size=UDim2.new(1,-12,1,-12),CanvasSize=UDim2.fromOffset(0,#names*32),
-                BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=muted,ZIndex=212,Parent=shell})
+            shell.BackgroundColor3=surface;shell.BorderSizePixel=0
+            make("UICorner",{CornerRadius=UDim.new(0,12),Parent=shell})
+            make("UIStroke",{Name="ChoiceOutline",Color=Color3.fromRGB(114,101,168),Thickness=1,Transparency=.15,Parent=shell})
+            local list=make("ScrollingFrame",{Name="ChoiceList",Position=UDim2.fromOffset(5,5),
+                Size=UDim2.new(1,-10,1,-10),CanvasSize=UDim2.fromOffset(0,#names*32-2),
+                BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=muted,ZIndex=212,Parent=shell})
             for index,name in ipairs(names)do
                 local selected=session.Cfg[key]==index
                 local option=make("TextButton",{Name="ChoiceOption",Text=name,AutoButtonColor=false,
                     Font=Enum.Font.Gotham,TextSize=13,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,
-                    Position=UDim2.fromOffset(0,(index-1)*32),Size=UDim2.new(1,-3,0,30),
-                    BackgroundColor3=accent,BackgroundTransparency=selected and .78 or 1,BorderSizePixel=0,
+                    Position=UDim2.fromOffset(0,(index-1)*32),Size=UDim2.new(1,0,0,30),
+                    BackgroundColor3=selectedSurface,BackgroundTransparency=selected and 0 or 1,BorderSizePixel=0,
                     LayoutOrder=index,ZIndex=213,Parent=list})
-                make("UICorner",{CornerRadius=UDim.new(0,6),Parent=option})
-                make("UIPadding",{PaddingLeft=UDim.new(0,10),Parent=option})
+                make("UICorner",{CornerRadius=UDim.new(0,8),Parent=option})
+                make("UIPadding",{PaddingLeft=UDim.new(0,11),PaddingRight=UDim.new(0,29),Parent=option})
+                local check=make("Frame",{Name="Check",Visible=selected,BackgroundTransparency=1,
+                    AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),Size=UDim2.fromOffset(14,14),ZIndex=214,Parent=option})
+                make("Frame",{Name="Short",AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(3.8,8.5),
+                    Size=UDim2.fromOffset(5,2),Rotation=45,BackgroundColor3=accent,BorderSizePixel=0,ZIndex=215,Parent=check})
+                make("Frame",{Name="Long",AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(8.3,6.9),
+                    Size=UDim2.fromOffset(9,2),Rotation=-45,BackgroundColor3=accent,BorderSizePixel=0,ZIndex=215,Parent=check})
                 record.Buttons[index]=option
+                self.OptionButtons[index]=option
                 record.Connections[#record.Connections+1]=option.MouseButton1Click:Connect(function()
                     if controller:Set(key,index)then closePopup()end
                 end)
             end
+            self.PopupFrame,self.IsOpen=popup,true;caret.Rotation=180;border.Color=accent
             if not record.Layer then record.Native={close=record.Destroy};window:OpenPopup(record.Native)end
         end
         item.Connection=button.MouseButton1Click:Connect(function()item:Open()end)
@@ -3860,7 +3947,8 @@ return function(window)
     local control={Active=true,Version=1,UIKind="TargetEspModes",FrameCount=0,Time=0,Mode=1,CreatedInstances=0,
         Pools={Sprites={},Lines={},Ribbons={}},Snapshot={},ActiveSprites=0,ActiveLines=0,ActiveRibbons=0}
     local originalLayout,originalHud,originalDestroy=session.UpdateTargetEspLayout,session.UpdateTargetHUD,session.Destroy
-    local replacementLayout,replacementHud,replacementDestroy,connection,ui
+    local replacementLayout,replacementHud,replacementDestroy,connection,ui,renderBindingName
+    local cameraRotation=CFrame.identity
     local classic,extra,assets
     local worldFolder,anchor
     local spriteUsed,lineUsed,ribbonUsed=0,0,0
@@ -3870,12 +3958,28 @@ return function(window)
     local appearing,animationAt=false,0
     local FADE_DOWN,FADE_UP=NumberSequence.new(0,1),NumberSequence.new(1,0)
     local rayParams,rayExclusions
+    local markerRayParams,markerRayExclusions
+    local markerCharacters,markerCharactersAt={},-1
+    local markerRayFrame,markerRayPosition,markerRayVisible,markerRayOnTop
     local notified={}
     local requestedAssets={}
     local function finite(n)return type(n)=="number"and n==n and math.abs(n)<math.huge end
     local function vector(v)return typeof(v)=="Vector3"and finite(v.X)and finite(v.Y)and finite(v.Z)end
     local function setting(v,fallback,low,high)return finite(v)and math.clamp(v,low,high)or fallback end
     local function color(v,fallback)return typeof(v)=="Color3"and v or fallback end
+    local function readCameraRotation(camera)
+        -- Stretch changes the lengths of Up/Back in the final camera matrix.
+        -- A Part must keep a rigid orientation: copying that scaled matrix
+        -- into a world quad makes it deform as the camera turns.
+        local frame=camera.CFrame
+        local right,up=frame.RightVector,frame.UpVector
+        if not vector(right)or not vector(up)or right.Magnitude<.0001 then return nil end
+        right=right.Unit
+        up=up-right*(up.X*right.X+up.Y*right.Y+up.Z*right.Z)
+        if up.Magnitude<.0001 then return nil end
+        up=up.Unit
+        return CFrame.fromMatrix(Vector3.zero,right,up,right:Cross(up))
+    end
     local function call(fn,...)
         if type(fn)~="function"then return nil end
         local ok,a,b,c,d=pcall(fn,...)
@@ -3947,6 +4051,47 @@ return function(window)
         control.ActiveSprites,control.ActiveLines,control.ActiveRibbons=0,0,0
     end
     local api={}
+    local function markerVisibility(position,throughWalls)
+        if control.Mode~=3 or throughWalls==true then return true,throughWalls==true end
+        if markerRayFrame==control.FrameCount and markerRayPosition==position then return markerRayVisible,markerRayOnTop end
+        local visible,onTop=true,false
+        local camera=workspace.CurrentCamera
+        if camera and vector(camera.CFrame.Position)and type(workspace.Raycast)=="function"then
+            local complete=true
+            if control.Time>=markerCharactersAt then
+                local roster=call(players.GetPlayers,players)
+                complete=type(roster)=="table"
+                if complete then
+                    table.clear(markerCharacters)
+                    for _,player in ipairs(roster)do
+                        if player.Character then markerCharacters[#markerCharacters+1]=player.Character end
+                    end
+                    markerCharactersAt=control.Time+.25
+                end
+            end
+            if complete then
+                if not markerRayParams then
+                    markerRayParams=RaycastParams.new();markerRayParams.FilterType=Enum.RaycastFilterType.Exclude
+                    markerRayParams.IgnoreWater=true;markerRayExclusions={}
+                end
+                table.clear(markerRayExclusions)
+                for _,character in ipairs(markerCharacters)do markerRayExclusions[#markerRayExclusions+1]=character end
+                if localPlayer.Character then markerRayExclusions[#markerRayExclusions+1]=localPlayer.Character end
+                if control.Snapshot.Character then markerRayExclusions[#markerRayExclusions+1]=control.Snapshot.Character end
+                markerRayExclusions[#markerRayExclusions+1]=camera
+                if session.Effects then markerRayExclusions[#markerRayExclusions+1]=session.Effects end
+                if worldFolder then markerRayExclusions[#markerRayExclusions+1]=worldFolder end
+                markerRayParams.FilterDescendantsInstances=markerRayExclusions
+                local ok,result=pcall(workspace.Raycast,workspace,camera.CFrame.Position,position-camera.CFrame.Position,markerRayParams)
+                if ok then visible,onTop=result==nil,result==nil end
+            end
+        end
+        -- Share one world-visibility query between the marker's glow/core.
+        -- Native depth remains the fallback if the world query is unavailable.
+        markerRayFrame,markerRayPosition=control.FrameCount,position
+        markerRayVisible,markerRayOnTop=visible,onTop
+        return visible,onTop
+    end
     function api.Color(frac,time,base)
         base=color(base,Color3.new(1,1,1))
         local amount=(.5-.5*math.cos((frac+time*.12)*math.pi*2))*.28
@@ -3955,6 +4100,8 @@ return function(window)
     function api.Sprite(_,key,position,width,height,rotation,tint,opacity,throughWalls,pitch)
         if not vector(position)or not finite(width)or not finite(height)or width<=0 or height<=0
             or not finite(opacity)or opacity<=.001 or spriteUsed>=128 then return false end
+        local visible,drawThroughWalls=markerVisibility(position,throughWalls)
+        if not visible then return false end
         local uri=assets:Get(key)
         if uri==""then
             if not requestedAssets[key]then requestedAssets[key]=true;assets:Request(key)end
@@ -3968,46 +4115,38 @@ return function(window)
             gui.Name,gui.Adornee="World sprite",p
             gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0
             gui.Active=false;gui.ClipsDescendants=false;gui.Parent=p
-            local image=new("ImageLabel")
-            image.Name="Texture";image.BackgroundTransparency=1
-            image.AnchorPoint=Vector2.new(.5,.5);image.Position=UDim2.fromScale(.5,.5)
-            image.Size=UDim2.fromScale(1,1);image.ScaleType=Enum.ScaleType.Stretch;image.Parent=gui
-            item={Part=p,Gui=gui,Image=image};control.Pools.Sprites[spriteUsed]=item
+            gui.Enabled=false
+            item={Part=p,Gui=gui,Surfaces={}};control.Pools.Sprites[spriteUsed]=item
         end
         local roll=finite(rotation)and rotation%360 or 0
         tint=color(tint,Color3.new(1,1,1))
         local transparency=1-math.clamp(opacity,0,1)
-        if finite(pitch)then
-            if not item.Surfaces then
-                item.Surfaces={}
-                for _,face in ipairs({Enum.NormalId.Front,Enum.NormalId.Back})do
-                    local gui=new("SurfaceGui")
-                    gui.Name="Sword quad";gui.Adornee,gui.Face=item.Part,face
-                    gui.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;gui.CanvasSize=Vector2.new(32,64)
-                    gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0;gui.Active=false
-                    local image=new("ImageLabel");image.BackgroundTransparency=1
-                    image.Size=UDim2.fromScale(1,1);image.ScaleType=Enum.ScaleType.Stretch;image.Parent=gui
-                    gui.Parent=item.Part;item.Surfaces[#item.Surfaces+1]={Gui=gui,Image=image}
-                end
-            end
-            local camera=workspace.CurrentCamera
-            if not camera then return false end
-            item.Gui.Enabled=false
-            item.Part.Size=Vector3.new(math.min(width,256),math.min(height,256),.005)
-            local rotationFrame=camera.CFrame-camera.CFrame.Position
-            item.Part.CFrame=CFrame.new(position)*rotationFrame*CFrame.Angles(0,0,math.rad(roll))*CFrame.Angles(math.rad(pitch),0,0)
-            for _,surface in ipairs(item.Surfaces)do
-                surface.Gui.AlwaysOnTop=throughWalls==true;surface.Gui.Enabled=true
-                surface.Image.Image,surface.Image.ImageColor3,surface.Image.ImageTransparency=uri,tint,transparency
-            end
-        else
-            for _,surface in ipairs(item.Surfaces or EMPTY)do surface.Gui.Enabled=false end
-            item.Part.CFrame=CFrame.new(position)
-            item.Gui.Size=UDim2.fromScale(math.min(width,256),math.min(height,256))
-            item.Gui.AlwaysOnTop=throughWalls==true;item.Gui.Enabled=true
-            item.Image.Image,item.Image.ImageColor3,item.Image.ImageTransparency=uri,tint,transparency
-            item.Image.Rotation=roll
+        local tilted=finite(pitch)
+        -- SurfaceGui quads use the same final world projection as the target
+        -- and line/ribbon geometry. BillboardGui's screen layout has a
+        -- different camera-facing path under a non-rigid Stretch matrix.
+        -- Flat quads only need their camera-facing Back face; tilted swords
+        -- also get a Front face, created once and pooled.
+        local faceCount=tilted and 2 or 1
+        for index=#item.Surfaces+1,faceCount do
+            local gui=new("SurfaceGui")
+            gui.Name="World sprite quad";gui.Adornee=item.Part
+            gui.Face=index==1 and Enum.NormalId.Back or Enum.NormalId.Front
+            gui.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize
+            gui.CanvasSize=Vector2.new(256,256)
+            gui.LightInfluence,gui.Brightness,gui.MaxDistance=0,1,0;gui.Active=false
+            local image=new("ImageLabel");image.Name="Texture";image.BackgroundTransparency=1
+            image.Size=UDim2.fromScale(1,1);image.ScaleType=Enum.ScaleType.Stretch;image.Parent=gui
+            gui.Parent=item.Part;item.Surfaces[index]={Gui=gui,Image=image}
         end
+        item.Gui.Enabled=false
+        item.Part.Size=Vector3.new(math.min(width,256),math.min(height,256),.005)
+        item.Part.CFrame=CFrame.new(position)*cameraRotation*CFrame.Angles(0,0,math.rad(roll))*CFrame.Angles(tilted and math.rad(pitch)or 0,0,0)
+        for index,surface in ipairs(item.Surfaces)do
+            surface.Gui.AlwaysOnTop=drawThroughWalls;surface.Gui.Enabled=index<=faceCount
+            surface.Image.Image,surface.Image.ImageColor3,surface.Image.ImageTransparency=uri,tint,transparency
+        end
+        item.Image=item.Surfaces[1].Image
         return true
     end
     local function drawLine(from,to,width,tint,opacity,throughWalls)
@@ -4200,6 +4339,9 @@ return function(window)
         end
         local camera=workspace.CurrentCamera
         if not camera then hideAll();return end
+        local rotation=readCameraRotation(camera)
+        if not rotation then hideAll();return end
+        cameraRotation=rotation
         if lastCharacter~=localPlayer.Character then
             resetRenderers();alpha,damage=0,0;lastIdentity,lastHealth,lastFeet=nil,nil,nil
             table.clear(self.Snapshot);appearing=false;animationAt=self.Time
@@ -4247,7 +4389,7 @@ return function(window)
         snapshot.Glow=setting(cfg.TargetESPGlow,.6,0,1)
         snapshot.RotationScale=setting(cfg.TargetESPRotationSpeed,1,0,5)
         snapshot.ThroughWalls=cfg.TargetJelloThroughWalls~=false
-        snapshot.CameraRight=camera.CFrame.RightVector
+        snapshot.CameraRight=cameraRotation.RightVector
         snapshot.Id=typeof(snapshot.Identity)=="Instance"and snapshot.Identity:IsA("Player")and snapshot.Identity.UserId
             or type(snapshot.Identity)=="table"and tonumber(snapshot.Identity.UserId or snapshot.Identity.Id)or 0
         spriteUsed,lineUsed,ribbonUsed=0,0,0
@@ -4274,12 +4416,17 @@ return function(window)
         if not self.Active then return end
         self.Active=false
         if connection then connection:Disconnect();connection=nil end
+        if renderBindingName then runService:UnbindFromRenderStep(renderBindingName);renderBindingName=nil end
         if session.UpdateTargetEspLayout==replacementLayout then session.UpdateTargetEspLayout=originalLayout end
         if session.UpdateTargetHUD==replacementHud then session.UpdateTargetHUD=originalHud end
         if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
         ui:Restore();assets:Destroy();classic.Destroy();extra:Destroy();destroyWorld()
         if rayParams then rayParams.FilterDescendantsInstances={}end
         if rayExclusions then table.clear(rayExclusions)end
+        if markerRayParams then markerRayParams.FilterDescendantsInstances={}end
+        if markerRayExclusions then table.clear(markerRayExclusions)end
+        table.clear(markerCharacters)
+        markerRayFrame,markerRayPosition=nil,nil
         table.clear(notified);table.clear(requestedAssets);table.clear(self.Snapshot)
         lastFeet,lastIdentity,lastHealth,lastCharacter,commonTarget,fallbackTarget=nil,nil,nil,nil,nil,nil
         if session.__ExtazzTargetEspPort==self then session.__ExtazzTargetEspPort=nil end
@@ -4290,17 +4437,273 @@ return function(window)
     end
     session.UpdateTargetEspLayout,session.UpdateTargetHUD,session.Destroy=replacementLayout,replacementHud,replacementDestroy
     session.__ExtazzTargetEspPort=control
-    connection=runService.RenderStepped:Connect(function(dt)
+    local function render(dt)
         local ok,why=pcall(control.Step,control,dt)
         if not ok then control.LastError=tostring(why);hideAll();notice("Renderer: "..control.LastError)end
-    end)
+    end
+    -- r135 applies its final stretched camera at priority 2003. Evaluate the
+    -- world quads afterwards, once per frame, with that frame's camera pose.
+    renderBindingName=tostring(session.RenderName or "Extazz").."_TargetEspPort"
+    control.RenderBindingName,control.RenderBindingPriority=renderBindingName,2004
+    runService:BindToRenderStep(renderBindingName,control.RenderBindingPriority,render)
     return control
+end
+
+end)()}
+featureInstallers[#featureInstallers+1]={Name="universal_selector_style",Install=(function()
+-- Platform: Roblox client / Luau; target: Extazz r135 native dropdown appearance, preserving native selection and callbacks.
+return function(window)
+    local session=type(window)=="table"and window.Runtime
+    if type(session)~="table"or not session.Alive or not session.Ready or type(session.Destroy)~="function"
+        or type(window.TabList)~="table"or typeof(window.Gui)~="Instance"or typeof(window.PopLayer)~="Instance"then
+        return nil,"Dropdown styling runtime unavailable"
+    end
+    if session.__ExtazzUniversalSelectorStyle then return session.__ExtazzUniversalSelectorStyle end
+    local controller={Active=true,Version=1,UIKind="UniversalDropdownStyle",Controls={},CountsBySection={},RowsStyled=0,PopupsStyled=0,StylePasses=0}
+    local white=Color3.fromRGB(243,241,255)
+    local surface=Color3.fromRGB(24,16,69)
+    local selectedSurface=Color3.fromRGB(43,23,137)
+    local accent=Color3.fromRGB(105,53,255)
+    local outline=Color3.fromRGB(88,43,228)
+    local records,connections={},{}
+    local absent={}
+    local pending=false
+    local activeAnchor
+    local originalDestroy=session.Destroy
+    local replacementDestroy
+    local function connect(record,signal,callback)
+        local connection=signal:Connect(callback)
+        local list=record and record.Connections or connections
+        list[#list+1]=connection
+        return connection
+    end
+    local function make(record,class,properties)
+        local object=Instance.new(class)
+        object:SetAttribute("ExtazzUniversalSelectorGeometry",true)
+        for key,value in pairs(properties)do object[key]=value end
+        record.Owned[#record.Owned+1]=object
+        return object
+    end
+    local function write(record,object,property,value)
+        local old=record.Edits[object]
+        if not old then old={};record.Edits[object]=old end
+        if old[property]==nil then
+            local original=object[property]
+            old[property]=original==nil and absent or original
+        end
+        if object[property]~=value then object[property]=value end
+    end
+    local function guarded(record,callback)
+        if record.Closed or record.Busy or not controller.Active then return end
+        record.Busy=true
+        local ok,why=pcall(callback)
+        record.Busy=false
+        if not ok then controller.LastError=tostring(why)end
+    end
+    local release
+    local function recordFor(object,kind)
+        local record={Object=object,Kind=kind,Connections={},Edits={},Owned={}}
+        records[object]=record
+        connect(record,object.Destroying,function()release(record,false)end)
+        return record
+    end
+    release=function(record,restore)
+        if record.Closed then return end
+        record.Closed=true
+        for _,connection in ipairs(record.Connections)do connection:Disconnect()end
+        table.clear(record.Connections)
+        if record.Options then for _,option in pairs(record.Options)do release(option,restore)end;table.clear(record.Options)end
+        for _,object in ipairs(record.Owned)do pcall(function()object:Destroy()end)end
+        table.clear(record.Owned)
+        if restore then
+            for object,properties in pairs(record.Edits)do for property,value in pairs(properties)do
+                pcall(function()if value==absent then object[property]=nil else object[property]=value end end)
+            end end
+        end
+        if record.RowObj and record.RowObj.OnWidth==record.OnWidth then record.RowObj.OnWidth=record.PreviousOnWidth end
+        if record.ParentRecord and record.ParentRecord.Options then record.ParentRecord.Options[record.Object]=nil end
+        if record.Kind=="Row"then
+            for index=#controller.Controls,1,-1 do if controller.Controls[index]==record then table.remove(controller.Controls,index)end end
+        end
+        records[record.Object]=nil
+        table.clear(record.Edits)
+    end
+    local function strokes(record,parent,check)
+        local frame=make(record,"Frame",{Name=check and "UniversalCheck"or "UniversalCaret",BackgroundTransparency=1,
+            AnchorPoint=check and Vector2.new(1,.5)or Vector2.new(.5,.5),Position=UDim2.new(1,check and -10 or -17,.5,0),
+            Size=UDim2.fromOffset(14,14),ZIndex=parent.ZIndex+2,Parent=parent})
+        local positions=check and {Vector2.new(3.8,8.5),Vector2.new(8.3,6.9)}or {Vector2.new(5,7),Vector2.new(9,7)}
+        for index,rotation in ipairs({45,-45})do
+            local length=check and(index==1 and 5 or 9)or 6
+            make(record,"Frame",{Name="Stroke"..index,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(positions[index].X,positions[index].Y),
+                Size=UDim2.fromOffset(length,check and 2 or 1.5),Rotation=rotation,BackgroundColor3=accent,BorderSizePixel=0,ZIndex=frame.ZIndex+1,Parent=frame})
+        end
+        return frame
+    end
+    local function styleRow(row)
+        if type(row.SearchOptions)~="function"or row.selfHidden or row.parentHidden or typeof(row.Frame)~="Instance"then return end
+        local box=row.Frame:FindFirstChild("Box",true)
+        if not box or not box:IsA("TextButton")or records[box]then return end
+        local right=row.Right
+        if typeof(right)~="Instance"then return end
+        local record=recordFor(box,"Row")
+        record.RowObj,record.Row,record.Base=row,row.Frame,box
+        record.PreviousOnWidth=row.OnWidth
+        local label=box:FindFirstChildWhichIsA("TextLabel")
+        local nativeCaret=box:FindFirstChild("Icon")
+        local border=box:FindFirstChildWhichIsA("UIStroke")
+        local divider=box:FindFirstChild("Divider")
+        local gradient=box:FindFirstChildWhichIsA("UIGradient")
+        local corner=box:FindFirstChildWhichIsA("UICorner")
+        record.Caret=strokes(record,box,false)
+        local function paint(width)
+            guarded(record,function()
+                local scale=window.Scale and tonumber(window.Scale.Scale)or 1
+                scale=scale and scale>0 and scale or 1
+                width=tonumber(width)or(row.Frame.AbsoluteSize.X/scale)
+                local fieldWidth=math.min(154,math.max(70,width-110))
+                write(record,row.Frame,"Size",UDim2.new(1,0,0,row.Desc and 50 or 40))
+                write(record,right,"Visible",true)
+                write(record,box,"Parent",right)
+                write(record,box,"Position",UDim2.new())
+                write(record,box,"Size",UDim2.fromOffset(fieldWidth,34))
+                write(record,box,"BackgroundColor3",surface)
+                write(record,box,"BackgroundTransparency",0)
+                if gradient then write(record,gradient,"Enabled",false)end
+                if corner then write(record,corner,"CornerRadius",UDim.new(0,8))end
+                if border then
+                    write(record,border,"Color",outline);write(record,border,"Thickness",1);write(record,border,"Transparency",.2)
+                end
+                if row.Title then
+                    write(record,row.Title,"Position",UDim2.fromOffset(10+(row.Indent or 0),row.Desc and 8 or 0))
+                    write(record,row.Title,"Size",UDim2.new(1,-(fieldWidth+36+(row.Indent or 0)),0,row.Desc and 18 or 40))
+                end
+                if label then
+                    write(record,label,"Position",UDim2.fromOffset(12,0));write(record,label,"Size",UDim2.new(1,-48,1,0))
+                    write(record,label,"TextColor3",white)
+                end
+                if divider then
+                    write(record,divider,"Position",UDim2.new(1,-33,.5,0));write(record,divider,"BackgroundTransparency",.88)
+                end
+                if nativeCaret then
+                    write(record,nativeCaret,"Visible",false)
+                    record.Caret.Rotation=nativeCaret.Rotation
+                end
+            end)
+        end
+        record.OnWidth=function(width)
+            if type(record.PreviousOnWidth)=="function"then record.PreviousOnWidth(width)end
+            paint(width)
+        end
+        row.OnWidth=record.OnWidth
+        for _,property in ipairs({"Size","BackgroundColor3","BackgroundTransparency"})do connect(record,box:GetPropertyChangedSignal(property),function()paint()end)end
+        if border then for _,property in ipairs({"Color","Transparency"})do connect(record,border:GetPropertyChangedSignal(property),function()paint()end)end end
+        if label then connect(record,label:GetPropertyChangedSignal("TextColor3"),function()paint()end)end
+        if nativeCaret then
+            connect(record,nativeCaret:GetPropertyChangedSignal("Rotation"),function()paint()end)
+            connect(record,nativeCaret:GetPropertyChangedSignal("Visible"),function()paint()end)
+        end
+        connect(record,box.MouseButton1Click,function()activeAnchor=box end)
+        paint()
+        controller.Controls[#controller.Controls+1]=record
+        controller.RowsStyled+=1
+        local key=row.Section and row.Section.Key or "Other"
+        controller.CountsBySection[key]=(controller.CountsBySection[key]or 0)+1
+    end
+    local function styleOption(parentRecord,button)
+        if records[button]then return end
+        local nativeCheck=button:FindFirstChild("Icon")
+        if not nativeCheck or not nativeCheck:IsA("ImageLabel")then return end
+        local record=recordFor(button,"Option")
+        record.ParentRecord=parentRecord;parentRecord.Options[button]=record
+        local check=strokes(record,button,true)
+        local label=button:FindFirstChildWhichIsA("TextLabel")
+        local corner=button:FindFirstChildWhichIsA("UICorner")
+        local function paint()
+            guarded(record,function()
+                local selected=nativeCheck.ImageTransparency<.5
+                write(record,nativeCheck,"Visible",false)
+                write(record,button,"BackgroundColor3",selectedSurface)
+                write(record,button,"BackgroundTransparency",selected and 0 or 1)
+                if corner then write(record,corner,"CornerRadius",UDim.new(0,8))end
+                if label then write(record,label,"TextColor3",white)end
+                check.Visible=selected
+            end)
+        end
+        connect(record,nativeCheck:GetPropertyChangedSignal("ImageTransparency"),paint)
+        connect(record,nativeCheck:GetPropertyChangedSignal("Visible"),paint)
+        for _,property in ipairs({"BackgroundColor3","BackgroundTransparency"})do connect(record,button:GetPropertyChangedSignal(property),paint)end
+        if label then connect(record,label:GetPropertyChangedSignal("TextColor3"),paint)end
+        paint()
+    end
+    local function stylePopup(frame)
+        if frame.Name~="PopupFrame"then return end
+        local list=frame:FindFirstChild("List",true)
+        if not list or not list:IsA("ScrollingFrame")then return end
+        local shell=list.Parent
+        local record=records[frame]
+        if not record then
+            record=recordFor(frame,"Popup");record.Options={}
+            controller.PopupsStyled+=1
+            local corner=shell:FindFirstChildWhichIsA("UICorner")
+            write(record,shell,"BackgroundColor3",surface)
+            connect(record,shell:GetPropertyChangedSignal("BackgroundColor3"),function()
+                guarded(record,function()write(record,shell,"BackgroundColor3",surface)end)
+            end)
+            if corner then write(record,corner,"CornerRadius",UDim.new(0,12))end
+            make(record,"UIStroke",{Name="UniversalChoiceOutline",Color=Color3.fromRGB(114,101,168),Thickness=1,Transparency=.15,Parent=shell})
+            local scale=window.PopScale and tonumber(window.PopScale.Scale)or 1
+            scale=scale and scale>0 and scale or 1
+            local screen=window.PopLayer.AbsoluteSize/scale
+            local width=math.max(1,math.min(activeAnchor and activeAnchor.Size.X.Offset or 154,screen.X-16))
+            local height=math.max(1,math.min(frame.Size.Y.Offset,screen.Y-16))
+            write(record,frame,"Size",UDim2.fromOffset(width,height))
+            if activeAnchor and activeAnchor.Parent and type(window.PopupPlace)=="function"then
+                local ok,x,y=pcall(window.PopupPlace,window,activeAnchor,width,height,"right")
+                if ok then write(record,frame,"Position",UDim2.fromOffset(x,y))end
+            end
+        end
+        for _,button in ipairs(list:GetChildren())do if button:IsA("TextButton")and button.Name=="Opt"then styleOption(record,button)end end
+    end
+    function controller:Refresh()
+        if not self.Active then return false end
+        self.StylePasses+=1
+        for _,tab in ipairs(window.TabList)do for _,section in ipairs(tab.Sections or {})do for _,row in ipairs(section.Rows or {})do styleRow(row)end end end
+        for _,frame in ipairs(window.PopLayer:GetChildren())do stylePopup(frame)end
+        return true
+    end
+    local function schedule()
+        if pending or not controller.Active then return end
+        pending=true
+        task.defer(function()pending=false;if controller.Active and not window.Destroyed then controller:Refresh()end end)
+    end
+    connect(nil,window.Gui.DescendantAdded,function(object)if object:IsA("TextButton")and not object:GetAttribute("ExtazzUniversalSelectorGeometry")then schedule()end end)
+    connect(nil,window.PopLayer.DescendantAdded,function(object)if not object:GetAttribute("ExtazzUniversalSelectorGeometry")then schedule()end end)
+    function controller:Restore()
+        if not self.Active then return end
+        self.Active=false
+        for _,connection in ipairs(connections)do connection:Disconnect()end
+        table.clear(connections)
+        local snapshot={};for _,record in pairs(records)do snapshot[#snapshot+1]=record end
+        for _,record in ipairs(snapshot)do release(record,true)end
+        table.clear(records);table.clear(self.Controls)
+        if session.Destroy==replacementDestroy then session.Destroy=originalDestroy end
+        if session.__ExtazzUniversalSelectorStyle==self then session.__ExtazzUniversalSelectorStyle=nil end
+    end
+    replacementDestroy=function(self,...)
+        if self==session then controller:Restore()end
+        return originalDestroy(self,...)
+    end
+    session.Destroy=replacementDestroy
+    session.__ExtazzUniversalSelectorStyle=controller
+    controller:Refresh()
+    return controller
 end
 
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-11-divine-targetesp", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-12-esp-stretch-ui", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
