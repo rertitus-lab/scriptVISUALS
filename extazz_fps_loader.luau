@@ -102,9 +102,6 @@ end)()
 end
 assert(type(loadstring) == "function", "This executor must support loadstring")
 local source = restoreSource()
-local program, message = loadstring(source, "@extazz_luraph_original")
-source = nil
-assert(program, message)
 local awaitPlayer=(function()
 -- Platform: Roblox client / Luau; target: protected extazz startup before LocalPlayer capture.
 -- Wait locally for the real player/PlayerGui; do not replace any game services or globals.
@@ -137,7 +134,112 @@ end
 
 end)()
 awaitPlayer(20)
-local results = table.pack(program(...))
+local prepareLicenseRoute=(function()
+-- Platform: Roblox executor / Luau; target: r135 license API canonical-host transport compatibility.
+return function()
+    local marker="__ExtazzLicenseApiRouteCompat"
+    local oldPrefix="https://extazz-premium-license.alertwand514.chatgpt.site/api/license/"
+    local newPrefix="https://extazz-premium-license.pervak-getman.chatgpt.site/api/license/"
+    local routes={}
+    for _,path in ipairs({"activate","heartbeat","manifest","module"})do routes[oldPrefix..path]=newPrefix..path end
+    local environment
+    if type(getgenv)=="function"then
+        local ok,value=pcall(getgenv)
+        if ok and type(value)=="table"then environment=value end
+    end
+    if not environment and type(_G)=="table"then environment=_G end
+    local control={Active=false,Version=1,OwnedCount=0}
+    local slots,attachment={},nil
+    local function read(owner,key)
+        local ok,value=pcall(function()return owner[key]end)
+        return ok and value or nil
+    end
+    local function write(owner,key,value)return pcall(function()owner[key]=value end)end
+    local function detach()
+        local record=attachment;attachment=nil
+        if not record then return end
+        record.Live=false
+        if read(record.Session,"Destroy")==record.Wrapper then write(record.Session,"Destroy",record.Original)end
+    end
+    function control:Restore()
+        if not self.Active then return end
+        self.Active=false;detach()
+        for index=#slots,1,-1 do
+            local slot=slots[index]
+            if read(slot.Owner,slot.Key)==slot.Wrapper then write(slot.Owner,slot.Key,slot.RawOriginal)end
+        end
+        table.clear(slots)
+        if environment and read(environment,marker)==self then write(environment,marker,nil)end
+    end
+    function control:Attach(window)
+        if not self.Active then return false end
+        local session=type(window)=="table"and window.Runtime
+        if type(session)~="table"or type(session.Destroy)~="function"then return false end
+        if attachment and attachment.Live and attachment.Session==session and session.Destroy==attachment.Wrapper then return true end
+        detach()
+        local record={Session=session,Original=session.Destroy,Live=true}
+        record.Wrapper=function(receiver,...)
+            if receiver==session and record.Live then control:Restore()end
+            return record.Original(receiver,...)
+        end
+        if not write(session,"Destroy",record.Wrapper)or session.Destroy~=record.Wrapper then record.Live=false;return false end
+        attachment=record
+        return true
+    end
+    if not environment then return control end
+    -- A reload prepares its bridge before r135 destroys the old window. Unwind
+    -- the old bridge first so its late Destroy cannot remove this new owner.
+    local previous=read(environment,marker)
+    if type(previous)=="table"and previous.Version==1 and type(previous.Restore)=="function"then pcall(previous.Restore,previous)end
+    local function wrap(owner,key)
+        if type(owner)~="table"then return end
+        local original=read(owner,key)
+        if type(original)~="function"then return end
+        local slot={Owner=owner,Key=key,RawOriginal=rawget(owner,key)}
+        local function wrapper(options,...)
+            local destination=control.Active and type(options)=="table"and rawget(options,"Method")=="POST"and routes[rawget(options,"Url")]
+            if destination then
+                local routed={}
+                for name,value in pairs(options)do routed[name]=value end
+                routed.Url=destination
+                return original(routed,...)
+            end
+            return original(options,...)
+        end
+        slot.Wrapper=wrapper
+        if write(owner,key,wrapper)and read(owner,key)==wrapper then slots[#slots+1]=slot end
+    end
+    control.Active=true
+    wrap(environment,"request");wrap(environment,"http_request")
+    wrap(read(environment,"syn"),"request");wrap(read(environment,"http"),"request")
+    control.OwnedCount=#slots
+    if #slots==0 then control.Active=false;return control end
+    if not write(environment,marker,control)or read(environment,marker)~=control then control:Restore()end
+    return control
+end
+
+end)()
+local licenseRoute=prepareLicenseRoute()
+local compilation = table.pack(pcall(loadstring, source, "@extazz_luraph_original"))
+source = nil
+if not compilation[1] then
+    pcall(licenseRoute.Restore, licenseRoute)
+    error(compilation[2], 0)
+end
+local program, message = compilation[2], compilation[3]
+if not program then
+    pcall(licenseRoute.Restore, licenseRoute)
+    error(message or "assertion failed!", 0)
+end
+compilation = nil
+local invocation = table.pack(pcall(program, ...))
+if not invocation[1] then
+    pcall(licenseRoute.Restore, licenseRoute)
+    error(invocation[2], 0)
+end
+local results = {n = invocation.n - 1}
+for index = 2, invocation.n do results[index - 1] = invocation[index] end
+invocation = nil
 local environment = (getgenv and getgenv()) or _G
 local window = type(results[1]) == "table" and type(results[1].Runtime) == "table" and results[1]
     or environment.__NotificationNova
@@ -4921,7 +5023,7 @@ end
 end)()}
 
 if window then
-    local status = {Build = "whole-runtime-14-ghost-follow", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
+    local status = {Build = "whole-runtime-15-hwid-api", Revision = window.Startup and window.Startup.Revision, Modules = {}, Features = {}}
     for _, item in ipairs(installers) do
         local ok, controller, reason = pcall(item.Install, window)
         local active = ok and type(controller) == "table" and controller.Active == true
@@ -4943,11 +5045,12 @@ if window then
             warn("[Extazz] " .. item.Name .. ": " .. tostring(ok and reason or controller))
         end
     end
+    if not licenseRoute:Attach(window) then licenseRoute:Restore() end
     -- One local startup receipt, with no player, account, license or server data.
     if type(writefile) == "function" then
         pcall(function()
             writefile("extazz_fps_status.json", game:GetService("HttpService"):JSONEncode(status))
         end)
     end
-end
+else licenseRoute:Restore() end
 return table.unpack(results, 1, results.n)
